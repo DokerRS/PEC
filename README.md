@@ -40,6 +40,7 @@
    - Compiles and signs `.CRX` extension packages on-the-fly using 2048-bit RSA keys.
    - Generates enterprise `updates.xml` manifests for silent Google Chrome auto-updates.
    - **Native GPP Registry Pack (Tier-1)**: Production-ready Active Directory GPO deployment via Group Policy Preferences (`Registry.xml`) for silent GPMC import (`User Configuration -> Preferences -> Windows Settings -> Registry`). Supports cross-browser policy distribution (Google Chrome, Microsoft Edge, Yandex Browser), dynamic user mapping (`domainUser = "%USERDOMAIN%\%USERNAME%"`), and automatic policy removal upon AD group exclusion via `removePolicy="1"`. Standalone PowerShell scripts (`deploy-pec-gpo.ps1`, `verify-pec-gpo.ps1`) and `.reg` templates are included for non-GPMC or testing environments.
+   - **Active Directory Web Management & Soft Migration**: Integrated dashboard controls in the GPO tab for runtime LDAPS settings (`data/ad_config.json`), live connection testing (`POST /api/ad/test`), and instant manual sync. Supports phased fleet rollout via Soft Migration mode (`AD_REJECT_UNKNOWN_USERS=false`) with warning telemetry badges (`Legacy`) for unmanaged clients before transitioning to strict Zero-Trust enforcement.
    - Three operational UI modes: **Self-Service Pro** (full diagnostic & temporary bypass controls), **Kiosk / Restricted** (read-only popup), and **Stealth Agent** (invisible background worker).
    - Real-time interactive preview sandbox with instant state simulation (Online, Bypassed, Offline, Re-auth).
 
@@ -61,6 +62,7 @@
 7. **Fleet Telemetry, Zero-Trust AD Sync & Instant Kill-Switch**:
    - Central heartbeat sync (`POST /api/sync`) tracking extension and desktop client instances, client IP, egress geo, and versioning.
    - **Active Directory Zero-Trust Sync & Instant Kill-Switch**: Periodic server-side LDAPS synchronization (`AD_SYNC_INTERVAL_SEC`) against domain controllers (`AD_LDAP_URL`), verifying client user membership in target security groups (`AD_REQUIRED_GROUP_DN`). Extensions transmit domain identities (`domainUser`), which are bound to instance IDs to prevent identity spoofing. When a user is removed or disabled in AD, the server triggers an instant Kill-Switch on the next sync interval (HTTP 403 with `action: "DISABLE_PROXY"`), forcing the client extension to immediately revert traffic to DIRECT.
+   - **Fleet Telemetry & Phased Rollout Badges**: Live telemetry inspector distinguishes verified domain accounts (`badge-ad-user`), warns on unmanaged legacy clients (`badge-legacy`), and provides multi-attribute filtering by domain username, instance ID, browser, or profile.
    - In-memory LRU protection preventing DoS and memory exhaustion.
    - Emergency **Global Kill-Switch** allowing administrators to immediately revert the entire fleet to direct internet routing.
 

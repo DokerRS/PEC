@@ -33,6 +33,13 @@ export let fleetSortCol = 'lastSync';
 export let fleetSortAsc = false;
 export let fleetListenersInitialized = false;
 export let lastFleetFetchTime = 0;
+export let fleetSearchQuery = '';
+
+export function filterFleetTable() {
+  const inp = document.getElementById('fleetSearchInput') as HTMLInputElement | null;
+  fleetSearchQuery = inp ? (inp.value || '').trim().toLowerCase() : '';
+  renderInstancesTable(lastLoadedInstances);
+}
 
     export async function loadInstances() {
       const seq = ++loadInstancesSeq;
@@ -112,8 +119,22 @@ export let lastFleetFetchTime = 0;
       const sel = window.getSelection ? window.getSelection() : null;
       if (sel && sel.toString() && tbody.contains(sel.anchorNode)) return;
 
+      let list = instances || [];
+      if (fleetSearchQuery) {
+        list = list.filter(inst => {
+          const id = (inst.instanceId || '').toLowerCase();
+          const ip = (inst.ip || '').toLowerCase();
+          const u = (inst.username || '').toLowerCase();
+          const du = (inst.domainUser || '').toLowerCase();
+          const grp = (inst.group || '').toLowerCase();
+          const app = (inst.pairedAppId || '').toLowerCase();
+          const host = (inst.pairedHostname || '').toLowerCase();
+          return id.includes(fleetSearchQuery) || ip.includes(fleetSearchQuery) || u.includes(fleetSearchQuery) || du.includes(fleetSearchQuery) || grp.includes(fleetSearchQuery) || app.includes(fleetSearchQuery) || host.includes(fleetSearchQuery);
+        });
+      }
+
       // Dirty-diff check using serialized signature
-      const currentSig = instances.map(i => `${i.instanceId}:${i.status}:${i.assignedProfileId || ''}:${i.assignedProxyId || ''}:${i.syncCount || 0}:${i.lastHeartbeat || ''}:${i.tokenHash ? 1 : 0}:${i.revoked ? 1 : 0}:${i.username || ''}:${i.pairedAppId || ''}`).join(';') + `;sort:${fleetSortCol}:${fleetSortAsc}`;
+      const currentSig = list.map(i => `${i.instanceId}:${i.status}:${i.assignedProfileId || ''}:${i.assignedProxyId || ''}:${i.syncCount || 0}:${i.lastHeartbeat || ''}:${i.tokenHash ? 1 : 0}:${i.revoked ? 1 : 0}:${i.username || ''}:${i.domainUser || ''}:${i.pairedAppId || ''}`).join(';') + `;sort:${fleetSortCol}:${fleetSortAsc};q:${fleetSearchQuery}`;
       if (tbody.getAttribute('data-rendered-sig') === currentSig) {
         return;
       }
@@ -125,7 +146,7 @@ export let lastFleetFetchTime = 0;
         : (isRu ? 'Серверный по умолчанию' : 'Server Default');
 
       // Sort instances
-      const sortedInstances = [...instances].sort((a, b) => {
+      const sortedInstances = [...list].sort((a, b) => {
         let vA = '';
         let vB = '';
         if (fleetSortCol === 'id') {
@@ -207,9 +228,14 @@ export let lastFleetFetchTime = 0;
         const pairedBadge = inst.pairedAppId
           ? `<span class="badge badge-success" title="${isRu ? 'Связано с десктоп-агентом (' + esc(inst.pairedHostname || '') + ')' : 'Paired with desktop app (' + esc(inst.pairedHostname || '') + ')'}">🔗 ${isRu ? 'Десктоп' : 'Desktop'}</span>`
           : '';
+
+        const adBadge = inst.domainUser
+          ? `<div style="margin-top: 3px;"><span class="badge badge-ad-user">🏢 ${esc(inst.domainUser)}</span></div>`
+          : `<div style="margin-top: 3px;"><span class="badge badge-warning" title="${isRu ? 'Старая версия расширения без поддержки AD. Работает в режиме мягкой миграции.' : 'Legacy extension without AD support. Operating in soft migration mode.'}">⚠️ Legacy (без AD)</span></div>`;
+
         const userDisplay = inst.username
-          ? `<div style="font-weight: 600; font-family: var(--mono); font-size: 12px;">${esc(inst.username)}</div>${pairedBadge ? '<div style="margin-top: 3px;">' + pairedBadge + '</div>' : ''}`
-          : `<span style="color: var(--text-muted);">—</span>`;
+          ? `<div style="font-weight: 600; font-family: var(--mono); font-size: 12px;">${esc(inst.username)}</div>${adBadge}${pairedBadge ? '<div style="margin-top: 3px;">' + pairedBadge + '</div>' : ''}`
+          : `${adBadge}${pairedBadge ? '<div style="margin-top: 3px;">' + pairedBadge + '</div>' : ''}`;
 
         return `<tr>
           <td style="text-align: center;">
@@ -1929,6 +1955,7 @@ export let currentActiveAppVer = '';
 
     window.loadReleases = loadReleases;
     window.filterReleases = filterReleases;
+    window.filterFleetTable = filterFleetTable;
     window.setActiveReleaseVersion = setActiveReleaseVersion;
     window.deleteReleaseVersion = deleteReleaseVersion;
     window.downloadReleaseVersion = downloadReleaseVersion;

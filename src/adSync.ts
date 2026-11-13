@@ -2,7 +2,7 @@ import "./loadEnv.js";
 import fs from "node:fs";
 import { Client } from "ldapts";
 import { writeJsonAtomic } from "./jsonStore.js";
-import { getAdCachePath } from "./storage.js";
+import { getAdCachePath, getAdConfigPath } from "./storage.js";
 import { logger } from "./logger.js";
 
 export interface AdSyncConfig {
@@ -34,7 +34,7 @@ export function escapeLdapFilter(str: string): string {
 }
 
 export function loadAdConfig(): AdSyncConfig {
-  return {
+  const envConfig: AdSyncConfig = {
     enabled: process.env.AD_ENABLED === "true",
     ldapUrl: process.env.AD_LDAP_URL || "ldaps://127.0.0.1:636",
     bindDn: process.env.AD_BIND_DN || "",
@@ -48,6 +48,24 @@ export function loadAdConfig(): AdSyncConfig {
     rejectUnknownUsers: process.env.AD_REJECT_UNKNOWN_USERS === "true",
     tlsRejectUnauthorized: process.env.AD_TLS_REJECT_UNAUTHORIZED !== "false",
   };
+
+  try {
+    const configPath = getAdConfigPath();
+    if (fs.existsSync(configPath)) {
+      const rawDisk = fs.readFileSync(configPath, "utf-8");
+      const diskConfig = JSON.parse(rawDisk);
+      if (diskConfig && typeof diskConfig === "object") {
+        return {
+          ...envConfig,
+          ...diskConfig,
+        };
+      }
+    }
+  } catch (err) {
+    logger.warn("[adSync] Failed to read ad_config.json from disk:", err);
+  }
+
+  return envConfig;
 }
 
 export class AdSyncService {
@@ -75,6 +93,57 @@ export class AdSyncService {
       ...this.config,
       ...updates,
     };
+  }
+
+  public saveConfig(newConfig: Partial<AdSyncConfig>): void {
+    const merged: AdSyncConfig = {
+      ...this.config,
+      ...newConfig,
+    };
+    if (newConfig.bindPassword === undefined || newConfig.bindPassword === "") {
+      merged.bindPassword = this.config.bindPassword;
+    }
+    writeJsonAtomic(getAdConfigPath(), merged);
+    this.updateConfig(merged);
+    if (this.timer) {
+      this.startPeriodicSync();
+    }
+  }
+
+  public async testConnection(testCfg?: Partial<AdSyncConfig>): Promise<{ ok: boolean; message?: string; error?: string }> {
+    const targetUrl = testCfg?.ldapUrl || this.config.ldapUrl;
+    const targetBindDn = testCfg?.bindDn !== undefined ? testCfg.bindDn : this.config.bindDn;
+    const targetBindPassword = testCfg?.bindPassword !== undefined && testCfg.bindPassword !== "" ? testCfg.bindPassword : this.config.bindPassword;
+    const tlsRejectUnauthorized = testCfg?.tlsRejectUnauthorized !== undefined ? testCfg.tlsRejectUnauthorized : this.config.tlsRejectUnauthorized;
+
+    let client: Client | null = null;
+    try {
+      client = new Client({
+        url: targetUrl,
+        tlsOptions: {
+          rejectUnauthorized: tlsRejectUnauthorized,
+        },
+        timeout: 5000,
+        connectTimeout: 5000,
+      });
+
+      if (targetBindDn) {
+        await client.bind(targetBindDn, targetBindPassword);
+      } else {
+        await client.bind("", "");
+      }
+
+      return { ok: true, message: "Connected successfully" };
+    } catch (err: any) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg };
+    } finally {
+      if (client) {
+        try {
+          await client.unbind();
+        } catch {}
+      }
+    }
   }
 
   private loadCacheFromDisk(): void {

@@ -97,6 +97,7 @@ export interface ExtensionInstance {
   revoked?: boolean;
   username?: string;
   domainUser?: string;
+  isLegacy?: boolean;
   pairedAppId?: string;
   pairedHostname?: string;
   verifiedByApp?: boolean;

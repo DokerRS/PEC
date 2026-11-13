@@ -52,6 +52,10 @@ export function getAdCachePath(): string {
   return path.resolve(process.env.AD_CACHE_PATH || path.join(getDataDir(), "ad_cache.json"));
 }
 
+export function getAdConfigPath(): string {
+  return path.resolve(process.env.AD_CONFIG_PATH || path.join(getDataDir(), "ad_config.json"));
+}
+
 export function getBuilderConfigPath(): string {
   return path.resolve(process.env.BUILDER_CONFIG || path.join(getDataDir(), "extension_build_config.json"));
 }

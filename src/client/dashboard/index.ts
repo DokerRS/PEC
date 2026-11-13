@@ -7,6 +7,7 @@ import * as proxies from './tabs/proxies.js';
 import * as routing from './tabs/routing.js';
 import * as studio from './tabs/studio.js';
 import * as telemetry from './tabs/telemetry.js';
+import * as gpo from './tabs/gpo.js';
 
 // Re-export all sub-modules for tree-shaking and module consumers
 export * from './core/state.js';
@@ -17,6 +18,7 @@ export * from './tabs/proxies.js';
 export * from './tabs/routing.js';
 export * from './tabs/studio.js';
 export * from './tabs/telemetry.js';
+export * from './tabs/gpo.js';
 export { APP_THEME_PRESETS } from './core/theme.js';
 
 // Immediate theme boot to prevent FOUC (Flash of Unstyled Content)
@@ -200,6 +202,8 @@ export function switchTab(name: string, skipHashUpdate: boolean = false) {
     telemetry.fetchExtensionInfo();
   } else if (name === 'routing') {
     if (!state.currentProfile) routing.loadProfiles();
+  } else if (name === 'gpo') {
+    gpo.loadAdStatus();
   }
 }
 
@@ -253,6 +257,7 @@ export async function refreshAll(isInitialBoot: boolean = false) {
   proxies.fetchProxyConfig();
   telemetry.load3xuiPanels();
   telemetry.loadReleases();
+  gpo.loadAdStatus();
 }
 
 // Attach all functions to window for backwards compatibility with inline HTML and tests

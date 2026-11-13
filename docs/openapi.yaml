@@ -683,6 +683,128 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/ad/status:
+    get:
+      summary: Active Directory Integration Status
+      description: Returns current Active Directory / LDAP synchronization status, statistics, and sanitized configuration (passwords omitted).
+      operationId: getAdStatus
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      responses:
+        '200':
+          description: Active Directory synchronization status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdStatusResponse'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error while retrieving status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/ad/config:
+    post:
+      summary: Update Active Directory Configuration
+      description: Updates persistent Active Directory connection and synchronization parameters in data/ad_config.json.
+      operationId: updateAdConfig
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdConfigUpdateRequest'
+      responses:
+        '200':
+          description: Configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error while updating configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/ad/test:
+    post:
+      summary: Test Active Directory LDAPS Connection
+      description: Validates connectivity and credentials against a domain controller without saving settings permanently.
+      operationId: testAdConnection
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdTestConnectionRequest'
+      responses:
+        '200':
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdTestConnectionResponse'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/ad/sync-now:
+    post:
+      summary: Trigger Immediate Active Directory Sync
+      description: Forces an immediate LDAPS query against the directory service to synchronize allowed users and refresh memory cache.
+      operationId: triggerAdSyncNow
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      responses:
+        '200':
+          description: Sync execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdSyncNowResponse'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error during sync
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   securitySchemes:
     AdminBearer:
@@ -1053,3 +1175,143 @@ components:
           type: string
         details:
           type: string
+
+    AdStatusResponse:
+      type: object
+      required:
+        - enabled
+        - ldapUrl
+        - bindDn
+        - searchBase
+        - requiredGroupDn
+        - syncIntervalSec
+        - rejectUnknownUsers
+        - tlsRejectUnauthorized
+        - usersCount
+        - hasPassword
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        ldapUrl:
+          type: string
+          example: ldaps://dc01.corp.local:636
+        bindDn:
+          type: string
+          example: CN=svc_pec,OU=ServiceAccounts,DC=corp,DC=local
+        searchBase:
+          type: string
+          example: DC=corp,DC=local
+        requiredGroupDn:
+          type: string
+          example: CN=SEC-Proxy-Users,OU=Groups,DC=corp,DC=local
+        syncIntervalSec:
+          type: integer
+          example: 300
+        rejectUnknownUsers:
+          type: boolean
+          example: true
+        tlsRejectUnauthorized:
+          type: boolean
+          example: true
+        usersCount:
+          type: integer
+          example: 42
+        hasPassword:
+          type: boolean
+          example: true
+        lastSyncAt:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-11-13T12:00:00.000Z'
+        lastSyncError:
+          type: string
+          nullable: true
+          example: null
+
+    AdConfigUpdateRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        ldapUrl:
+          type: string
+          example: ldaps://dc01.corp.local:636
+        bindDn:
+          type: string
+          example: CN=svc_pec,OU=ServiceAccounts,DC=corp,DC=local
+        bindPassword:
+          type: string
+          description: Service account password. Leave empty or omit if retaining the previously saved password.
+          example: SecretPass123!
+        searchBase:
+          type: string
+          example: DC=corp,DC=local
+        requiredGroupDn:
+          type: string
+          example: CN=SEC-Proxy-Users,OU=Groups,DC=corp,DC=local
+        syncIntervalSec:
+          type: integer
+          minimum: 5
+          example: 300
+        rejectUnknownUsers:
+          type: boolean
+          example: true
+        tlsRejectUnauthorized:
+          type: boolean
+          example: true
+
+    AdTestConnectionRequest:
+      type: object
+      properties:
+        ldapUrl:
+          type: string
+          example: ldaps://dc01.corp.local:636
+        bindDn:
+          type: string
+          example: CN=svc_pec,OU=ServiceAccounts,DC=corp,DC=local
+        bindPassword:
+          type: string
+          example: SecretPass123!
+        tlsRejectUnauthorized:
+          type: boolean
+          example: true
+
+    AdTestConnectionResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Connected successfully
+        error:
+          type: string
+          example: connect ECONNREFUSED 10.0.0.1:636
+
+    AdSyncNowResponse:
+      type: object
+      required:
+        - ok
+        - usersCount
+        - syncedAt
+      properties:
+        ok:
+          type: boolean
+          example: true
+        usersCount:
+          type: integer
+          example: 42
+        syncedAt:
+          type: string
+          format: date-time
+          example: '2026-11-13T12:00:00.000Z'
+        warning:
+          type: string
+          description: Warning or non-fatal error during sync (e.g. stale cache retained)
+          example: connect ECONNREFUSED

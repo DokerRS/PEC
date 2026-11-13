@@ -57,6 +57,10 @@ test("OpenAPI 3.1: covers all required endpoints and operations", () => {
     "/api/rotation/status",
     "/api/rotation/rotate",
     "/api/rotation/history",
+    "/api/ad/status",
+    "/api/ad/config",
+    "/api/ad/test",
+    "/api/ad/sync-now",
     "/metrics",
   ];
 

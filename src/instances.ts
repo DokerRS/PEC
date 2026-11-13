@@ -163,6 +163,8 @@ let persistentMeta: Record<
     revoked?: boolean;
     username?: string;
     domainUser?: string;
+    isLegacy?: boolean;
+    legacy?: boolean;
     pairedAppId?: string;
     pairedHostname?: string;
     verifiedByApp?: boolean;
@@ -243,19 +245,29 @@ export function registerHeartbeat(
   const existing = instancesMap.get(cleanId);
   const now = new Date().toISOString();
   const rawDomainUser = (data as any).domainUser ? String((data as any).domainUser).trim().slice(0, 128) : undefined;
+  if (!persistentMeta[cleanId]) {
+    persistentMeta[cleanId] = {};
+  }
   if (rawDomainUser) {
-    if (!persistentMeta[cleanId]) {
-      persistentMeta[cleanId] = {};
-    }
     if (persistentMeta[cleanId].domainUser && persistentMeta[cleanId].domainUser.toLowerCase() !== rawDomainUser.toLowerCase()) {
       logger.warn(`[instances] Prevented domainUser overwrite for ${cleanId}: existing='${persistentMeta[cleanId].domainUser}', incoming='${rawDomainUser}'`);
     } else {
-      const changed = persistentMeta[cleanId].domainUser !== rawDomainUser || !persistentMeta[cleanId].username;
+      const changed = persistentMeta[cleanId].domainUser !== rawDomainUser || !persistentMeta[cleanId].username || persistentMeta[cleanId].isLegacy !== false;
       persistentMeta[cleanId].domainUser = rawDomainUser;
+      persistentMeta[cleanId].isLegacy = false;
+      persistentMeta[cleanId].legacy = false;
       if (!persistentMeta[cleanId].username) {
         persistentMeta[cleanId].username = rawDomainUser;
       }
       if (changed) {
+        saveInstancesMeta();
+      }
+    }
+  } else {
+    if (!persistentMeta[cleanId].domainUser) {
+      if (!persistentMeta[cleanId].isLegacy) {
+        persistentMeta[cleanId].isLegacy = true;
+        persistentMeta[cleanId].legacy = true;
         saveInstancesMeta();
       }
     }
@@ -299,6 +311,7 @@ export function registerHeartbeat(
     enrolledAt: meta.enrolledAt || existing?.enrolledAt,
     revoked: meta.revoked !== undefined ? meta.revoked : existing?.revoked,
     domainUser: rawDomainUser || meta.domainUser || existing?.domainUser,
+    isLegacy: meta.isLegacy !== undefined ? meta.isLegacy : (!rawDomainUser && !meta.domainUser && !existing?.domainUser),
     username: meta.username || existing?.username || rawDomainUser,
     pairedAppId: meta.pairedAppId || existing?.pairedAppId,
     pairedHostname: meta.pairedHostname || existing?.pairedHostname,
@@ -707,7 +720,7 @@ export function revokeInstanceToken(instanceId: string): boolean {
 /**
  * Retrieve persistent metadata (tokenHash, enrolledAt, revoked) for an instance.
  */
-export function getInstanceMeta(instanceId: string): { group?: string; assignedProfileId?: string; assignedProxyId?: string; tokenHash?: string; enrolledAt?: string; revoked?: boolean; username?: string; domainUser?: string; pairedAppId?: string; pairedHostname?: string; verifiedByApp?: boolean; lastSeen?: number } | undefined {
+export function getInstanceMeta(instanceId: string): { group?: string; assignedProfileId?: string; assignedProxyId?: string; tokenHash?: string; enrolledAt?: string; revoked?: boolean; username?: string; domainUser?: string; isLegacy?: boolean; legacy?: boolean; pairedAppId?: string; pairedHostname?: string; verifiedByApp?: boolean; lastSeen?: number } | undefined {
   if (isUnsafeObjectId(instanceId)) return undefined;
   return persistentMeta[instanceId];
 }
