@@ -2,7 +2,7 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
-## [Unreleased] - 2026-11-16 — AUDIT-2026-11-16: Deep Audit Remediation
+## [v0.9.1-alpha] - 2026-11-16 — AUDIT-2026-11-16: Deep Audit Remediation
 
 Устранение находок глубокого аудита репозитория (6 доменных flash-аудитов, 0×P0 / 3×P1 / 19×P2 / ~50×P3), скоординированных диспетчером в три волны; независимая верификация — **вердикт PASS** (agent-security-auditor, strict_independent, полный сьют 795/795).
 
