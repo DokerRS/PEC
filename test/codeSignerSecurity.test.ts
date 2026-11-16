@@ -335,8 +335,13 @@ test("N-1 (replaces M-7 for signtool, updated by AUDIT-SEC-3): signtool.exe sign
     "Signed thumbprint must match the stored certificate"
   );
 
-  // Password in env PFX_PASS is also passed (harmless; kept for tooling parity)
-  assert.equal(signtoolSignCall.options?.env?.PFX_PASS, secretPassword);
+  // P3-B: signtool itself runs passwordless - its process env must NOT carry
+  // PFX_PASS (the secret is only needed by the PowerShell import above).
+  assert.equal(
+    signtoolSignCall.options?.env?.PFX_PASS,
+    undefined,
+    "PFX_PASS must not be passed to the signtool process env (only the PowerShell import needs it)"
+  );
 });
 
 test("M-8: Leftover .signed temporary file is cleaned up if osslsigncode fails during signing", (t) => {

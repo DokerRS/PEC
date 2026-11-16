@@ -186,6 +186,13 @@ test("SEC-3: signtool branch signs via cert store without the PFX password in ar
     for (const a of signCall.args!) {
       assert.ok(!String(a).includes(maliciousPassword), "no argv element may contain the raw password");
     }
+    // P3-B: the passwordless signing process must not carry the secret in env either
+    assert.equal(signCall.options?.env?.PFX_PASS, undefined, "signtool process env must not contain PFX_PASS (P3-B)");
+    assert.equal(
+      JSON.stringify(signCall.options?.env || {}).includes(maliciousPassword),
+      false,
+      "no env value of the signing process may contain the raw password"
+    );
 
     const psCall = calls.find((c) => c.file === "powershell");
     assert.ok(psCall, "cert-store import via PowerShell must run");

@@ -579,9 +579,14 @@ export function signBinary(targetPath: string): boolean {
         return false;
       }
       const signArgs = buildSigntoolCertStoreArgs(thumbprint, tsUrl, targetPath);
+      // P3-B: the passwordless /sha1 flow never reads PFX_PASS - the secret is
+      // only consumed by the PowerShell import above. Strip it (including any
+      // operator-exported value) so the signing process env stays clean.
+      const signEnv: NodeJS.ProcessEnv = { ...process.env };
+      delete signEnv.PFX_PASS;
       child_process.execFileSync("signtool.exe", signArgs, {
         windowsHide: true,
-        env: { ...process.env, PFX_PASS: password },
+        env: signEnv,
         stdio: "pipe",
       });
       return true;
