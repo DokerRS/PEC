@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0.0",
+  "report_type": "init",
+  "project_id": "vlv-code/PEC",
+  "installation_id": "zc-main",
+  "harness_id": "zcode",
+  "actor_id": "vlv-code/PEC::zcode::zc-main::agent-meta-guardian",
+  "run_id": "init-20261116T033557Z-e091bcda",
+  "created_at": "2026-11-16T03:35:57Z",
+  "status": "completed",
+  "git_state": {
+    "commit_sha": "93d47858b3defc90422626e2d7de7e5f9164c201",
+    "branch": "dev/ad-security-integration",
+    "is_clean": true,
+    "modified_files": []
+  },
+  "input_fingerprints": {
+    ".agents/meta-project.json": "90bbadcbd6577f86a758947310084677810144f8b757ead6287032d87b3c1802",
+    ".agents/project_knowledge/boundaries.md": "94cb6ea19f96f1a1f4aa28c945377d6f2f4819c0a9221c37e6bfa8c4d8b0dc0e",
+    "AGENTS.md": "07c8eb15412a1c5a22bafa94a76aea39805015c9e2893448fc3aef68eeb5c83b"
+  },
+  "references": {
+    "registry": ".agents/meta-project.json",
+    "passport": "AGENTS.md",
+    "boundaries": ".agents/project_knowledge/boundaries.md"
+  },
+  "scenario": {
+    "profile": "active_development",
+    "deployment_mode": "shared_repo",
+    "collaboration_model": "specialized_swarm",
+    "verification_policy": "strict_independent",
+    "delegation_level": "controlled",
+    "constraints": [
+      "zero_dependency_core",
+      "fail_closed_boundaries",
+      "deterministic_extension_id",
+      "two_token_isolation"
+    ],
+    "unresolved_questions": []
+  },
+  "environment": {
+    "capabilities": {},
+    "constraints": []
+  },
+  "components": {
+    "registry": ".agents/meta-project.json (schema 1.1.0, 7 roles)",
+    "runtime_scripts": "8 canonical scripts at scripts/ (committed 93d4785)",
+    "skills": "9 procedural skills @main",
+    "passport": "AGENTS.md 8-section",
+    "boundaries": "100% coverage (499 files)",
+    "hooks": "pre-commit boundary gate installed (dispatcher + legacy biome preserved)"
+  },
+  "checks": [
+    {
+      "name": "inspect_meta_project",
+      "status": "pass",
+      "detail": "HEALTHY_REGISTERED; 0 missing; 0 conflicts; capabilities 5/5 available"
+    },
+    {
+      "name": "verify_identity",
+      "status": "pass",
+      "detail": "0 errors; 7 roles in sync"
+    },
+    {
+      "name": "check_boundaries_audit_tree",
+      "status": "pass",
+      "detail": "100% coverage, 499 files"
+    }
+  ],
+  "recommendations_for_manage": {
+    "suggested_roles": [],
+    "target_topology": "",
+    "rationale": ""
+  },
+  "blockers_and_unresolved": [],
+  "next_step_readiness": {
+    "ready_for_manage": true
+  }
+}

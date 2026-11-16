@@ -39,3 +39,4 @@
 | 2026-11-10 | User | /update-meta-project: v1.0.0-alpha.1 sync | Synchronized 9 procedural skills, deployed check_boundaries.py & compact_memory.py, refreshed boundaries.md (100% tree coverage) |
 | 2026-11-11 | User | /tune-meta-project: Environment calibration | Analyzed commit friction, verified 6 active roles, refreshed weak_spots.md and observations.md slices |
 | 2026-11-11 | User | /scan-meta-project: Deep inspection & sync | Synchronized architecture.md (5 subsystems), registered 3 procedural skills in AGENTS.md, compacted tasks.md |
+| 2026-11-16 | User | /init-meta-project + /manage-meta-project: Legacy adoption & team orchestration | Registry schema 1.1.0 (zc-main), 8 canonical scripts + 9 skills @main, AGENTS.md 8-section, boundaries 100%, commit 93d4785, pre-commit gate installed, role agent-native-desktop synthesized (7 roles), 6 prompts supplemented @main invariants; 5/5 capabilities |

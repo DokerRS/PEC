@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0.0",
+  "report_type": "manage",
+  "project_id": "vlv-code/PEC",
+  "installation_id": "zc-main",
+  "harness_id": "zcode",
+  "actor_id": "vlv-code/PEC::zcode::zc-main::agent-meta-guardian",
+  "run_id": "manage-20261116T033733Z-c52f17a5",
+  "init_run_id": "init-20261116T033557Z-e091bcda",
+  "created_at": "2026-11-16T03:37:33Z",
+  "status": "completed",
+  "git_state": {
+    "commit_sha": "93d47858b3defc90422626e2d7de7e5f9164c201",
+    "branch": "dev/ad-security-integration",
+    "is_clean": false,
+    "modified_files": [
+      ".agents/project_knowledge/tasks.md",
+      ".agents/reports/zc-main/init/latest.json",
+      ".agents/team/agent-meta-guardian/profile.md",
+      ".agents/reports/zc-main/init/init-20261116T033557Z-e091bcda.json"
+    ]
+  },
+  "input_fingerprints": {
+    ".agents/meta-project.json": "90bbadcbd6577f86a758947310084677810144f8b757ead6287032d87b3c1802",
+    ".agents/project_knowledge/boundaries.md": "94cb6ea19f96f1a1f4aa28c945377d6f2f4819c0a9221c37e6bfa8c4d8b0dc0e",
+    "AGENTS.md": "07c8eb15412a1c5a22bafa94a76aea39805015c9e2893448fc3aef68eeb5c83b"
+  },
+  "scenario": {},
+  "roles": {
+    "preserved": [],
+    "created": [],
+    "adapted": [],
+    "archived": []
+  },
+  "bindings": {},
+  "effective_capabilities": {
+    "team_readiness": "ready"
+  },
+  "checks": [
+    {
+      "name": "verify_identity",
+      "status": "pass",
+      "detail": "0 errors; 7 roles in sync"
+    },
+    {
+      "name": "inspect_meta_project",
+      "status": "pass",
+      "detail": "HEALTHY_REGISTERED; capabilities 5/5 (hooks now available)"
+    },
+    {
+      "name": "check_boundaries_audit_tree",
+      "status": "pass",
+      "detail": "100% coverage, 499 files"
+    }
+  ],
+  "remaining_manual_actions": []
+}

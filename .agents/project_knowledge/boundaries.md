@@ -35,7 +35,7 @@ This document defines agent freedom levels when modifying the repository using e
 - `scripts/check_boundaries.py` — core boundary gate and security enforcement script (canonical copy from upstream meta-project).
 - `.agents/project_knowledge/boundaries.md` — this responsibility boundary definition itself.
 - `src/middleware/security.ts`, `src/auth.ts` — authentication tokens, session verification, rate limiters, CORS policies.
-- `data/**`, `*.json` in data store (`proxies.json`, `current_creds.json`, `dashboard_auth.json`, `routing_profiles.json`, etc.) — persistent storage and runtime secrets.
+- `data/**` and root runtime state files: `proxies.json`, `current_creds.json`, `dashboard_auth.json`, `instances_meta.json`, `rotation_config.json`, `rotation_history.json`, `proxy_config.json`, `routing_profiles.json`, `extension_build_config.json`, `ad_config.json` — persistent storage and runtime secrets (all gitignored; force-adding requires confirmation).
 - `extension/key.pem`, `*.pem`, `*.key`, `*.pfx`, `certs/**` — cryptographic keys and Authenticode certificates (vital to preserve deterministic Chrome extension ID and GPO bindings).
 - `.env*` — configuration with production tokens and credentials.
 - `Dockerfile*`, `docker-compose*.yml`, `docker-compose.prod.yml`, `.dockerignore` — container build definitions and orchestration.
