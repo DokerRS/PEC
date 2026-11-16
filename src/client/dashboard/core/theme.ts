@@ -21,7 +21,6 @@ export const APP_PALETTES: Record<string, ThemePalette> = {
   nord: { accent: '#88c0d0', bg: '#242933', card: '#2e3440', lightBg: '#f8fafc', lightCard: '#ffffff', style: 'nordic-arctic' },
   emerald: { accent: '#34d399', bg: '#06130d', card: '#0b1f16', lightBg: '#f0fdf4', lightCard: '#ffffff', style: 'emerald-secops' },
   amber: { accent: '#f59e0b', bg: '#1c1307', card: '#261805', lightBg: '#fffbeb', lightCard: '#ffffff', style: 'sunset-amber' },
-  sunset: { accent: '#f59e0b', bg: '#1c1307', card: '#261805', lightBg: '#fffbeb', lightCard: '#ffffff', style: 'sunset-amber' },
   light: { accent: '#2563eb', bg: '#0b1120', card: '#131d36', lightBg: '#f1f5f9', lightCard: '#ffffff', style: 'enterprise-light' }
 };
 
@@ -44,8 +43,16 @@ export function setServerLayout(layout: string) {
   updateModalActiveState();
 }
 
+// THEME-WEB-4: the five themes with CSS [data-theme] blocks and dashboard
+// picker dots (dashboardView.ts). Anything else (including stale
+// pec_server_theme values like the removed 'sunset' duplicate) falls back
+// to cyber.
+const SERVER_THEME_WHITELIST: ReadonlySet<string> = new Set(['cyber', 'obsidian', 'nord', 'emerald', 'light']);
+
 export function setServerTheme(theme: string) {
-  if (!theme) theme = 'cyber';
+  if (!theme || !SERVER_THEME_WHITELIST.has(theme)) {
+    theme = 'cyber';
+  }
   document.body.setAttribute('data-theme', theme);
   try { localStorage.setItem('pec_server_theme', theme); } catch (_) {}
   updateModalActiveState();
