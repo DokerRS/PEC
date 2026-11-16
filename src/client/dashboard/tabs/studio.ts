@@ -1149,7 +1149,7 @@ export const APP_THEME_PRESETS: any = {
         background: '#06130d',
         card: '#0b1f16',
         text: '#ecfdf5',
-        lightBackground: '#ecfdf5',
+        lightBackground: '#f0fdf4',
         lightCard: '#ffffff'
       },
       'enterprise-light': {
@@ -1167,7 +1167,7 @@ export const APP_THEME_PRESETS: any = {
         background: '#06130d',
         card: '#0b1f16',
         text: '#ecfdf5',
-        lightBackground: '#ecfdf5',
+        lightBackground: '#f0fdf4',
         lightCard: '#ffffff'
       },
       'sunset-amber': {
