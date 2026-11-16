@@ -753,6 +753,10 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                   <span class="color-swatch" style="background: #34d399;"></span>
                   <span>Emerald SecOps</span>
                 </button>
+                <button type="button" class="preset-chip" id="chip-palette-amber" onclick="setStudioPalette('amber')">
+                  <span class="color-swatch" style="background: #f59e0b;"></span>
+                  <span>Sunset Amber</span>
+                </button>
                 <button type="button" class="preset-chip" id="chip-palette-light" onclick="setStudioPalette('light')">
                   <span class="color-swatch" style="background: #2563eb; border: 1px solid #cbd5e1;"></span>
                   <span>Enterprise Light</span>

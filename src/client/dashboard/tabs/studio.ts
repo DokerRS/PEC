@@ -131,7 +131,10 @@ export let activeStudioThemeMode = 'dark';
     }
 
     export function setStudioPalette(palette, silent = false) {
-      const validPalettes = ['cyber', 'obsidian', 'nord', 'emerald', 'light'];
+      // STUDIO-AMBER-PALETTE-REGRESSION: the whitelist must cover every canon
+      // palette (theme.ts APP_PALETTES) - 'sunset-amber' presets previously
+      // silently clamped to cyber here.
+      const validPalettes = ['cyber', 'obsidian', 'nord', 'emerald', 'amber', 'light'];
       if (!validPalettes.includes(palette)) {
         palette = 'cyber';
       }
@@ -147,6 +150,7 @@ export let activeStudioThemeMode = 'dark';
         obsidian: '#c084fc',
         nord: '#88c0d0',
         emerald: '#34d399',
+        amber: '#f59e0b',
         light: '#2563eb'
       };
       const brandColorInput = document.getElementById('bldThemeColor');
