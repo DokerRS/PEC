@@ -47,6 +47,7 @@ static HANDLE                g_worker = NULL;     // thread running the accept/s
 typedef struct {
     HANDLE ctl;
     HANDLE evt;
+    HANDLE thread;       // worker thread handle (AUDIT-NAT-3: CancelSynchronousIo needs the thread, not the pipe)
     DWORD sessionId;
     ULONG clientPid;
     volatile LONG active;
@@ -393,13 +394,14 @@ static DWORD WINAPI WorkerMain(LPVOID arg)
         }
         if (slot >= 0)
         {
+            if (g_clients[slot].thread) { CloseHandle(g_clients[slot].thread); g_clients[slot].thread = NULL; }
             g_clients[slot].ctl = hCtl;
             g_clients[slot].evt = hEvt;
             g_clients[slot].active = 1;
             HANDLE th = CreateThread(NULL, 0, ClientWorkerThread, &g_clients[slot], 0, NULL);
             if (th)
             {
-                CloseHandle(th);
+                g_clients[slot].thread = th;
             }
             else
             {
@@ -418,6 +420,26 @@ static DWORD WINAPI WorkerMain(LPVOID arg)
     if (g_api.Stop) g_api.Stop();
     if (g_api.SetLogCallback) g_api.SetLogCallback(NULL);
     if (g_api.SetConnectionCallback) g_api.SetConnectionCallback(NULL);
+
+    // AUDIT-NAT-3: join client worker threads before unloading the engine DLL — they run
+    // callbacks (OnLog/OnConn/Dispatch) inside ProxyBridgeCore.dll, so unloading under
+    // their feet is use-after-free. Bounded wait: the SCM must not wedge on a stuck worker.
+    {
+        HANDLE threads[PB_MAX_CLIENTS];
+        DWORD nt = 0;
+        EnterCriticalSection(&g_clients_cs);
+        for (int i = 0; i < PB_MAX_CLIENTS; i++)
+            if (g_clients[i].thread) threads[nt++] = g_clients[i].thread;
+        LeaveCriticalSection(&g_clients_cs);
+        if (nt) WaitForMultipleObjects(nt, threads, TRUE, 10000);
+        EnterCriticalSection(&g_clients_cs);
+        for (int i = 0; i < PB_MAX_CLIENTS; i++)
+        {
+            if (g_clients[i].thread) { CloseHandle(g_clients[i].thread); g_clients[i].thread = NULL; }
+        }
+        LeaveCriticalSection(&g_clients_cs);
+    }
+
     PB_UnloadDirect(&g_api);
 
     return 0;
@@ -434,9 +456,11 @@ static void WINAPI SvcCtrl(DWORD code)
         EnterCriticalSection(&g_clients_cs);
         for (int i = 0; i < PB_MAX_CLIENTS; i++)
         {
-            if (g_clients[i].active && g_clients[i].ctl != INVALID_HANDLE_VALUE)
+            // AUDIT-NAT-3: cancel I/O blocked in the worker THREAD (CancelSynchronousIo
+            // takes a thread handle — the pipe handle was wrong and a no-op for reads).
+            if (g_clients[i].active && g_clients[i].thread)
             {
-                CancelSynchronousIo(g_clients[i].ctl);
+                CancelSynchronousIo(g_clients[i].thread);
             }
         }
         LeaveCriticalSection(&g_clients_cs);

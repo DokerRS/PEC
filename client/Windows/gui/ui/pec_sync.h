@@ -658,6 +658,9 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                     {
                         DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
                         WinHttpSetOption(hSession, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
+                        // AUDIT-NAT-4: bound every request phase (resolve/connect/send/receive)
+                        // so a dead server cannot pin the sync thread past PecSyncStop's join window.
+                        WinHttpSetTimeouts(hSession, 5000, 5000, 5000, 5000);
 
                         HINTERNET hConnect = WinHttpConnect(hSession, host, uc.nPort, 0);
                     if (hConnect)
@@ -855,12 +858,15 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                                 const char* nPass = json_str(actProxy, "pass", "");
                                                 const char* nProto = json_str(actProxy, "protocol", "socks5");
 
-                                                wchar_t wHost[128], wPort[16], wUser[128], wPass[128], wProto[16];
-                                                MultiByteToWideChar(CP_UTF8, 0, nHost, -1, wHost, 128);
+                                                // AUDIT-NAT-6: zero-init + conversion checks — on a
+                                                // MultiByteToWideChar failure these buffers used to carry
+                                                // stack garbage straight into the saved profile.
+                                                wchar_t wHost[128] = { 0 }, wPort[16] = { 0 }, wUser[128] = { 0 }, wPass[128] = { 0 }, wProto[16] = { 0 };
+                                                BOOL cvOk = (MultiByteToWideChar(CP_UTF8, 0, nHost, -1, wHost, 128) > 0 &&
+                                                             MultiByteToWideChar(CP_UTF8, 0, nUser, -1, wUser, 128) > 0 &&
+                                                             MultiByteToWideChar(CP_UTF8, 0, nPass, -1, wPass, 128) > 0 &&
+                                                             MultiByteToWideChar(CP_UTF8, 0, nProto, -1, wProto, 16) > 0);
                                                 _snwprintf_s(wPort, 16, _TRUNCATE, L"%ld", nPort);
-                                                MultiByteToWideChar(CP_UTF8, 0, nUser, -1, wUser, 128);
-                                                MultiByteToWideChar(CP_UTF8, 0, nPass, -1, wPass, 128);
-                                                MultiByteToWideChar(CP_UTF8, 0, nProto, -1, wProto, 16);
 
                                                 BOOL needsUpdate = FALSE;
                                                 JVal* avList = json_get(respRoot, "availableProxies");
@@ -872,7 +878,7 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                                         int newCount = 0;
 
                                                         // Active proxy goes to slot 0 if valid
-                                                        if (wHost[0] && _wtoi(wPort) > 0)
+                                                        if (cvOk && wHost[0] && _wtoi(wPort) > 0)
                                                         {
                                                             newConfigs[0].storedId = 1;
                                                             const char* aName = json_str(actProxy, "name", "Corporate Proxy");
@@ -920,6 +926,7 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
 
                                                         if (newCount > 0)
                                                         {
+                                                            PecProfileLock();   // AUDIT-NAT-5: read-compare-write under one lock
                                                             if (g_profile.cfgCount != newCount)
                                                             {
                                                                 needsUpdate = TRUE;
@@ -942,16 +949,15 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                                             }
                                                             if (needsUpdate)
                                                             {
-                                                                PecProfileLock();
                                                                 g_profile.cfgCount = newCount;
                                                                 for (int i = 0; i < newCount; i++)
                                                                     g_profile.cfg[i] = newConfigs[i];
                                                                 PB_ProfileSave(g_activeProfile, &g_profile);
-                                                                PecProfileUnlock();
-                                                                if (g_hSyncMainWnd)
-                                                                {
-                                                                    PostMessageW(g_hSyncMainWnd, WM_APP_RELOAD_PROFILE, 0, 0);
-                                                                }
+                                                            }
+                                                            PecProfileUnlock();
+                                                            if (needsUpdate && g_hSyncMainWnd)
+                                                            {
+                                                                PostMessageW(g_hSyncMainWnd, WM_APP_RELOAD_PROFILE, 0, 0);
                                                             }
                                                         }
                                                         free(newConfigs);
@@ -959,37 +965,41 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                                 }
                                                 else
                                                 {
+                                                    PecProfileLock();   // AUDIT-NAT-5: read-compare-write under one lock
                                                     if (g_profile.cfgCount == 0)
                                                     {
-                                                        g_profile.cfgCount = 1;
-                                                        g_profile.cfg[0].storedId = 1;
-                                                        lstrcpynW(g_profile.cfg[0].name, L"Corporate Node", 64);
-                                                        g_profile.cfg[0].sendDomain = 1;
-                                                        needsUpdate = TRUE;
+                                                        if (cvOk)
+                                                        {
+                                                            g_profile.cfgCount = 1;
+                                                            g_profile.cfg[0].storedId = 1;
+                                                            lstrcpynW(g_profile.cfg[0].name, L"Corporate Node", 64);
+                                                            g_profile.cfg[0].sendDomain = 1;
+                                                            needsUpdate = TRUE;
+                                                        }
                                                     }
-                                                    else if (wcscmp(g_profile.cfg[0].host, wHost) != 0 ||
-                                                             wcscmp(g_profile.cfg[0].port, wPort) != 0 ||
-                                                             wcscmp(g_profile.cfg[0].user, wUser) != 0 ||
-                                                             wcscmp(g_profile.cfg[0].pass, wPass) != 0 ||
-                                                             _wcsicmp(g_profile.cfg[0].type, wProto) != 0)
+                                                    else if (cvOk &&
+                                                             (wcscmp(g_profile.cfg[0].host, wHost) != 0 ||
+                                                              wcscmp(g_profile.cfg[0].port, wPort) != 0 ||
+                                                              wcscmp(g_profile.cfg[0].user, wUser) != 0 ||
+                                                              wcscmp(g_profile.cfg[0].pass, wPass) != 0 ||
+                                                              _wcsicmp(g_profile.cfg[0].type, wProto) != 0))
                                                     {
                                                         needsUpdate = TRUE;
                                                     }
 
                                                     if (needsUpdate)
                                                     {
-                                                        PecProfileLock();
                                                         lstrcpynW(g_profile.cfg[0].host, wHost, 128);
                                                         lstrcpynW(g_profile.cfg[0].port, wPort, 16);
                                                         lstrcpynW(g_profile.cfg[0].user, wUser, 128);
                                                         lstrcpynW(g_profile.cfg[0].pass, wPass, 128);
                                                         lstrcpynW(g_profile.cfg[0].type, wProto, 16);
                                                         PB_ProfileSave(g_activeProfile, &g_profile);
-                                                        PecProfileUnlock();
-                                                        if (g_hSyncMainWnd)
-                                                        {
-                                                            PostMessageW(g_hSyncMainWnd, WM_APP_RELOAD_PROFILE, 0, 0);
-                                                        }
+                                                    }
+                                                    PecProfileUnlock();
+                                                    if (needsUpdate && g_hSyncMainWnd)
+                                                    {
+                                                        PostMessageW(g_hSyncMainWnd, WM_APP_RELOAD_PROFILE, 0, 0);
                                                     }
                                                 }
                                             }
@@ -1054,6 +1064,7 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                                         {
                                                             int mergedCount = 0;
 
+                                                            PecProfileLock();   // AUDIT-NAT-5: merge reads + write under one lock
                                                             for (int i = 0; i < newRuleCount && mergedCount < PB_MAX_RULE; i++)
                                                             {
                                                                 mergedRules[mergedCount] = newRules[i];
@@ -1106,14 +1117,17 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                                             }
                                                             if (rulesDiffer)
                                                             {
-                                                                PecProfileLock();
                                                                 g_profile.ruleCount = mergedCount;
                                                                 for (int i = 0; i < mergedCount; i++)
                                                                 {
                                                                     g_profile.rule[i] = mergedRules[i];
                                                                 }
                                                                 PB_ProfileSave(g_activeProfile, &g_profile);
-                                                                PecProfileUnlock();
+                                                            }
+                                                            PecProfileUnlock();
+
+                                                            if (rulesDiffer)
+                                                            {
                                                                 PB_WriteAppLog("PecSync: Правила маршрутизации синхронизированы (%d корп., %d польз.)",
                                                                     newRuleCount, mergedCount - newRuleCount);
                                                                 if (g_hSyncMainWnd)
@@ -1157,6 +1171,8 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                                 MultiByteToWideChar(CP_UTF8, 0, szMode, -1, wMode, 32);
                                                 MultiByteToWideChar(CP_UTF8, 0, szLayout, -1, wLayout, 32);
 
+                                                BOOL themeChanged = FALSE;
+                                                PecProfileLock();   // AUDIT-NAT-5: theme read-compare-write under one lock
                                                 COLORREF primCol = g_profile.theme.primary;
                                                 COLORREF bgCol   = g_profile.theme.background;
                                                 COLORREF cardCol = g_profile.theme.card;
@@ -1164,7 +1180,6 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                                 if (szBg)   bgCol   = PB_ParseHexColor(szBg, bgCol);
                                                 if (szCard) cardCol = PB_ParseHexColor(szCard, cardCol);
 
-                                                BOOL themeChanged = FALSE;
                                                 if (!g_profile.theme.hasTheme ||
                                                     wcscmp(g_profile.theme.preset, wPreset) != 0 ||
                                                     wcscmp(g_profile.theme.mode, wMode) != 0 ||
@@ -1185,9 +1200,12 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
 
                                                 if (themeChanged)
                                                 {
-                                                    PecProfileLock();
                                                     PB_ProfileSave(g_activeProfile, &g_profile);
-                                                    PecProfileUnlock();
+                                                }
+                                                PecProfileUnlock();
+
+                                                if (themeChanged)
+                                                {
                                                     PB_WriteAppLog("PecSync: Тема оформления обновлена с сервера (%s, %s)", szPreset, szMode);
                                                     if (g_hSyncMainWnd)
                                                     {
@@ -1334,27 +1352,38 @@ static void PecSyncStop(void)
         g_loopbackSocket = INVALID_SOCKET;
     }
 
+    // AUDIT-NAT-4: join workers with a margin over the 5s WinHTTP timeouts; if a worker
+    // still refuses to exit, leak its lock/event instead of deleting a critical section
+    // (or closing the wake event) the live thread may be blocked on — process is exiting.
+    BOOL syncJoined = TRUE, loopJoined = TRUE;
     if (g_hSyncThread)
     {
-        WaitForSingleObject(g_hSyncThread, 1500);
+        syncJoined = (WaitForSingleObject(g_hSyncThread, 8000) == WAIT_OBJECT_0);
         CloseHandle(g_hSyncThread);
         g_hSyncThread = NULL;
     }
 
     if (g_hLoopbackThread)
     {
-        WaitForSingleObject(g_hLoopbackThread, 1500);
+        loopJoined = (WaitForSingleObject(g_hLoopbackThread, 3000) == WAIT_OBJECT_0);
         CloseHandle(g_hLoopbackThread);
         g_hLoopbackThread = NULL;
     }
 
-    if (g_hSyncWakeEvent)
+    if (syncJoined && g_hSyncWakeEvent)
     {
         CloseHandle(g_hSyncWakeEvent);
         g_hSyncWakeEvent = NULL;
     }
 
-    DeleteCriticalSection(&g_syncLock);
+    if (syncJoined && loopJoined)
+    {
+        DeleteCriticalSection(&g_syncLock);
+    }
+    else
+    {
+        PB_WriteAppLog("PecSyncStop: worker did not exit in time; sync lock kept alive to avoid teardown under a live thread");
+    }
 }
 
 static void PecSyncNotifyConfigChange(void)
