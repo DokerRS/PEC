@@ -134,17 +134,17 @@ static wchar_t            g_lastSyncStatusStr[128] = L"Ожидание синх
 
 #ifndef PEC_PROFILE_LOCK_DEFINED
 #define PEC_PROFILE_LOCK_DEFINED
-#ifdef __cplusplus
+// THEME-NAT-1: a real CRITICAL_SECTION in BOTH builds. The C build used to compile
+// this into a no-op, leaving the sync thread's profile/theme RMW racing the UI
+// thread's SwitchToProfile / WM_APP_RELOAD_PROFILE. g_profileCs is declared and
+// initialized by each GUI main before PecSyncStart (reentrant per-thread, so
+// nested PecProfileLock scopes on one thread are safe).
 static inline void PecProfileLock() {
     EnterCriticalSection(&g_profileCs);
 }
 static inline void PecProfileUnlock() {
     LeaveCriticalSection(&g_profileCs);
 }
-#else
-static inline void PecProfileLock() {}
-static inline void PecProfileUnlock() {}
-#endif
 #endif
 
 static inline void PecSyncSetStatusStr(const wchar_t* str)
