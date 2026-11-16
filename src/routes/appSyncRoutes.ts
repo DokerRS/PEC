@@ -20,6 +20,7 @@ import { ProxyNode } from "../types.js";
 import { getActiveRelease } from "../releases.js";
 import { resolveProfileForInstance, expandRuleDomains, getProfileById } from "../routing.js";
 import { getBuildConfig as getExtensionBuildConfig } from "../packager.js";
+import { sanitizeSingleLine, logger } from "../logger.js";
 import { DEFAULT_APP_VERSION, getAppBuildConfig } from "../appPackager.js";
 import { isNewerVersion } from "../utils/semver.js";
 import { getAppBuildInfoPath } from "../storage.js";
@@ -260,14 +261,16 @@ export function createAppSyncRouter(
           };
 
       const allProxiesList = getAllProxies(false).filter((p) => p.host && p.port && (p as any).enabled !== false);
+      // Two-token isolation (AUDIT-SEC-1): a fleet-level app sync must never
+      // receive credentials for nodes it is not assigned to. Credentials travel
+      // only with the assigned activeProxy above; node switching is performed
+      // server-side (selectedProxyId) and the next sync returns fresh credentials.
       const availableProxies = allProxiesList.map((p) => ({
         id: p.id,
         name: p.name || `${p.host}:${p.port}`,
         protocol: p.protocol || "socks5",
         host: p.host,
         port: p.port,
-        user: p.username || "",
-        pass: p.password || "",
       }));
 
       const activeRelease = getActiveRelease("app");
@@ -307,9 +310,11 @@ export function createAppSyncRouter(
         ? `/api/releases/download/app/${encodeURIComponent(activeRelease.version)}`
         : `/api/releases/download/app/${encodeURIComponent(latestVersion)}`;
 
-      console.log(
-        `[APP-SYNC] Client '${username || "unknown"}' on '${hostname || "unknown"}' (v${version || "?"}, IP: ${clientIp}) sync OK` +
-          (effectivePairedExtId ? ` [Paired: ${effectivePairedExtId} / ${desktopRecord.pairedExtension?.browser || "?"}]` : "") +
+      // AUDIT-SRV-P3: username/hostname are client-supplied - sanitize before
+      // logging so they cannot forge extra log lines.
+      logger.info(
+        `[APP-SYNC] Client '${sanitizeSingleLine(username || "unknown")}' on '${sanitizeSingleLine(hostname || "unknown")}' (v${version || "?"}, IP: ${clientIp}) sync OK` +
+          (effectivePairedExtId ? ` [Paired: ${sanitizeSingleLine(effectivePairedExtId)} / ${sanitizeSingleLine(desktopRecord.pairedExtension?.browser || "?")}]` : "") +
           (hasUpdate ? ` [Update -> v${latestVersion}]` : "")
       );
 

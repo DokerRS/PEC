@@ -247,7 +247,7 @@ test("M-7: Passwords are NOT passed via CLI argv for osslsigncode, signtool, or 
   }
 });
 
-test("N-1 (replaces M-7 for signtool): signtool.exe receives password via /p <password> in argv and not /pfile (AR-6)", (t) => {
+test("N-1 (replaces M-7 for signtool, updated by AUDIT-SEC-3): signtool.exe signs passwordless via cert store /sha1, PFX password never in argv", (t) => {
   setupTestDir();
   t.after(cleanTestDir);
 
@@ -285,10 +285,32 @@ test("N-1 (replaces M-7 for signtool): signtool.exe receives password via /p <pa
   const secretPassword = "WinSigntoolSecretPassword456!#";
   const dummyPfx = crypto.randomBytes(128);
 
-  saveCertificate(dummyPfx, secretPassword, "commercial", "http://timestamp.digicert.com");
+  const savedMeta = saveCertificate(dummyPfx, secretPassword, "commercial", "http://timestamp.digicert.com");
+  const expectedThumbprint = (savedMeta.thumbprint || "").replace(/\s+/g, "").toUpperCase();
+  assert.match(expectedThumbprint, /^[0-9A-F]{40,64}$/, "saveCertificate must yield a usable thumbprint for cert-store signing");
 
   const signed = signBinary(targetFile);
   assert.equal(signed, true, "signBinary should succeed when signtool.exe mock succeeds");
+
+  const psImportCall = recordedCalls.find((c) => c.file === "powershell" && c.args?.some((a) => String(a).includes("Import-PfxCertificate")));
+  assert.ok(psImportCall, "PFX must be imported into CurrentUser\\My via PowerShell before signing");
+  for (const c of recordedCalls.filter((x) => x.file === "powershell")) {
+    for (const a of c.args || []) {
+      assert.ok(!String(a).includes(secretPassword), "no PowerShell argv element may contain the raw PFX password");
+    }
+  }
+  assert.ok(
+    psImportCall.args?.some((a) => String(a).includes("Import-PfxCertificate")),
+    "import command must use Import-PfxCertificate"
+  );
+  assert.ok(
+    psImportCall.args?.some((a) => String(a).includes("$env:PFX_PASS")),
+    "import command must read the password from the environment, not from argv"
+  );
+  for (const a of psImportCall.args || []) {
+    assert.ok(!String(a).includes(secretPassword), "PowerShell argv must never contain the raw PFX password");
+  }
+  assert.equal(psImportCall.options?.env?.PFX_PASS, secretPassword, "password reaches the import only via env");
 
   const signtoolSignCall = recordedCalls.find((c) => c.file === "signtool.exe" && c.args?.[0] === "sign");
   assert.ok(signtoolSignCall, "signtool.exe sign must be called");
@@ -298,12 +320,22 @@ test("N-1 (replaces M-7 for signtool): signtool.exe receives password via /p <pa
   const pfileIdx = signtoolSignCall.args.indexOf("/pfile");
   assert.equal(pfileIdx, -1, "Must not use invalid /pfile argument on signtool");
 
-  // Must have /p <password> (N-1 / AR-6)
+  // AUDIT-SEC-3: /p <password> in argv is forbidden (process table leakage);
+  // the certificate is addressed by thumbprint from the user cert store instead.
   const pIdx = signtoolSignCall.args.indexOf("/p");
-  assert.notEqual(pIdx, -1, "Must use /p argument for signtool.exe");
-  assert.equal(signtoolSignCall.args[pIdx + 1], secretPassword, "Password must follow /p for signtool.exe");
+  assert.equal(pIdx, -1, "Must NOT use /p argument: password in argv leaks via WMI/Win32_Process (AUDIT-SEC-3)");
+  for (const a of signtoolSignCall.args) {
+    assert.ok(!String(a).includes(secretPassword), "signtool argv must never contain the raw PFX password");
+  }
+  const sha1Idx = signtoolSignCall.args.indexOf("/sha1");
+  assert.notEqual(sha1Idx, -1, "Must address the certificate by /sha1 thumbprint");
+  assert.equal(
+    signtoolSignCall.args[sha1Idx + 1],
+    expectedThumbprint,
+    "Signed thumbprint must match the stored certificate"
+  );
 
-  // Password in env PFX_PASS is also passed
+  // Password in env PFX_PASS is also passed (harmless; kept for tooling parity)
   assert.equal(signtoolSignCall.options?.env?.PFX_PASS, secretPassword);
 });
 

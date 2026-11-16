@@ -10,6 +10,7 @@ import { getBuildConfig } from "../packager.js";
 import { recordAudit, getClientIp, getBaseUrl } from "../audit.js";
 import { createRateLimiter, timingSafeEqualString } from "../middleware/security.js";
 import { signPacUrlParams, verifyPacUrlParams } from "../pacSigner.js";
+import { sanitizeSingleLine, logger } from "../logger.js";
 
 function authenticateExtRequest(
   tokenProvided: string | undefined,
@@ -64,11 +65,15 @@ export class EnrollmentTracker {
   private store = new Map<string, { count: number; resetTime: number }>();
   private windowMs: number;
   private maxRequests: number;
+  private nowFn: () => number;
   private cleanupTimer: NodeJS.Timeout | null = null;
 
-  constructor(windowMs: number = 60_000, maxRequests: number = 10) {
+  // AUDIT-QA-2: optional clock injection so tests can drive window expiry
+  // deterministically instead of racing real 50ms/60ms timeouts.
+  constructor(windowMs: number = 60_000, maxRequests: number = 10, nowFn: () => number = Date.now) {
     this.windowMs = windowMs;
     this.maxRequests = maxRequests;
+    this.nowFn = nowFn;
     this.cleanupTimer = setInterval(() => {
       this.cleanup();
     }, 60_000);
@@ -78,7 +83,7 @@ export class EnrollmentTracker {
   }
 
   private cleanup(): void {
-    const now = Date.now();
+    const now = this.nowFn();
     for (const [ip, rec] of this.store.entries()) {
       if (now > rec.resetTime) {
         this.store.delete(ip);
@@ -87,7 +92,7 @@ export class EnrollmentTracker {
   }
 
   check(ip: string): boolean {
-    const now = Date.now();
+    const now = this.nowFn();
     const rec = this.store.get(ip);
     if (!rec || now > rec.resetTime) {
       this.store.set(ip, { count: 1, resetTime: now + this.windowMs });
@@ -478,8 +483,10 @@ export function createCredsRouter(getSharedToken: () => string): Router {
         details: `Instance: ${instanceId || "anon"}, Profile: ${assignedProfile.name}${issuedInstanceToken ? " (enrolled)" : ""}`,
       });
 
-      console.log(
-        `[EXT-SYNC] Instance '${instanceId || "anon"}' (v${version || "?"}, IP: ${clientHost}) -> Profile: '${assignedProfile.name}', Proxy: '${effectiveNode?.name || "default"}'`
+      // AUDIT-SRV-P3: instanceId/profile/proxy names are client-influenced -
+      // sanitize before logging so they cannot forge extra log lines.
+      logger.info(
+        `[EXT-SYNC] Instance '${sanitizeSingleLine(instanceId || "anon")}' (v${version || "?"}, IP: ${clientHost}) -> Profile: '${sanitizeSingleLine(assignedProfile.name)}', Proxy: '${sanitizeSingleLine(effectiveNode?.name || "default")}'`
       );
 
       const availableProxies = getAllProxies(true).map((p) => ({

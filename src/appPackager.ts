@@ -1742,6 +1742,19 @@ export function parseAppVersion(rawVersion?: string): {
   };
 }
 
+/**
+ * AUDIT-NAT-2-TS: resolve the Windows client source tree. Tests redirect this
+ * to a sandbox copy via PEC_CLIENT_WIN_DIR so packaging pipelines (which call
+ * writeVersionGenHeaders against this tree) never mutate the committed
+ * client/Windows headers with test-environment tokens.
+ */
+function getClientWinDir(): string {
+  if (process.env.PEC_CLIENT_WIN_DIR) {
+    return path.resolve(process.env.PEC_CLIENT_WIN_DIR);
+  }
+  return path.join(path.resolve("."), "client", "Windows");
+}
+
 export function writeVersionGenHeaders(
   clientWinDir: string,
   appVer: ReturnType<typeof parseAppVersion>,
@@ -1750,7 +1763,20 @@ export function writeVersionGenHeaders(
 ): void {
   const envPublicBase = (process.env.PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
   const defaultServerUrl = (serverUrl || envPublicBase || getAppBuildConfig().defaultServerUrl || "http://127.0.0.1:3000").replace(/\/+$/, "");
-  const defaultFleetToken = (fleetToken || process.env.EXT_SHARED_TOKEN || getAppBuildConfig().defaultToken || "corp-proxy-secret-token-change-me").trim();
+  // AUDIT-NAT-2-TS: never bake placeholder or test tokens into client headers.
+  // The build-config default chain resolves to "corp-proxy-secret-token-change-me"
+  // on fresh installs, and the test environment exports a test fleet token -
+  // both used to leak into committed/shipped version_gen.h. An empty default
+  // forces provisioning through GPO / managed storage at runtime.
+  const PLACEHOLDER_FLEET_TOKENS = new Set([
+    "corp-proxy-secret-token-change-me",
+    "test-admin-token",
+    "********",
+  ]);
+  let defaultFleetToken = (fleetToken || process.env.EXT_SHARED_TOKEN || getAppBuildConfig().defaultToken || "").trim();
+  if (PLACEHOLDER_FLEET_TOKENS.has(defaultFleetToken)) {
+    defaultFleetToken = "";
+  }
 
   const content = `#ifndef VERSION_GEN_H
 #define VERSION_GEN_H
@@ -1875,7 +1901,7 @@ export function cleanAppBinaries(): CleanAppBinariesResult {
 
   // Intermediate files in client/Windows
   const repoRoot = path.resolve(".");
-  const clientWinDir = path.join(repoRoot, "client", "Windows");
+  const clientWinDir = getClientWinDir();
   if (fs.existsSync(clientWinDir)) {
     const intermediatePatterns = [
       path.join(clientWinDir, "PEC-CLI.exe"),
@@ -2180,7 +2206,7 @@ export function compileBinariesWithMinGW(outDir?: string, customVersion?: string
 
   const mingw = findMingwW64();
   const repoRoot = path.resolve(".");
-  const clientWinDir = path.join(repoRoot, "client", "Windows");
+  const clientWinDir = getClientWinDir();
   const guiDir = path.join(clientWinDir, "gui");
   const cliDir = path.join(clientWinDir, "cli");
   const builtFiles: string[] = [];
@@ -2572,7 +2598,7 @@ export function buildAppBinaries(customVersion?: string): BuildAppBinariesResult
     }
   }
   const repoRoot = path.resolve(".");
-  const clientWinDir = path.join(repoRoot, "client", "Windows");
+  const clientWinDir = getClientWinDir();
   const guiDir = path.join(clientWinDir, "gui");
   const cliDir = path.join(clientWinDir, "cli");
 

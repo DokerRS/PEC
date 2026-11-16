@@ -64,7 +64,7 @@ test("Manual Proxy Sync Mutex (M-8): returns 409 Conflict when rotation is in fl
   }
 });
 
-test("Manual Proxy Sync Mutex (M-8): returns 409 Conflict when concurrent sync is already in flight for the same proxy", async () => {
+test("Manual Proxy Sync Mutex (M-8, updated by AUDIT-SRV-P3): concurrent syncs for the same proxy are coalesced into one panel round-trip", async () => {
   const { withHttpServer } = await import("./helpers/http-server.js");
   const { save3xuiPanel } = await import("../src/rotate.js");
 
@@ -72,6 +72,7 @@ test("Manual Proxy Sync Mutex (M-8): returns 409 Conflict when concurrent sync i
   const firstRequestBlocker = new Promise<void>((resolve) => {
     resolveFirstRequest = resolve;
   });
+  let listHits = 0;
 
   const { url, close } = await withHttpServer(async (req, res) => {
     if (req.url === "/csrf-token") {
@@ -85,6 +86,7 @@ test("Manual Proxy Sync Mutex (M-8): returns 409 Conflict when concurrent sync i
       return;
     }
     if (req.url === "/panel/api/inbounds/list") {
+      listHits++;
       // Delay response until we say so
       await firstRequestBlocker;
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -126,23 +128,31 @@ test("Manual Proxy Sync Mutex (M-8): returns 409 Conflict when concurrent sync i
       body: JSON.stringify({ rotatePassword: false }),
     });
 
-    // Give express a brief moment to enter sync handler and add to activeSyncProxies
+    // Give express a brief moment to enter the sync handler and register the work
     await new Promise((r) => setTimeout(r, 50));
 
-    // Launch second sync request concurrently for the same proxy
-    const res2 = await fetch(`${base}/api/proxies/${proxy.id}/sync`, {
+    // AUDIT-SRV-P3 (promise coalescing): the second concurrent request must
+    // await the in-flight work and share its outcome - no more spurious 409.
+    const p2 = fetch(`${base}/api/proxies/${proxy.id}/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rotatePassword: false }),
     });
+    await new Promise((r) => setTimeout(r, 50));
 
-    assert.strictEqual(res2.status, 409, "Second concurrent sync must return 409 Conflict");
-    const body2 = await res2.json();
-    assert.match(body2.error || "", /in flight|sync/i);
-
-    // Unblock first request
+    // Unblock the shared panel round-trip
     resolveFirstRequest();
-    await p1;
+    const [res1, res2] = await Promise.all([p1, p2]);
+
+    assert.notStrictEqual(res2.status, 409, "Second concurrent sync must be coalesced, not rejected with 409");
+    assert.strictEqual(res2.status, res1.status, "Both callers must receive the identical shared outcome");
+    const body2 = await res2.json();
+    const body1 = await res1.json();
+    assert.deepStrictEqual(body2, body1, "Coalesced response bodies must be identical");
+    // The mock panel has no inbounds, so the shared outcome is the honest 400
+    assert.strictEqual(res2.status, 400);
+    assert.match(body2.error || "", /not found/i);
+    assert.strictEqual(listHits, 1, "the panel must be contacted exactly once despite two concurrent callers");
   } finally {
     resolveFirstRequest();
     server.close();

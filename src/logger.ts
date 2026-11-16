@@ -19,6 +19,17 @@ const SENSITIVE_KEY_PATTERN =
   /(?:adPass|adBindPassword|ad_bind_password|token|password|passwd|pass$|adminPass|xuiPass|clientPass|secret|cookie|auth|authorization|admin_token|ext_shared_token|key\.pem|private_key|credential)/i;
 
 /**
+ * AUDIT-SRV-P3: collapse control characters in client-supplied identifiers so
+ * they cannot forge additional log lines (log injection via username,
+ * hostname, instanceId, profile names).
+ */
+export function sanitizeSingleLine(val: unknown): string {
+  return String(val ?? "")
+    .replace(/[\r\n\t\x00-\x1f]+/g, " ")
+    .trim();
+}
+
+/**
  * Recursively sanitizes data by redacting sensitive keys and masking credential patterns in strings.
  */
 export function sanitizeLogValue(val: unknown, seen = new WeakSet<object>()): unknown {

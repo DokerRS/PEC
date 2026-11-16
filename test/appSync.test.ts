@@ -292,8 +292,8 @@ test("App Sync API: availableProxies, proxy assignment, and instance deletion", 
     assert.strictEqual(syncBody.ok, true);
     assert.ok(Array.isArray(syncBody.availableProxies));
     for (const p of syncBody.availableProxies) {
-      assert.strictEqual(typeof (p as any).user, "string", "availableProxies must include user for client nodes");
-      assert.strictEqual(typeof (p as any).pass, "string", "availableProxies must include pass for client nodes");
+      assert.strictEqual((p as any).user, undefined, "availableProxies must NOT include user (two-token isolation, AUDIT-SEC-1)");
+      assert.strictEqual((p as any).pass, undefined, "availableProxies must NOT include pass (two-token isolation, AUDIT-SEC-1)");
       assert.strictEqual((p as any).password, undefined, "availableProxies must not expose raw password field name");
     }
 
@@ -434,7 +434,7 @@ test("App Sync API: fallback version without active release is 2.2.0", async () 
   });
 });
 
-test("D7: availableProxies includes credentials user and pass for Windows C-client", async () => {
+test("D7: availableProxies excludes credentials; only the assigned activeProxy carries them (AUDIT-SEC-1)", async () => {
   const { createProxy, deleteProxy } = await import("../src/proxies.js");
   const testNode = createProxy({
     name: "Corporate Node",
@@ -447,29 +447,53 @@ test("D7: availableProxies includes credentials user and pass for Windows C-clie
 
   try {
     await withServer(async (base) => {
-      const res = await fetch(`${base}/api/app/sync`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Fleet-Token": TEST_TOKEN,
-        },
-        body: JSON.stringify({
-          appInstanceId: "app_test_d7",
-          hostname: "WORKSTATION-D7",
-          username: "user_d7",
-          version: "2.1.0",
-        }),
-      });
+      let instanceToken: string | undefined;
+      const syncOnce = async () => {
+        const res = await fetch(`${base}/api/app/sync`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Fleet-Token": TEST_TOKEN,
+            ...(instanceToken ? { "X-Instance-Token": instanceToken } : {}),
+          },
+          body: JSON.stringify({
+            appInstanceId: "app_test_d7",
+            hostname: "WORKSTATION-D7",
+            username: "user_d7",
+            version: "2.1.0",
+          }),
+        });
+        assert.strictEqual(res.status, 200);
+        const body = await res.json();
+        if (body.instanceToken) instanceToken = body.instanceToken;
+        return body;
+      };
 
-      assert.strictEqual(res.status, 200);
-      const body = await res.json();
+      // Fleet-token sync: the node list must not leak any credentials
+      const body = await syncOnce();
       assert.strictEqual(body.ok, true);
       assert.ok(Array.isArray(body.availableProxies));
       const found = body.availableProxies.find((p: any) => p.id === testNode.id);
       assert.ok(found, "Created node must appear in availableProxies");
-      assert.strictEqual(found.user, "corp_user", "availableProxies must contain username in user field");
-      assert.strictEqual(found.pass, "corp_password_123", "availableProxies must contain password in pass field");
+      assert.strictEqual(found.user, undefined, "availableProxies must NOT contain user (two-token isolation)");
+      assert.strictEqual(found.pass, undefined, "availableProxies must NOT contain pass (two-token isolation)");
       assert.strictEqual(found.password, undefined, "password field should not be present");
+
+      // Credentials arrive only for the server-assigned node via activeProxy
+      const assignRes = await fetch(`${base}/api/app/instances/app_test_d7/assign-proxy`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Admin-Token": TEST_ADMIN_TOKEN,
+        },
+        body: JSON.stringify({ proxyId: testNode.id }),
+      });
+      assert.strictEqual(assignRes.status, 200);
+
+      const afterAssign = await syncOnce();
+      assert.strictEqual(afterAssign.activeProxy.id, testNode.id);
+      assert.strictEqual(afterAssign.activeProxy.user, "corp_user", "assigned activeProxy must carry the username");
+      assert.strictEqual(afterAssign.activeProxy.pass, "corp_password_123", "assigned activeProxy must carry the password");
     });
   } finally {
     deleteProxy(testNode.id);

@@ -66,21 +66,7 @@ export function renderPopupHtml(cfg?: Partial<ExtensionBuildConfig>, colors?: Re
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(safeCfg.name || "PEC Corp Proxy")}</title>
-  <script>
-    try {
-      var m = localStorage.getItem("pec_theme_mode") || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-      if (m) {
-        document.documentElement.setAttribute("data-theme", m);
-        if (document.body) {
-          document.body.setAttribute("data-theme", m);
-        } else {
-          document.addEventListener("DOMContentLoaded", function() {
-            if (document.body) document.body.setAttribute("data-theme", m);
-          });
-        }
-      }
-    } catch(e) {}
-  </script>
+  <script src="popupTheme.js"></script>
   <style>
     :root, [data-theme="dark"] {
       --primary: ${effectiveColors.primary};

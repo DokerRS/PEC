@@ -360,8 +360,9 @@ app.get("/", (req: Request, res: Response) => {
   res.type("html").send(html);
 });
 
-// Global API & Express error-handling middleware - ensures structured JSON error responses
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+// Global API & Express error-handling middleware - ensures structured JSON error responses.
+// Exported for unit tests (AUDIT-SRV-P3: 5xx bodies must not mirror internals).
+export function globalApiErrorHandler(err: any, req: Request, res: Response, next: NextFunction) {
   if (err) {
     const status = typeof err.status === "number" ? err.status : typeof err.statusCode === "number" ? err.statusCode : 500;
     const isPayloadTooLarge = err.type === "entity.too.large" || status === 413;
@@ -370,6 +371,12 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
       const limitBytes = typeof err.limit === "number" ? err.limit : (req.path.includes("import-file") ? 150 * 1024 * 1024 : 1024 * 1024);
       const limitStr = limitBytes >= 1024 * 1024 ? `${Math.round(limitBytes / (1024 * 1024))}MB` : `${Math.round(limitBytes / 1024)}KB`;
       message = `Payload Too Large: request body exceeds the server limit (max ${limitStr})`;
+    }
+    // AUDIT-SRV-P3: unexpected 5xx bodies must not mirror internal error text
+    // (stack fragments, filesystem paths, driver details) to the client;
+    // full diagnostics stay in the server log line above.
+    if (status >= 500 && !isPayloadTooLarge) {
+      message = "Internal Server Error";
     }
 
     if (status >= 400 && status < 500) {
@@ -388,7 +395,9 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     });
   }
   next();
-});
+}
+
+app.use(globalApiErrorHandler);
 
 if (process.env.NODE_ENV !== "test" && process.env.PEC_DISABLE_LISTEN !== "true") {
   const server = app.listen(PORT, HOST, () => {
@@ -414,6 +423,21 @@ if (process.env.NODE_ENV !== "test" && process.env.PEC_DISABLE_LISTEN !== "true"
           `[SECURITY WARNING] Development only: restarting the server will change this token. Set ADMIN_TOKEN in .env for a stable value.`
       );
     }
+  });
+
+  // AUDIT-SRV-P3: an unhandled 'error' event on the net.Server crashes with a
+  // raw stack trace. The common case - port already bound - must produce a
+  // clean, actionable message instead.
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(
+        `[pec-server] FATAL: port ${PORT} is already in use (EADDRINUSE). ` +
+          `Stop the competing instance or set PORT to a free value.`
+      );
+    } else {
+      console.error(`[pec-server] FATAL: HTTP server error:`, err);
+    }
+    process.exit(1);
   });
 
   let isShuttingDown = false;

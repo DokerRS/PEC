@@ -62,6 +62,7 @@ let currentProxyState = {
   proxyReachable: true,
   bypassActive: false,
   bypassExpiresAt: null,
+  serverDisabled: false,
   serverBase: DEFAULT_SERVER_BASE,
   lastSync: 0,
   activeProxyId: (DEFAULT_PROXY_ID && !DEFAULT_PROXY_ID.startsWith("__" + "PEC_")) ? DEFAULT_PROXY_ID : "",
@@ -833,7 +834,12 @@ async function applyPacScript(pacUrl, config, forcePacFetch = false) {
           const proxyHost = (config && config.host) || currentProxyState.host || "";
           const proxyPort = (config && config.port) || currentProxyState.port || 10809;
           const proxyProto = (config && config.protocol) || (lastConfig && lastConfig.protocol) || currentProxyState.protocol || "http";
-          const proxyServer = proxyHost ? proxyHost + ":" + proxyPort : "";
+          // AUDIT-SRV-P3: host/port are embedded into generated PAC JavaScript -
+          // allow only hostname/IPv6-literal characters and a numeric port so a
+          // corrupt value cannot break out of the PROXY string literal.
+          const safePacHost = String(proxyHost || "").replace(/[^a-zA-Z0-9.:\-\[\]]/g, "");
+          const safePacPort = parseInt(String(proxyPort), 10) || 0;
+          const proxyServer = safePacHost && safePacPort > 0 ? safePacHost + ":" + safePacPort : "";
           pacText = injectUserRulesIntoPac(pacText, stored.pecUserRules, proxyServer, proxyProto);
           logEvent("info", "Injected " + stored.pecUserRules.length + " user routing overrides into PAC");
         }
@@ -1017,16 +1023,16 @@ async function applyProxyConfig(config, forcePacFetch = false) {
 
   try {
     const isEnabled = (effectiveConfig.enabled !== false) && currentProxyState.enabled !== false;
-    if (currentProxyState.bypassActive || effectiveConfig.killSwitch || !isEnabled || effectiveConfig.protocol === "direct") {
+    if (currentProxyState.bypassActive || effectiveConfig.killSwitch || currentProxyState.serverDisabled || !isEnabled || effectiveConfig.protocol === "direct") {
       console.log("[PEC] Routing set to DIRECT.");
-      logEvent("info", "Proxy set to DIRECT (bypass=" + currentProxyState.bypassActive + ", enabled=" + isEnabled + ")");
+      logEvent("info", "Proxy set to DIRECT (bypass=" + currentProxyState.bypassActive + ", enabled=" + isEnabled + ", serverDisabled=" + (currentProxyState.serverDisabled === true) + ")");
       await chrome.proxy.settings.set({
         value: { mode: "direct" },
         scope: "regular",
       });
       if (currentProxyState.bypassActive) {
         updateBadge("●", "#f59e0b");
-      } else if (!isEnabled) {
+      } else if (!isEnabled || currentProxyState.serverDisabled) {
         updateBadge("●", "#64748b");
       } else {
         updateBadge("●", "#38bdf8");
@@ -1263,6 +1269,11 @@ async function executeSync(forceRefresh = false, applyConfig = true, selectedPro
           if (Array.isArray(payload.availableProxies)) {
             currentProxyState.availableProxies = payload.availableProxies;
           }
+          if (payload.ok === true) {
+            // Server accepted this instance again: lift the kill-switch gate
+            // so SET_ENABLED(true) stops being refused (AUDIT-EXT-1).
+            currentProxyState.serverDisabled = false;
+          }
           if (payload.allowUserProxySwitch !== undefined) {
             currentProxyState.allowUserProxySwitch = payload.allowUserProxySwitch;
           }
@@ -1359,6 +1370,7 @@ async function executeSync(forceRefresh = false, applyConfig = true, selectedPro
                 });
               }
               currentProxyState.enabled = false;
+              currentProxyState.serverDisabled = true;
               persistProxyState();
               updateBadge("OFF", "#ef4444");
               return;
@@ -1593,6 +1605,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (!PEC_ALLOW_MANUAL_BYPASS && !enabled) {
         logEvent("warn", "Manual proxy bypass is disabled by policy");
         sendResponse({ ok: false, error: "Manual proxy bypass is disabled by policy" });
+        return false;
+      }
+      // AUDIT-EXT-1: a server-side revocation (DISABLE_PROXY / kill-switch)
+      // must not be overridable from the local toggle. Re-enabling stays
+      // blocked until the next successful sync lifts the flag.
+      if (enabled === true && currentProxyState.serverDisabled === true) {
+        logEvent("warn", "Re-enable blocked: server revoked access for this instance (kill-switch active)");
+        sendResponse({ ok: false, error: "Proxy is disabled by server policy: access revoked. Re-enable is blocked until the next successful sync." });
         return false;
       }
       currentProxyState.enabled = enabled;

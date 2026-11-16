@@ -1,7 +1,7 @@
 import "./loadEnv.js";
 import fs from "node:fs";
 import { Client } from "ldapts";
-import { writeJsonAtomic } from "./jsonStore.js";
+import { writeJsonAtomic, restrictSecretFilePermissions } from "./jsonStore.js";
 import { getAdCachePath, getAdConfigPath } from "./storage.js";
 import { logger } from "./logger.js";
 
@@ -33,6 +33,25 @@ export function escapeLdapFilter(str: string): string {
     .replace(/\0/g, "\\00");
 }
 
+/**
+ * AUDIT-SRV-2: clamp the AD sync interval to [5..86400] seconds. An
+ * unclamped 0/negative value reaching setInterval would spin a hot LDAP
+ * loop against the domain controller; the upper bound keeps a mistyped
+ * value from silently disabling sync for more than a day. Garbage input
+ * falls back to the 300s default.
+ */
+export const AD_SYNC_INTERVAL_MIN_SEC = 5;
+export const AD_SYNC_INTERVAL_MAX_SEC = 86400;
+export const AD_SYNC_INTERVAL_DEFAULT_SEC = 300;
+
+export function clampSyncIntervalSec(value: unknown): number {
+  const parsed = typeof value === "number" ? value : parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) {
+    return AD_SYNC_INTERVAL_DEFAULT_SEC;
+  }
+  return Math.min(AD_SYNC_INTERVAL_MAX_SEC, Math.max(AD_SYNC_INTERVAL_MIN_SEC, Math.floor(parsed)));
+}
+
 export function loadAdConfig(): AdSyncConfig {
   const envConfig: AdSyncConfig = {
     enabled: process.env.AD_ENABLED === "true",
@@ -41,10 +60,7 @@ export function loadAdConfig(): AdSyncConfig {
     bindPassword: process.env.AD_BIND_PASSWORD || "",
     searchBase: process.env.AD_SEARCH_BASE || "",
     requiredGroupDn: process.env.AD_REQUIRED_GROUP_DN || "",
-    syncIntervalSec: Math.max(
-      5,
-      parseInt(process.env.AD_SYNC_INTERVAL_SEC || "300", 10) || 300
-    ),
+    syncIntervalSec: clampSyncIntervalSec(process.env.AD_SYNC_INTERVAL_SEC || AD_SYNC_INTERVAL_DEFAULT_SEC),
     rejectUnknownUsers: process.env.AD_REJECT_UNKNOWN_USERS === "true",
     tlsRejectUnauthorized: process.env.AD_TLS_REJECT_UNAUTHORIZED !== "false",
   };
@@ -58,6 +74,11 @@ export function loadAdConfig(): AdSyncConfig {
         return {
           ...envConfig,
           ...diskConfig,
+          // AUDIT-SRV-2: disk config is operator-editable and historically
+          // unvalidated — clamp before it can reach setInterval.
+          syncIntervalSec: clampSyncIntervalSec(
+            diskConfig.syncIntervalSec !== undefined ? diskConfig.syncIntervalSec : envConfig.syncIntervalSec
+          ),
         };
       }
     }
@@ -92,6 +113,9 @@ export class AdSyncService {
     this.config = {
       ...this.config,
       ...updates,
+      ...(updates.syncIntervalSec !== undefined
+        ? { syncIntervalSec: clampSyncIntervalSec(updates.syncIntervalSec) }
+        : {}),
     };
   }
 
@@ -103,7 +127,13 @@ export class AdSyncService {
     if (newConfig.bindPassword === undefined || newConfig.bindPassword === "") {
       merged.bindPassword = this.config.bindPassword;
     }
+    // AUDIT-SRV-2: POST /api/ad/config forwards the raw request body here;
+    // clamp before persisting so a crafted 0 cannot hot-loop the scheduler.
+    merged.syncIntervalSec = clampSyncIntervalSec(merged.syncIntervalSec);
     writeJsonAtomic(getAdConfigPath(), merged);
+    // AUDIT-SRV-P3: bindPassword is stored here - strip Windows ACE inheritance
+    // so the file is not readable through inherited Everyone/group grants.
+    restrictSecretFilePermissions(getAdConfigPath());
     this.updateConfig(merged);
     if (this.timer) {
       this.startPeriodicSync();

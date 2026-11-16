@@ -9,10 +9,11 @@ import {
   escapeLdapFilter,
   isDomainUserAllowed,
   loadAdConfig,
+  clampSyncIntervalSec,
 } from "../src/adSync.js";
 import { sanitizeLogValue } from "../src/logger.js";
 import { periodicAdSyncTask, stopScheduler } from "../src/scheduler.js";
-import { getAdCachePath, getDataDir } from "../src/storage.js";
+import { getAdCachePath, getDataDir, getAdConfigPath } from "../src/storage.js";
 
 test("adSync: loads configuration defaults and honors environment variables", () => {
   const origEnabled = process.env.AD_ENABLED;
@@ -274,4 +275,42 @@ test("scheduler: periodicAdSyncTask starts and stopScheduler cleanly stops perio
   assert.doesNotThrow(() => {
     stopScheduler();
   });
+});
+
+test("SRV-2: syncIntervalSec is clamped to 5..86400 in saveConfig, updateConfig and disk merge (anti-hot-loop)", () => {
+
+  // Pure clamp semantics
+  assert.equal(clampSyncIntervalSec(0), 5, "zero must clamp to the 5s floor");
+  assert.equal(clampSyncIntervalSec(-100), 5, "negative must clamp to the 5s floor");
+  assert.equal(clampSyncIntervalSec(1), 5);
+  assert.equal(clampSyncIntervalSec(60), 60, "in-range values pass through");
+  assert.equal(clampSyncIntervalSec(86400), 86400, "upper bound is inclusive");
+  assert.equal(clampSyncIntervalSec(999999999), 86400, "huge values clamp to one day");
+  assert.equal(clampSyncIntervalSec("0"), 5, "string zero must clamp too");
+  assert.equal(clampSyncIntervalSec("abc"), 300, "garbage falls back to the 300s default");
+  assert.equal(clampSyncIntervalSec(undefined), 300);
+  assert.equal(clampSyncIntervalSec(NaN), 300);
+
+  // saveConfig: raw web-form body values must never reach setInterval/setTimeout
+  const svc = new AdSyncService({ enabled: false, ldapUrl: "ldaps://ad.test:636" });
+  svc.saveConfig({ syncIntervalSec: 0 });
+  assert.equal(svc.getConfig().syncIntervalSec, 5, "saveConfig(0) must persist the clamped floor");
+  svc.saveConfig({ syncIntervalSec: 10_000_000 });
+  assert.equal(svc.getConfig().syncIntervalSec, 86400, "saveConfig(huge) must persist the clamped ceiling");
+  const persisted = JSON.parse(fs.readFileSync(getAdConfigPath(), "utf-8"));
+  assert.equal(persisted.syncIntervalSec, 86400, "clamped value must be what lands on disk");
+
+  // updateConfig: direct programmatic path is clamped as well
+  svc.updateConfig({ syncIntervalSec: -42 });
+  assert.equal(svc.getConfig().syncIntervalSec, 5, "updateConfig(negative) must clamp");
+
+  // Disk merge: a hand-edited ad_config.json with 0 must not hot-loop on boot
+  fs.writeFileSync(
+    getAdConfigPath(),
+    JSON.stringify({ enabled: true, ldapUrl: "ldaps://ad.test:636", syncIntervalSec: 0 })
+  );
+  const fromDisk = new AdSyncService();
+  assert.equal(fromDisk.getConfig().syncIntervalSec, 5, "disk value 0 must clamp at load");
+
+  fs.unlinkSync(getAdConfigPath());
 });

@@ -2,7 +2,7 @@ import "./loadEnv.js";
 import fs from "node:fs";
 import { ProxyConfiguration, ExtensionInstance, DesktopInstance } from "./types.js";
 import { resolveProfileForInstance, getProfileById } from "./routing.js";
-import { writeJsonAtomic } from "./jsonStore.js";
+import { writeJsonAtomic, readJsonStore } from "./jsonStore.js";
 import { getProxyConfigPath, getInstancesMetaPath } from "./storage.js";
 import { getActiveProxy, getProxyById } from "./proxies.js";
 import { logger } from "./logger.js";
@@ -171,18 +171,26 @@ let persistentMeta: Record<
     lastSeen?: number;
   }
 > = Object.create(null);
-try {
-  if (fs.existsSync(INSTANCES_META_PATH)) {
-    const raw = fs.readFileSync(INSTANCES_META_PATH, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      persistentMeta = Object.assign(Object.create(null), persistentMeta, parsed);
-      delete (persistentMeta as any)["__proto__"];
-      delete (persistentMeta as any)["constructor"];
-      delete (persistentMeta as any)["prototype"];
-    }
+if (fs.existsSync(INSTANCES_META_PATH)) {
+  // AUDIT-SRV-1: a torn instances_meta.json used to silently reset to defaults,
+  // resurrecting revoked instances (revoked flags / token hashes lost) with no
+  // trace. readJsonStore preserves the broken original as .corrupt-<timestamp>
+  // for post-mortem; when the store is lost we must warn loudly instead.
+  const loadedMeta = readJsonStore<typeof persistentMeta>(INSTANCES_META_PATH);
+  if (loadedMeta && typeof loadedMeta === "object" && !Array.isArray(loadedMeta)) {
+    persistentMeta = Object.assign(Object.create(null), persistentMeta, loadedMeta);
+    delete (persistentMeta as any)["__proto__"];
+    delete (persistentMeta as any)["constructor"];
+    delete (persistentMeta as any)["prototype"];
+  } else {
+    logger.error(
+      `[instances] SECURITY REGRESSION: ${INSTANCES_META_PATH} is unreadable; instances meta was reset to defaults — ` +
+        "revoked flags, token enrollments and domain-user bindings are LOST. " +
+        "The broken original is preserved with a .corrupt-<timestamp> suffix next to it. " +
+        "Restore it manually or re-revoke affected instances immediately."
+    );
   }
-} catch {}
+}
 
 /**
  * Prune persistent metadata to MAX_PERSISTENT_META entries using FIFO eviction.

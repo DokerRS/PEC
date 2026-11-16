@@ -21,7 +21,11 @@ function maskPassword<T extends { password?: string }>(node: T): T {
   };
 }
 
-const activeSyncProxies = new Set<string>();
+// AUDIT-SRV-P3 (promise coalescing): concurrent syncs for the same node used
+// to be rejected with 409 while a Set flag was held - a double-click in the
+// dashboard surfaced a spurious error. Callers now await the in-flight work
+// and receive its result.
+const activeSyncProxies = new Map<string, Promise<{ status: number; body: unknown }>>();
 
 export function createProxiesRouter(): Router {
   const router = Router();
@@ -209,18 +213,25 @@ export function createProxiesRouter(): Router {
       return res.status(409).json({ error: "Rotation is currently in flight. Please try again later." });
     }
     const proxyId = req.params.id;
-    if (activeSyncProxies.has(proxyId)) {
-      return res.status(409).json({ error: "Sync is already in flight for this proxy node" });
-    }
-    activeSyncProxies.add(proxyId);
 
-    try {
+    // AUDIT-SRV-P3: coalesce concurrent syncs for the same node instead of
+    // rejecting the second caller - it waits and receives the same outcome.
+    const inFlight = activeSyncProxies.get(proxyId);
+    if (inFlight) {
+      const settled = await inFlight.catch((err: unknown): { status: number; body: unknown } => ({
+        status: 500,
+        body: { ok: false, error: err instanceof Error ? err.message : String(err) },
+      }));
+      return res.status(settled.status).json(settled.body);
+    }
+
+    const work = (async (): Promise<{ status: number; body: unknown }> => {
       const proxy = getProxyById(proxyId);
       if (!proxy) {
-        return res.status(404).json({ error: "Proxy not found" });
+        return { status: 404, body: { error: "Proxy not found" } };
       }
       if (proxy.type !== "3x-ui") {
-        return res.status(400).json({ error: "Only 3x-ui proxy nodes can be synced" });
+        return { status: 400, body: { error: "Only 3x-ui proxy nodes can be synced" } };
       }
 
       let panelUrl = "";
@@ -241,7 +252,7 @@ export function createProxiesRouter(): Router {
         adminPass = rotConfig.adminPass;
       }
       if (!panelUrl) {
-        return res.status(400).json({ error: "3x-ui panel URL is not configured in rotation settings" });
+        return { status: 400, body: { error: "3x-ui panel URL is not configured in rotation settings" } };
       }
 
       const rotatePassword =
@@ -262,7 +273,7 @@ export function createProxiesRouter(): Router {
           errorMessage: syncResult.message,
           lastSync: new Date().toISOString(),
         });
-        return res.status(400).json({ ok: false, error: syncResult.message });
+        return { status: 400, body: { ok: false, error: syncResult.message } };
       }
 
       const updates: Partial<ProxyNode> = {
@@ -277,11 +288,20 @@ export function createProxiesRouter(): Router {
 
       const updated = updateProxy(proxy.id, updates);
 
-      return res.json({
-        ok: true,
-        proxy: maskPassword(updated),
-        message: syncResult.message || "Proxy synchronized successfully",
-      });
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          proxy: maskPassword(updated),
+          message: syncResult.message || "Proxy synchronized successfully",
+        },
+      };
+    })();
+
+    activeSyncProxies.set(proxyId, work);
+    try {
+      const settled = await work;
+      return res.status(settled.status).json(settled.body);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return res.status(500).json({ ok: false, error: msg });

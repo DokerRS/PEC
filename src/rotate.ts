@@ -8,7 +8,7 @@ import type { Agent } from "undici";
 
 const requireCompat = typeof require === "function" ? require : createRequire(path.resolve("package.json"));
 import { RotationConfig, RotationHistoryItem, Panel3xuiConfig } from "./types.js";
-import { writeJsonAtomic, readJsonStore } from "./jsonStore.js";
+import { writeJsonAtomic, readJsonStore, restrictSecretFilePermissions } from "./jsonStore.js";
 import { getCredsStorePath, get3xuiPanelsPath, getRotationConfigPath } from "./storage.js";
 import { logger } from "./logger.js";
 import { recordRotation } from "./metrics.js";
@@ -89,6 +89,30 @@ export function atomicWriteCreds(filePath: string, creds: { user: string; pass: 
   const tempFile = path.join(dir, `${path.basename(filePath)}.tmp.${crypto.randomBytes(4).toString("hex")}`);
   fs.writeFileSync(tempFile, JSON.stringify(withTimestamp, null, 2), { encoding: "utf-8", mode: 0o600 });
   fs.renameSync(tempFile, filePath);
+}
+
+/**
+ * AUDIT-SRV-3: rotation local persistence with transient-failure retries.
+ * Windows AV/indexer can hold the creds file (EPERM/EBUSY) for a moment —
+ * failing the whole rotation over a retryable rename would desync the fleet
+ * for no reason.
+ */
+export function atomicWriteCredsWithRetries(
+  filePath: string,
+  creds: { user: string; pass: string; updatedAt?: string },
+  attempts = 3
+): void {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      atomicWriteCreds(filePath, creds);
+      return;
+    } catch (err) {
+      lastErr = err;
+      logger.warn(`[rotate] Local creds store write attempt ${attempt}/${attempts} failed:`, err);
+    }
+  }
+  throw lastErr;
 }
 
 function isPrivateOrLoopbackHost(hostname: string): boolean {
@@ -182,11 +206,19 @@ export function validateSafeEndpointUrl(urlStr: string): { valid: boolean; error
   }
 }
 
+export interface EndpointValidationResult {
+  valid: boolean;
+  error?: string;
+  /** DNS addresses verified during validation; consumed by SSRF TOCTOU pinning. */
+  addresses?: Array<{ address: string; family: number }>;
+}
+
 /**
  * Asynchronous URL validation performing DNS IP resolution when ALLOW_INTERNAL_PANEL !== "true".
  * Blocks DNS rebinding attacks (e.g. *.nip.io resolving to 127.0.0.1 or RFC1918 addresses).
+ * Returns the resolved addresses so callers can pin connections to them.
  */
-export async function validateSafeEndpointUrlAsync(rawUrl: string): Promise<{ valid: boolean; error?: string }> {
+export async function validateSafeEndpointUrlAsync(rawUrl: string): Promise<EndpointValidationResult> {
   const syncCheck = validateSafeEndpointUrl(rawUrl);
   if (!syncCheck.valid) return syncCheck;
   if (process.env.ALLOW_INTERNAL_PANEL === "true") return { valid: true };
@@ -200,7 +232,7 @@ export async function validateSafeEndpointUrlAsync(rawUrl: string): Promise<{ va
         return { valid: false, error: `Hostname resolves to private address ${addr.address} (SSRF prevention)` };
       }
     }
-    return { valid: true };
+    return { valid: true, addresses: lookupResult };
   } catch (e: any) {
     return { valid: false, error: `DNS resolution failed: ${e?.message || e}` };
   }
@@ -263,35 +295,156 @@ function resolveInsecureTls(panelUrl?: string, explicit?: boolean): boolean {
 
 let CachedUndiciAgent: any = null;
 
-function getFetchDispatcher(insecureTls?: boolean): Agent | undefined {
-  if (!insecureTls) return undefined;
+function loadUndiciAgent(): any {
   try {
     if (!CachedUndiciAgent) {
       // Lazy load to prevent crashes if undici package is not installed in runtime
       const undiciMod = requireCompat("undici");
       CachedUndiciAgent = undiciMod?.Agent || null;
     }
-    if (!CachedUndiciAgent) return undefined;
-    const agent = new CachedUndiciAgent({ connect: { rejectUnauthorized: false } });
-    const origDispatch = agent.dispatch.bind(agent);
-    agent.dispatch = function (opts: any, handler: any) {
-      if (handler && typeof handler.onResponseStart !== "function") {
-        const bridged = Object.create(handler);
-        bridged.onRequestStart = () => {};
-        bridged.onResponseError = (_ctrl: any, err: any) => handler.onError?.(err);
-        bridged.onResponseStart = (_ctrl: any, status: number, headers: any, statusText: string) =>
-          handler.onHeaders?.(status, headers, () => {}, statusText);
-        bridged.onResponseData = (_ctrl: any, chunk: any) => handler.onData?.(chunk);
-        bridged.onResponseEnd = (_ctrl: any, trailers: any) => handler.onComplete?.(trailers);
-        return origDispatch(opts, bridged);
-      }
-      return origDispatch(opts, handler);
-    };
-    return agent;
+    return CachedUndiciAgent;
   } catch (e: any) {
-    logger.warn("[rotate] Unable to load undici.Agent for insecureTls:", e?.message || e);
-    return undefined;
+    logger.warn("[rotate] Unable to load undici.Agent:", e?.message || e);
+    return null;
   }
+}
+
+/**
+ * Build an undici Agent carrying the handler-bridge shim required by Node's
+ * global fetch (older fetch handler API vs. newer dispatch handler API).
+ */
+function buildBridgedAgent(connectOpts: { rejectUnauthorized?: boolean; lookup?: any }): Agent | undefined {
+  const AgentCtor = loadUndiciAgent();
+  if (!AgentCtor) return undefined;
+  const agent = new AgentCtor({ connect: connectOpts }) as Agent;
+  const origDispatch = (agent as any).dispatch.bind(agent);
+  (agent as any).dispatch = function (opts: any, handler: any) {
+    if (handler && typeof handler.onResponseStart !== "function") {
+      const bridged = Object.create(handler);
+      bridged.onRequestStart = () => {};
+      bridged.onResponseError = (_ctrl: any, err: any) => handler.onError?.(err);
+      bridged.onResponseStart = (_ctrl: any, status: number, headers: any, statusText: string) =>
+        handler.onHeaders?.(status, headers, () => {}, statusText);
+      bridged.onResponseData = (_ctrl: any, chunk: any) => handler.onData?.(chunk);
+      bridged.onResponseEnd = (_ctrl: any, trailers: any) => handler.onComplete?.(trailers);
+      return origDispatch(opts, bridged);
+    }
+    return origDispatch(opts, handler);
+  };
+  return agent;
+}
+
+function getFetchDispatcher(insecureTls?: boolean): Agent | undefined {
+  if (!insecureTls) return undefined;
+  return buildBridgedAgent({ rejectUnauthorized: false });
+}
+
+/**
+ * SSRF TOCTOU pinning (AUDIT-SEC-2): validateSafeEndpointUrlAsync resolves and
+ * vets the hostname, but a subsequent plain fetch() re-resolves DNS at connect
+ * time — a rebinding attacker flips the record between check and use and the
+ * authenticated panel request lands on 127.0.0.1 / RFC1918. The pinned lookup
+ * freezes name resolution to the addresses that were actually verified.
+ */
+export function makePinnedLookup(hostname: string, pinned: Array<{ address: string; family: number }>) {
+  const target = String(hostname || "").toLowerCase();
+  return function pinnedLookup(hostnameArg: string, options: any, callback: any) {
+    let cb = callback;
+    let opts = options;
+    if (typeof opts === "function") {
+      cb = opts;
+      opts = {};
+    }
+    if (!pinned.length || String(hostnameArg || "").toLowerCase() !== target) {
+      // Not the validated host (cannot happen inside panel flows) — normal DNS.
+      return dns.lookup(hostnameArg, opts, cb);
+    }
+    const family = opts?.family ?? 0;
+    const list = family === 4 || family === 6 ? pinned.filter((p) => p.family === family) : pinned;
+    const serve = list.length ? list : pinned;
+    if (opts?.all) {
+      queueMicrotask(() => cb(null, serve.map((p) => ({ address: p.address, family: p.family }))));
+    } else {
+      queueMicrotask(() => cb(null, serve[0].address, serve[0].family));
+    }
+  };
+}
+
+export type SafeEndpointFetch = (url: string, init?: RequestInit) => Promise<globalThis.Response>;
+
+export interface SsrfFetchPlan {
+  valid: boolean;
+  error?: string;
+  /** fetch whose connections are pinned to the DNS-verified addresses */
+  fetch: SafeEndpointFetch;
+  /** Release dispatcher resources once the response body has been consumed */
+  close(): void;
+}
+
+const ssrfDisabledFetch: SafeEndpointFetch = () => Promise.reject(new Error("SSRF validation failed"));
+
+/**
+ * Validate a remote URL and return a fetch function immune to DNS rebinding
+ * between validation and connection. Degrades to the legacy plain-fetch
+ * behavior only when undici is unavailable (preserves the pre-audit exposure
+ * rather than breaking panel management outright).
+ */
+export async function createSsrfPinnedFetch(rawUrl: string, opts?: { insecureTls?: boolean }): Promise<SsrfFetchPlan> {
+  const cleanUrl = String(rawUrl || "").trim().replace(/\/+$/, "");
+  const isInsecure = resolveInsecureTls(cleanUrl, opts?.insecureTls);
+
+  const syncCheck = validateSafeEndpointUrl(cleanUrl);
+  if (!syncCheck.valid) {
+    return { valid: false, error: syncCheck.error, fetch: ssrfDisabledFetch, close: () => {} };
+  }
+
+  if (process.env.ALLOW_INTERNAL_PANEL === "true") {
+    // Operator explicitly allowed private endpoints: no DNS validation ran and
+    // there is nothing to pin — keep the insecure-dispatcher semantics.
+    const dispatcher = getFetchDispatcher(isInsecure);
+    return {
+      valid: true,
+      fetch: (url, init) => fetch(url, { ...init, ...(dispatcher ? { dispatcher } : {}) }),
+      close: () => {},
+    };
+  }
+
+  const check = await validateSafeEndpointUrlAsync(cleanUrl);
+  if (!check.valid) {
+    return { valid: false, error: check.error, fetch: ssrfDisabledFetch, close: () => {} };
+  }
+
+  const addresses = check.addresses || [];
+  let pinnedHost = "";
+  try {
+    pinnedHost = new URL(cleanUrl).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    pinnedHost = "";
+  }
+  const dispatcher =
+    addresses.length > 0 && pinnedHost
+      ? buildBridgedAgent({ rejectUnauthorized: !isInsecure, lookup: makePinnedLookup(pinnedHost, addresses) })
+      : undefined;
+
+  if (!dispatcher) {
+    const fallback = getFetchDispatcher(isInsecure);
+    return {
+      valid: true,
+      fetch: (url, init) => fetch(url, { ...init, ...(fallback ? { dispatcher: fallback } : {}) }),
+      close: () => {},
+    };
+  }
+
+  logger.info(`[rotate] SSRF DNS pinning active: ${pinnedHost} -> ${addresses.map((a) => a.address).join(", ")}`);
+  return {
+    valid: true,
+    fetch: (url, init) => fetch(url, { ...init, ...(dispatcher ? { dispatcher } : {}) }),
+    close: () => {
+      try {
+        (dispatcher as any).close?.();
+      } catch {}
+    },
+  };
 }
 
 async function panelLogin(
@@ -299,20 +452,17 @@ async function panelLogin(
   username: string,
   password: string,
   timeoutMs: number,
-  insecureTls?: boolean
+  panelFetch: SafeEndpointFetch
 ): Promise<{ cookie: string; csrfToken: string | null }> {
-  const isInsecure = resolveInsecureTls(panel, insecureTls);
-  const dispatcher = getFetchDispatcher(isInsecure);
   let cookie = "";
   let csrfToken: string | null = null;
 
   // Newer panels: obtain the session cookie + CSRF token first.
   // Network failures throw immediately (no point retrying /login on an unreachable host).
   // HTTP non-200 responses (e.g. 404 on older panels without CSRF) fall through to plain login.
-  const csrfRes = await fetch(`${panel}/csrf-token`, {
+  const csrfRes = await panelFetch(`${panel}/csrf-token`, {
     redirect: "manual",
     signal: AbortSignal.timeout(timeoutMs),
-    ...(dispatcher ? { dispatcher } : {}),
   });
   assertNoRedirect(csrfRes, "csrf-token");
   if (csrfRes.ok) {
@@ -323,7 +473,7 @@ async function panelLogin(
     }
   }
 
-  const loginRes = await fetch(`${panel}/login`, {
+  const loginRes = await panelFetch(`${panel}/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -333,7 +483,6 @@ async function panelLogin(
     body: JSON.stringify({ username, password }),
     redirect: "manual",
     signal: AbortSignal.timeout(timeoutMs),
-    ...(dispatcher ? { dispatcher } : {}),
   });
   assertNoRedirect(loginRes, "login");
 
@@ -421,25 +570,22 @@ export async function sync3xuiInboundByTag(params: {
   password?: string;
   message: string;
 }> {
-  const urlCheck = await validateSafeEndpointUrlAsync(params.panelUrl);
-  if (!urlCheck.valid) {
-    return { ok: false, message: `SSRF Security Check Failed: ${urlCheck.error}` };
+  const ssrf = await createSsrfPinnedFetch(params.panelUrl, { insecureTls: params.insecureTls });
+  if (!ssrf.valid) {
+    return { ok: false, message: `SSRF Security Check Failed: ${ssrf.error}` };
   }
 
   const panel = params.panelUrl.replace(/\/+$/, "");
   const timeoutMs = (params.timeoutSec || 10) * 1000;
-  const isInsecure = resolveInsecureTls(panel, params.insecureTls);
-  const dispatcher = getFetchDispatcher(isInsecure);
 
   try {
-    const auth = await panelLogin(panel, params.adminUser, params.adminPass, timeoutMs, isInsecure);
+    const auth = await panelLogin(panel, params.adminUser, params.adminPass, timeoutMs, ssrf.fetch);
 
     // Fetch inbounds
-    const inboundsRes = await fetch(`${panel}/panel/api/inbounds/list`, {
+    const inboundsRes = await ssrf.fetch(`${panel}/panel/api/inbounds/list`, {
       headers: panelApiHeaders(auth),
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),
-      ...(dispatcher ? { dispatcher } : {}),
     });
     assertNoRedirect(inboundsRes, "inbounds list");
     if (!inboundsRes.ok) {
@@ -520,13 +666,12 @@ export async function sync3xuiInboundByTag(params: {
       settings.accounts[targetAccountIdx].pass = newPassword;
       target.settings = typeof target.settings === "string" ? JSON.stringify(settings) : settings;
 
-      const updateRes = await fetch(`${panel}/panel/api/inbounds/update/${target.id}`, {
+      const updateRes = await ssrf.fetch(`${panel}/panel/api/inbounds/update/${target.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...panelApiHeaders(auth) },
         body: JSON.stringify(target),
         redirect: "manual",
         signal: AbortSignal.timeout(timeoutMs),
-        ...(dispatcher ? { dispatcher } : {}),
       });
       assertNoRedirect(updateRes, "inbound update");
 
@@ -566,6 +711,8 @@ export async function sync3xuiInboundByTag(params: {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, message: msg };
+  } finally {
+    ssrf.close();
   }
 }
 
@@ -578,25 +725,22 @@ export async function test3xuiConnection(config: {
   timeoutSec?: number;
   insecureTls?: boolean;
 }): Promise<{ ok: boolean; message: string; inboundFound?: boolean; inboundId?: number }> {
-  const urlCheck = await validateSafeEndpointUrlAsync(config.panelUrl);
-  if (!urlCheck.valid) {
-    return { ok: false, message: `SSRF Security Check Failed: ${urlCheck.error}` };
+  const ssrf = await createSsrfPinnedFetch(config.panelUrl, { insecureTls: config.insecureTls });
+  if (!ssrf.valid) {
+    return { ok: false, message: `SSRF Security Check Failed: ${ssrf.error}` };
   }
 
   const panel = config.panelUrl.replace(/\/+$/, "");
   const timeoutMs = (config.timeoutSec || 8) * 1000;
-  const isInsecure = resolveInsecureTls(panel, config.insecureTls);
-  const dispatcher = getFetchDispatcher(isInsecure);
 
   try {
-    const auth = await panelLogin(panel, config.adminUser, config.adminPass, timeoutMs, isInsecure);
+    const auth = await panelLogin(panel, config.adminUser, config.adminPass, timeoutMs, ssrf.fetch);
 
     // Check inbounds list
-    const inboundsRes = await fetch(`${panel}/panel/api/inbounds/list`, {
+    const inboundsRes = await ssrf.fetch(`${panel}/panel/api/inbounds/list`, {
       headers: panelApiHeaders(auth),
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),
-      ...(dispatcher ? { dispatcher } : {}),
     });
     assertNoRedirect(inboundsRes, "inbounds list");
     if (!inboundsRes.ok) {
@@ -637,6 +781,8 @@ export async function test3xuiConnection(config: {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, message: `Connection failed: ${msg}` };
+  } finally {
+    ssrf.close();
   }
 }
 
@@ -711,20 +857,47 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
       const username = syncResult.username || "corp-user";
       const newPassword = syncResult.password!;
 
-      atomicWriteCreds(credsStorePath, { user: username, pass: newPassword });
-
+      // AUDIT-SRV-3: the panel inbound has ALREADY accepted the new password
+      // at this point. Local failures below are a fleet DESYNC and must be
+      // reported honestly — not as "credentials were NOT changed" (they were)
+      // and not as a silent success either.
+      let localDesync: string | undefined;
       try {
-        const { getActiveProxy, updateProxy } = await import("./proxies.js");
-        const activeProxy = getActiveProxy();
-        const idToUpdate = targetProxyId || (activeProxy && activeProxy.type === "3x-ui" ? activeProxy.id : undefined);
-        if (idToUpdate) {
-          updateProxy(idToUpdate, {
-            password: newPassword,
-            lastSync: new Date().toISOString(),
-          });
+        atomicWriteCredsWithRetries(credsStorePath, { user: username, pass: newPassword });
+      } catch (credsErr: unknown) {
+        localDesync = `local creds store not updated after ${credsErr}`;
+      }
+
+      if (!localDesync) {
+        try {
+          const { getActiveProxy, updateProxy } = await import("./proxies.js");
+          const activeProxy = getActiveProxy();
+          const idToUpdate = targetProxyId || (activeProxy && activeProxy.type === "3x-ui" ? activeProxy.id : undefined);
+          if (idToUpdate) {
+            updateProxy(idToUpdate, {
+              password: newPassword,
+              lastSync: new Date().toISOString(),
+            });
+          }
+        } catch (proxyErr: unknown) {
+          localDesync = `proxy registry not synced after ${proxyErr}`;
         }
-      } catch (proxyErr) {
-        logger.warn("[rotate] Failed to sync rotated password to active proxy node:", proxyErr);
+      }
+
+      if (localDesync) {
+        recordRotation("3x-ui", "failure");
+        logger.error(
+          `[rotate] 3x-ui panel rotated the inbound password, but ${localDesync}. ` +
+            `FLEET DESYNC: extensions will fail auth against the panel user '${username}'. Re-run the rotation or reconcile manually.`
+        );
+        return {
+          id: crypto.randomBytes(4).toString("hex"),
+          timestamp: new Date().toISOString(),
+          source: "3x-ui",
+          user: username,
+          success: false,
+          error: `3x-ui panel password was rotated, but ${localDesync}. Fleet credentials are DESYNCED - re-run the rotation or reconcile manually.`,
+        };
       }
 
       recordRotation("3x-ui", "success");
@@ -755,7 +928,7 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
   } catch {}
 
   const newPassword = crypto.randomBytes(18).toString("base64url");
-  atomicWriteCreds(credsStorePath, { user: currentUsername, pass: newPassword });
+  atomicWriteCredsWithRetries(credsStorePath, { user: currentUsername, pass: newPassword });
 
   recordRotation("standalone", "success");
   return {
@@ -885,6 +1058,9 @@ export function save3xuiPanel(
   }
 
   writeJsonAtomic(panelsFile, list);
+  // AUDIT-SRV-P3: panel admin credentials live here - strip Windows ACE
+  // inheritance so the store is not readable through inherited grants.
+  restrictSecretFilePermissions(panelsFile);
   return savedPanel;
 }
 
@@ -896,6 +1072,7 @@ export function delete3xuiPanel(id: string): boolean {
   const filtered = list.filter((p) => p.id !== id);
   if (filtered.length !== initialLength) {
     writeJsonAtomic(panelsFile, filtered);
+    restrictSecretFilePermissions(panelsFile);
     return true;
   }
   return false;
@@ -920,29 +1097,30 @@ export async function fetch3xuiInbounds(
     targetConfig = configOrId;
   }
 
-  const urlCheck = await validateSafeEndpointUrlAsync(targetConfig.panelUrl);
-  if (!urlCheck.valid) {
-    throw new Error(`SSRF Security Check Failed: ${urlCheck.error}`);
+  const ssrf = await createSsrfPinnedFetch(targetConfig.panelUrl, { insecureTls: targetConfig.insecureTls });
+  if (!ssrf.valid) {
+    throw new Error(`SSRF Security Check Failed: ${ssrf.error}`);
   }
 
   const panel = targetConfig.panelUrl.replace(/\/+$/, "");
   const timeoutMs = (targetConfig.timeoutSec || 10) * 1000;
-  const isInsecure = resolveInsecureTls(panel, targetConfig.insecureTls);
-  const dispatcher = getFetchDispatcher(isInsecure);
 
-  const auth = await panelLogin(panel, targetConfig.adminUser, targetConfig.adminPass, timeoutMs, isInsecure);
-  const inboundsRes = await fetch(`${panel}/panel/api/inbounds/list`, {
-    headers: panelApiHeaders(auth),
-    redirect: "manual",
-    signal: AbortSignal.timeout(timeoutMs),
-    ...(dispatcher ? { dispatcher } : {}),
-  });
-  assertNoRedirect(inboundsRes, "inbounds list");
-  if (!inboundsRes.ok) {
-    throw new Error(`Failed to list inbounds: HTTP ${inboundsRes.status}`);
+  try {
+    const auth = await panelLogin(panel, targetConfig.adminUser, targetConfig.adminPass, timeoutMs, ssrf.fetch);
+    const inboundsRes = await ssrf.fetch(`${panel}/panel/api/inbounds/list`, {
+      headers: panelApiHeaders(auth),
+      redirect: "manual",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    assertNoRedirect(inboundsRes, "inbounds list");
+    if (!inboundsRes.ok) {
+      throw new Error(`Failed to list inbounds: HTTP ${inboundsRes.status}`);
+    }
+
+    const inboundsData = await inboundsRes.json();
+    return inboundsData.obj || [];
+  } finally {
+    ssrf.close();
   }
-
-  const inboundsData = await inboundsRes.json();
-  return inboundsData.obj || [];
 }
 

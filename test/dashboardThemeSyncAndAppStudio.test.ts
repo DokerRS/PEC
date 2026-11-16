@@ -11,6 +11,7 @@ import { createAppBuilderRouter } from "../src/routes/appBuilderRoutes.js";
 import { createTokenAuthMiddleware } from "../src/middleware/security.js";
 import { getAppBuildConfig, buildAppProfile } from "../src/appPackager.js";
 import { TEST_TOKEN, TEST_ADMIN_TOKEN } from "./helpers/setup.js";
+import { setupDashboardDom } from "./helpers/dashboardDom.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -93,24 +94,47 @@ test("CSS styles for light theme mode and lock state are defined", () => {
   assert.ok(css.includes('max-height: calc(100vh - 80px)'), 'Popover must have max-height constraint');
 });
 
-test("dashboard.js exports and functions for theme mode and sync are defined", () => {
-  const js = fs.readFileSync(path.join(__dirname, "../public/dashboard.js"), "utf-8");
+test("dashboardThemeSyncAndAppStudio: theme mode and sync functions are exposed on window by the shipped bundle", () => {
+  // AUDIT-QA-1: behavioral contract (was source-shape asserts on the orphaned
+  // monolith). Inline HTML handlers (onclick="setServerThemeMode('dark')" etc.)
+  // require runtime window exposures in public/dashboard.min.js.
+  const env = setupDashboardDom({ autoEval: true });
+  try {
+    const exposed = [
+      "setServerThemeMode",
+      "setGlobalBrandIcon",
+      "setGlobalBrandIconSource",
+      "setGlobalBrandCustomIcon",
+      "onGlobalBrandIconFileSelected",
+      "setAppCustomIconDataUrl",
+      "onAppIconFileSelected",
+      "applyThemeSyncToConstructors",
+      "closeCustomizationPopover",
+    ];
+    for (const fn of exposed) {
+      assert.equal(typeof env.window[fn], "function", `${fn} must be exposed on window by dashboard.min.js`);
+    }
+  } finally {
+    env.teardown();
+  }
+});
 
-  assert.ok(js.includes('function setServerThemeMode('), 'setServerThemeMode function must exist');
-  assert.ok(js.includes('function setGlobalBrandIcon('), 'setGlobalBrandIcon function must exist');
-  assert.ok(js.includes('function setGlobalBrandIconSource('), 'setGlobalBrandIconSource function must exist');
-  assert.ok(js.includes('function setGlobalBrandCustomIcon('), 'setGlobalBrandCustomIcon function must exist');
-  assert.ok(js.includes('function onGlobalBrandIconFileSelected('), 'onGlobalBrandIconFileSelected function must exist');
-  assert.ok(js.includes('function setAppCustomIconDataUrl('), 'setAppCustomIconDataUrl function must exist');
-  assert.ok(js.includes('function onAppIconFileSelected('), 'onAppIconFileSelected function must exist');
-  assert.ok(js.includes('function toggleSyncThemeWithApps('), 'toggleSyncThemeWithApps function must exist');
-  assert.ok(js.includes('function applyThemeSyncToConstructors('), 'applyThemeSyncToConstructors function must exist');
-  assert.ok(js.includes('window.setGlobalBrandIconSource = setGlobalBrandIconSource'), 'window.setGlobalBrandIconSource must be exported');
-  assert.ok(js.includes('window.setServerThemeMode = setServerThemeMode'), 'window export for setServerThemeMode must exist');
-  assert.ok(js.includes('window.setGlobalBrandIcon = setGlobalBrandIcon'), 'window export for setGlobalBrandIcon must exist');
-  assert.ok(js.includes('window.setGlobalBrandCustomIcon = setGlobalBrandCustomIcon'), 'window export for setGlobalBrandCustomIcon must exist');
-  assert.ok(js.includes('window.toggleSyncThemeWithApps = toggleSyncThemeWithApps'), 'window export for toggleSyncThemeWithApps must exist');
-  assert.ok(js.includes('window.applyThemeSyncToConstructors = applyThemeSyncToConstructors'), 'window export for applyThemeSyncToConstructors must exist');
+test("REGRESSION HANDOFF (AUDIT-QA-1 -> agent-general-worker): customization popover and theme-sync handlers must be exposed on window", () => {
+  // Found during AUDIT-QA-1 migration: dashboardView.ts emits inline handlers
+  //   <button id="btnCustomization" onclick="toggleCustomizationPopover(event)">
+  //   <input id="chkSyncThemeWithApps" onchange="toggleSyncThemeWithApps(this.checked)">
+  // but the modular bundle (src/client/dashboard) lost these two functions in
+  // the UI-MODULAR-1 port (both exist in the orphaned monolith). Clicking the
+  // customization button or toggling theme sync throws ReferenceError in the
+  // shipped dashboard. This test stays RED until the production fix lands
+  // (see Delegated Subtasks in .agents/project_knowledge/tasks.md).
+  const env = setupDashboardDom({ autoEval: true });
+  try {
+    assert.equal(typeof env.window.toggleCustomizationPopover, "function", "toggleCustomizationPopover must be exposed (btnCustomization onclick)");
+    assert.equal(typeof env.window.toggleSyncThemeWithApps, "function", "toggleSyncThemeWithApps must be exposed (chkSyncThemeWithApps onchange)");
+  } finally {
+    env.teardown();
+  }
 });
 
 test("appBuilderRoutes: validates and persists syncIntervalMinutes", async () => {
@@ -168,16 +192,18 @@ test("appBuilderRoutes: validates and persists syncIntervalMinutes", async () =>
 });
 
 test("Theme synchronization and profile builder: handles all preset and mode combinations cleanly", () => {
-  const js = fs.readFileSync(path.join(__dirname, "../public/dashboard.js"), "utf-8");
+  // AUDIT-QA-1: pointed at the shipped bundle; esbuild minification rewrites
+  // string quotes ('x' -> "x") and drops spaces after ':' in object literals.
+  const js = fs.readFileSync(path.join(__dirname, "../public/dashboard.min.js"), "utf-8");
 
   // Verify APP_THEME_PRESETS enterprise-light has dark fallback
-  assert.ok(js.includes("'enterprise-light': {"), "enterprise-light must be defined in APP_THEME_PRESETS");
-  assert.ok(js.includes("background: '#0b1120'"), "enterprise-light must have dark background");
-  assert.ok(js.includes("card: '#131d36'"), "enterprise-light must have dark card");
+  assert.ok(js.includes('"enterprise-light":{'), "enterprise-light must be defined in APP_THEME_PRESETS");
+  assert.ok(js.includes('background:"#0b1120"'), "enterprise-light must have dark background");
+  assert.ok(js.includes('card:"#131d36"'), "enterprise-light must have dark card");
 
   // Verify APP_PALETTES light has dark fallback
   assert.ok(
-    /light:\s*\{\s*accent:\s*'#2563eb',\s*bg:\s*'#0b1120',\s*card:\s*'#131d36'/.test(js),
+    /light:\s*\{\s*accent:\s*"#2563eb",\s*bg:\s*"#0b1120",\s*card:\s*"#131d36"/.test(js),
     "APP_PALETTES.light must have dark bg and card"
   );
 
