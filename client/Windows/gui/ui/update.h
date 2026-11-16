@@ -11,11 +11,18 @@
 
 #define UPD_FEED_URL  L"/api/releases"
 
+// AUDIT-NAT-P3 (single version source): pull the release number from the generated
+// gui/res/version_gen.h; the 0.0.0 fallback marks builds compiled without it.
 #ifndef PEC_APP_VERSION
+#if defined(__has_include)
+#if __has_include("../res/version_gen.h")
+#include "../res/version_gen.h"
+#endif
+#endif
 #ifdef APP_VERSION
 #define PEC_APP_VERSION APP_VERSION
 #else
-#define PEC_APP_VERSION L"2.2.0"
+#define PEC_APP_VERSION L"0.0.0"
 #endif
 #endif
 
@@ -135,6 +142,11 @@ INT_PTR CALLBACK UpdateDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
     {
         UpdDl* d = (UpdDl*)lp;
         if (!d) return TRUE;
+        {   // job finished: drop the WM_NCDESTROY tracking props
+            HANDLE th = (HANDLE)RemovePropW(dlg, L"PEC_UpdThr");
+            if (th) CloseHandle(th);
+            RemovePropW(dlg, L"PEC_UpdJob");
+        }
         if (wp)   // success: launch the installer and quit so it can replace files
         {
             UpdInfo* info = (UpdInfo*)GetWindowLongPtrW(dlg, GWLP_USERDATA);
@@ -157,6 +169,23 @@ INT_PTR CALLBACK UpdateDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
         EnableWindow(GetDlgItem(dlg, IDC_UP_NOW), TRUE);
         free(d);
         return TRUE;
+    }
+    case WM_NCDESTROY:
+    {
+        // AUDIT-NAT-P3: the dialog can be destroyed mid-download — cancel the worker's
+        // blocking I/O, join it briefly, then free the pending job. If the worker misses
+        // the join window it still owns the pointer, so leak it instead of freeing.
+        HANDLE th = (HANDLE)GetPropW(dlg, L"PEC_UpdThr");
+        UpdDl* pend = (UpdDl*)GetPropW(dlg, L"PEC_UpdJob");
+        if (th)
+        {
+            CancelSynchronousIo(th);
+            if (WaitForSingleObject(th, 2000) == WAIT_OBJECT_0 && pend) free(pend);
+            CloseHandle(th);
+        }
+        RemovePropW(dlg, L"PEC_UpdThr");
+        RemovePropW(dlg, L"PEC_UpdJob");
+        return FALSE;
     }
     case WM_COMMAND:
         switch (LOWORD(wp))
@@ -182,7 +211,13 @@ INT_PTR CALLBACK UpdateDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
             SendDlgItemMessageW(dlg, IDC_UP_PROGRESS, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
             SetDlgItemTextW(dlg, IDC_UP_STATUS, T(S_UPD_DLING));
             HANDLE t = CreateThread(NULL, 0, UpdDlThread, d, 0, NULL);
-            if (t) CloseHandle(t); else { free(d); EnableWindow(GetDlgItem(dlg, IDC_UP_NOW), TRUE); }
+            if (t)
+            {
+                // AUDIT-NAT-P3: track the in-flight job so WM_NCDESTROY can clean it up
+                SetPropW(dlg, L"PEC_UpdJob", (HANDLE)d);
+                SetPropW(dlg, L"PEC_UpdThr", t);
+            }
+            else { free(d); EnableWindow(GetDlgItem(dlg, IDC_UP_NOW), TRUE); }
             return TRUE;
         }
         case IDC_UP_DONTASK: PB_SetCheckUpdates(FALSE); EndDialog(dlg, 0); return TRUE;

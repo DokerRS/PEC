@@ -83,10 +83,14 @@ static BOOL dpapi_decrypt_wstr(const char* str, wchar_t* out_wstr, size_t out_cc
     BOOL ok = FALSE;
     if (CryptUnprotectData(&in_blob, NULL, NULL, NULL, NULL, CRYPTPROTECT_UI_FORBIDDEN, &out_blob))
     {
-        if (out_blob.cbData >= sizeof(wchar_t))
+        // AUDIT-NAT-P3: the blob must be whole wchar_t units and the copy is bounded —
+        // a decrypted blob is not guaranteed to end with a NUL terminator.
+        if (out_blob.cbData >= sizeof(wchar_t) && (out_blob.cbData % sizeof(wchar_t)) == 0 && out_cch > 0)
         {
-            const wchar_t* decrypted = (const wchar_t*)out_blob.pbData;
-            wcsncpy_s(out_wstr, out_cch, decrypted, _TRUNCATE);
+            size_t wchars = out_blob.cbData / sizeof(wchar_t);
+            size_t copy = (wchars < out_cch) ? wchars : out_cch - 1;
+            memcpy(out_wstr, out_blob.pbData, copy * sizeof(wchar_t));
+            out_wstr[copy] = L'\0';
             ok = TRUE;
         }
         LocalFree(out_blob.pbData);
@@ -363,6 +367,16 @@ static int s_inAppLogUi = 0;
 void PB_SetAppLogUiCallback(PB_AppLogUiCallback cb)
 {
     g_appLogUiCallback = cb;
+}
+
+void PB_AppLogInit(void)
+{
+    // AUDIT-NAT-P3: initialize the app-log critical section before any worker thread
+    // exists — the lazy init inside PB_WriteAppLog raced when two threads logged first.
+    if (!g_appLogCsInit) {
+        InitializeCriticalSection(&g_appLogCs);
+        g_appLogCsInit = TRUE;
+    }
 }
 
 void PB_WriteAppLog(const char* fmt, ...)
@@ -798,10 +812,8 @@ BOOL PB_ProfileSave(const wchar_t* name, const PBProfile* p)
                 sb_put(&b, "\",\n");
                 free(encPass);
             }
-            else
-            {
-                put_kv_str(&b, "      ", "Password", c->pass, ",\n");
-            }
+            // AUDIT-NAT-P3: DPAPI failure must never fall back to plaintext at rest —
+            // omit the field; the user re-enters the password on next use.
         }
         else
         {
@@ -869,19 +881,17 @@ BOOL PB_ProfileSave(const wchar_t* name, const PBProfile* p)
         }
         if (p->pecSync.instanceToken[0])
         {
-            sb_put(&b, ",\n");
             char* encTok = dpapi_encrypt_wstr(p->pecSync.instanceToken);
             if (encTok)
             {
+                sb_put(&b, ",\n");
                 sb_put(&b, "    \"instanceToken\": \"");
                 sb_put(&b, encTok);
                 sb_put(&b, "\"");
                 free(encTok);
             }
-            else
-            {
-                put_kv_str(&b, "    ", "instanceToken", p->pecSync.instanceToken, "");
-            }
+            // AUDIT-NAT-P3: on DPAPI failure omit the field entirely — no plaintext at
+            // rest; the client re-pairs on the next fleet sync.
         }
         sb_put(&b, "\n  }");
     }

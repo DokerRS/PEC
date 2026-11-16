@@ -397,7 +397,7 @@ static BOOL CopyFromSourceFolder(const wchar_t* srcDir, const wchar_t* destDir)
     // Step 1: Verify Authenticode signatures for all present binary files BEFORE copying
     for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
         wchar_t srcPath[MAX_PATH];
-        wsprintfW(srcPath, L"%ls\\%ls", srcDir, files[i]);
+        _snwprintf_s(srcPath, MAX_PATH, _TRUNCATE, L"%ls\\%ls", srcDir, files[i]);
         if (GetFileAttributesW(srcPath) != INVALID_FILE_ATTRIBUTES) {
             if (!IsSignedBinaryExtension(files[i])) {
                 LogMessage(L"ERROR: File '%ls' does not have a recognized binary extension for verification.", files[i]);
@@ -448,8 +448,8 @@ static BOOL CopyFromSourceFolder(const wchar_t* srcDir, const wchar_t* destDir)
     // Step 2: Copy verified files into destination
     for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
         wchar_t srcPath[MAX_PATH], destPath[MAX_PATH];
-        wsprintfW(srcPath, L"%ls\\%ls", srcDir, files[i]);
-        wsprintfW(destPath, L"%ls\\%ls", destDir, files[i]);
+        _snwprintf_s(srcPath, MAX_PATH, _TRUNCATE, L"%ls\\%ls", srcDir, files[i]);
+        _snwprintf_s(destPath, MAX_PATH, _TRUNCATE, L"%ls\\%ls", destDir, files[i]);
         if (GetFileAttributesW(srcPath) != INVALID_FILE_ATTRIBUTES) {
             if (!CopyFileW(srcPath, destPath, FALSE)) {
                 return FALSE;
@@ -459,14 +459,14 @@ static BOOL CopyFromSourceFolder(const wchar_t* srcDir, const wchar_t* destDir)
 
     // Step 3: Copy configuration profile (pec_profile.pbprofile) if present in source package
     wchar_t profSrc[MAX_PATH], profDest[MAX_PATH];
-    wsprintfW(profSrc, L"%ls\\pec_profile.pbprofile", srcDir);
-    wsprintfW(profDest, L"%ls\\pec_profile.pbprofile", destDir);
+    _snwprintf_s(profSrc, MAX_PATH, _TRUNCATE, L"%ls\\pec_profile.pbprofile", srcDir);
+    _snwprintf_s(profDest, MAX_PATH, _TRUNCATE, L"%ls\\pec_profile.pbprofile", destDir);
     if (GetFileAttributesW(profSrc) != INVALID_FILE_ATTRIBUTES) {
         CopyFileW(profSrc, profDest, FALSE);
     }
     wchar_t defSrc[MAX_PATH], defDest[MAX_PATH];
-    wsprintfW(defSrc, L"%ls\\Default.pbprofile", srcDir);
-    wsprintfW(defDest, L"%ls\\Default.pbprofile", destDir);
+    _snwprintf_s(defSrc, MAX_PATH, _TRUNCATE, L"%ls\\Default.pbprofile", srcDir);
+    _snwprintf_s(defDest, MAX_PATH, _TRUNCATE, L"%ls\\Default.pbprofile", destDir);
     if (GetFileAttributesW(defSrc) != INVALID_FILE_ATTRIBUTES) {
         CopyFileW(defSrc, defDest, FALSE);
     }
@@ -477,16 +477,16 @@ static BOOL CopyFromSourceFolder(const wchar_t* srcDir, const wchar_t* destDir)
 static BOOL RegisterService(const wchar_t* installDir)
 {
     wchar_t svcExe[MAX_PATH];
-    wsprintfW(svcExe, L"%ls\\PECAppSvc.exe", installDir);
+    _snwprintf_s(svcExe, MAX_PATH, _TRUNCATE, L"%ls\\PECAppSvc.exe", installDir);
     if (GetFileAttributesW(svcExe) == INVALID_FILE_ATTRIBUTES) {
-        wsprintfW(svcExe, L"%ls\\ProxyBridgeSvc.exe", installDir);
+        _snwprintf_s(svcExe, MAX_PATH, _TRUNCATE, L"%ls\\ProxyBridgeSvc.exe", installDir);
     }
 
     SC_HANDLE hSCM = OpenSCManagerW(NULL, NULL, SC_MANAGER_ALL_ACCESS);
     if (!hSCM) return FALSE;
 
     wchar_t binPathQuote[MAX_PATH + 4];
-    wsprintfW(binPathQuote, L"\"%ls\"", svcExe);
+    _snwprintf_s(binPathQuote, MAX_PATH + 4, _TRUNCATE, L"\"%ls\"", svcExe);
 
     SC_HANDLE hSvc = CreateServiceW(
         hSCM, SVC_NAME, SVC_DISPLAY,
@@ -516,7 +516,7 @@ static BOOL RegisterService(const wchar_t* installDir)
 
     // Run --setup-users to ensure PEC-App Users group exists
     wchar_t setupCmd[MAX_PATH + 32];
-    wsprintfW(setupCmd, L"\"%ls\" --setup-users", svcExe);
+    _snwprintf_s(setupCmd, MAX_PATH + 32, _TRUNCATE, L"\"%ls\" --setup-users", svcExe);
     ExecWait(setupCmd, installDir, NULL);
 
     // Start service
@@ -538,10 +538,10 @@ static void RegisterUninstallInfo(const wchar_t* installDir)
     HKEY hKey;
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, UNINST_KEY, 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
         wchar_t uninstPath[MAX_PATH + 32];
-        wsprintfW(uninstPath, L"\"%ls\\Uninstall.exe\" /uninstall", installDir);
+        _snwprintf_s(uninstPath, MAX_PATH + 32, _TRUNCATE, L"\"%ls\\Uninstall.exe\" /uninstall", installDir);
 
         wchar_t iconPath[MAX_PATH + 16];
-        wsprintfW(iconPath, L"\"%ls\\PEC-App.exe\",0", installDir);
+        _snwprintf_s(iconPath, MAX_PATH + 16, _TRUNCATE, L"\"%ls\\PEC-App.exe\",0", installDir);
 
         DWORD dwordOne = 1;
         RegSetValueExW(hKey, L"DisplayName", 0, REG_SZ, (const BYTE*)APP_NAME, (DWORD)(wcslen(APP_NAME) + 1) * sizeof(wchar_t));
@@ -614,7 +614,7 @@ static DWORD WINAPI InstallThread(LPVOID lpParam)
     // Save copy of installer as uninstaller
     wchar_t myPath[MAX_PATH], uninstExe[MAX_PATH];
     GetModuleFileNameW(NULL, myPath, MAX_PATH);
-    wsprintfW(uninstExe, L"%ls\\Uninstall.exe", g_installDir);
+    _snwprintf_s(uninstExe, MAX_PATH, _TRUNCATE, L"%ls\\Uninstall.exe", g_installDir);
     CopyFileW(myPath, uninstExe, FALSE);
 
     SetStatus(L"Registering Windows service (PECAppSvc)...", 70);
@@ -623,11 +623,11 @@ static DWORD WINAPI InstallThread(LPVOID lpParam)
     SetStatus(L"Creating shortcuts & registering uninstaller...", 85);
     wchar_t smDir[MAX_PATH];
     if (SHGetFolderPathW(NULL, CSIDL_COMMON_PROGRAMS, NULL, 0, smDir) == S_OK) {
-        lstrcatW(smDir, L"\\PEC-App");
+        wcscat_s(smDir, MAX_PATH, L"\\PEC-App");
         CreateDirectoryW(smDir, NULL);
         wchar_t lnkPath[MAX_PATH], targetExe[MAX_PATH];
-        wsprintfW(lnkPath, L"%ls\\PEC-App.lnk", smDir);
-        wsprintfW(targetExe, L"%ls\\PEC-App.exe", g_installDir);
+        _snwprintf_s(lnkPath, MAX_PATH, _TRUNCATE, L"%ls\\PEC-App.lnk", smDir);
+        _snwprintf_s(targetExe, MAX_PATH, _TRUNCATE, L"%ls\\PEC-App.exe", g_installDir);
         CreateShortcut(lnkPath, targetExe, g_installDir, L"PEC-App Transparent Proxy Client");
     }
 
@@ -670,9 +670,9 @@ static DWORD WINAPI UninstallThread(LPVOID lpParam)
     wchar_t smDir[MAX_PATH];
     if (SHGetFolderPathW(NULL, CSIDL_COMMON_PROGRAMS, NULL, 0, smDir) == S_OK) {
         wchar_t lnkPath[MAX_PATH];
-        wsprintfW(lnkPath, L"%ls\\PEC-App\\PEC-App.lnk", smDir);
+        _snwprintf_s(lnkPath, MAX_PATH, _TRUNCATE, L"%ls\\PEC-App\\PEC-App.lnk", smDir);
         DeleteFileW(lnkPath);
-        wsprintfW(lnkPath, L"%ls\\PEC-App", smDir);
+        _snwprintf_s(lnkPath, MAX_PATH, _TRUNCATE, L"%ls\\PEC-App", smDir);
         RemoveDirectoryW(lnkPath);
     }
 
@@ -689,7 +689,7 @@ static DWORD WINAPI UninstallThread(LPVOID lpParam)
 
     for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
         wchar_t path[MAX_PATH];
-        wsprintfW(path, L"%ls\\%ls", g_installDir, files[i]);
+        _snwprintf_s(path, MAX_PATH, _TRUNCATE, L"%ls\\%ls", g_installDir, files[i]);
         DeleteFileW(path);
     }
     RemoveDirectoryW(g_installDir);
@@ -717,7 +717,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         LOGFONTW lf;
         GetObjectW(hFontDef, sizeof(lf), &lf);
 
-        lstrcpyW(lf.lfFaceName, L"Segoe UI");
+        wcsncpy_s(lf.lfFaceName, LF_FACESIZE, L"Segoe UI", _TRUNCATE);
         lf.lfHeight = -18;
         lf.lfWeight = FW_BOLD;
         g_hFontTitle = CreateFontIndirectW(&lf);
@@ -796,9 +796,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmdLine, int nCmdSho
 
     // Default install dir: %ProgramFiles%\PEC-App
     if (SHGetFolderPathW(NULL, CSIDL_PROGRAM_FILES, NULL, 0, g_installDir) != S_OK) {
-        lstrcpyW(g_installDir, L"C:\\Program Files");
+        wcsncpy_s(g_installDir, MAX_PATH, L"C:\\Program Files", _TRUNCATE);
     }
-    lstrcatW(g_installDir, L"\\PEC-App");
+    wcscat_s(g_installDir, MAX_PATH, L"\\PEC-App");
 
     if (cmdLine) {
         if (wcsstr(cmdLine, L"/S") || wcsstr(cmdLine, L"/s") || wcsstr(cmdLine, L"/silent") || wcsstr(cmdLine, L"/q")) {

@@ -3108,6 +3108,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     }
 
     // Connect to engine (service IPC or elevated portable mode)
+    PB_AppLogInit();   // AUDIT-NAT-P3: log critical section must exist before any worker thread
     if (!ConnectEngine()) {
         g_connBuffer.Destroy();
         DeleteCriticalSection(&g_logCs);

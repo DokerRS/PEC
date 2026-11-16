@@ -2126,6 +2126,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show)
         return 0;
     }
 
+    PB_AppLogInit();   // AUDIT-NAT-P3: log critical section must exist before any worker thread
+
     if (!ConnectEngine())
         return 1;
 
