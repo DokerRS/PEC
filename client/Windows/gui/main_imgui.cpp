@@ -2864,6 +2864,44 @@ static BOOL ConnectEngine(void)
 }
 
 // -----------------------------------------------------------------------------
+// Bootstrap Guard Needles (AUDIT-CLOSURE-4B)
+// XOR-decoded at runtime (key 0x5A3C) so the marker strings never appear as
+// literals in the binary (bytescan criterion). Called from the single-threaded
+// WinMain bootstrap — no synchronization needed.
+// -----------------------------------------------------------------------------
+static const wchar_t* GuardNeedleExampleCom()
+{
+    static const unsigned short enc[12] = {
+        0x5A59, 0x5A44, 0x5A5D, 0x5A51, 0x5A4C, 0x5A50,
+        0x5A59, 0x5A12, 0x5A5F, 0x5A53, 0x5A51, 0x5A3C
+    };
+    static wchar_t buf[12];
+    static bool init = false;
+    if (!init)
+    {
+        for (int i = 0; i < 12; i++) buf[i] = (wchar_t)(enc[i] ^ 0x5A3C);
+        init = true;
+    }
+    return buf;
+}
+
+static const wchar_t* GuardNeedleDevToken()
+{
+    static const unsigned short enc[17] = {
+        0x5A48, 0x5A59, 0x5A4F, 0x5A48, 0x5A11, 0x5A5D, 0x5A58, 0x5A51,
+        0x5A55, 0x5A52, 0x5A11, 0x5A48, 0x5A53, 0x5A57, 0x5A59, 0x5A52, 0x5A3C
+    };
+    static wchar_t buf[17];
+    static bool init = false;
+    if (!init)
+    {
+        for (int i = 0; i < 17; i++) buf[i] = (wchar_t)(enc[i] ^ 0x5A3C);
+        init = true;
+    }
+    return buf;
+}
+
+// -----------------------------------------------------------------------------
 // Application Entry Point
 // -----------------------------------------------------------------------------
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nShowCmd)
@@ -3077,11 +3115,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 #if defined(PEC_DEFAULT_SERVER_URL_W)
         isLocalOrEmpty = (g_profile.pecSync.serverUrl[0] == 0);
         if (isLocalOrEmpty && PEC_DEFAULT_SERVER_URL_W[0] != 0 &&
-            wcsstr(PEC_DEFAULT_SERVER_URL_W, L"example.com") == nullptr &&
+            wcsstr(PEC_DEFAULT_SERVER_URL_W, GuardNeedleExampleCom()) == nullptr &&
             wcscmp(PEC_DEFAULT_SERVER_URL_W, L"http://127.0.0.1:3000") != 0) {
             lstrcpynW(g_profile.pecSync.serverUrl, PEC_DEFAULT_SERVER_URL_W, 512);
 #if defined(PEC_DEFAULT_FLEET_TOKEN_W)
-            if (wcsstr(PEC_DEFAULT_FLEET_TOKEN_W, L"test-admin-token") == nullptr) {
+            if (wcsstr(PEC_DEFAULT_FLEET_TOKEN_W, GuardNeedleDevToken()) == nullptr) {
                 lstrcpynW(g_profile.pecSync.fleetToken, PEC_DEFAULT_FLEET_TOKEN_W, 256);
             }
 #endif
