@@ -161,7 +161,13 @@ test("EXT-2: popup.html has no inline scripts and loads popupTheme.js externally
   assert.ok(!/<script>\s/.test(syncedHtml), "synced extension/popup.html must not contain inline scripts");
 
   const themeFile = fs.readFileSync(path.resolve("extension/popupTheme.js"), "utf-8");
-  assert.equal(themeFile, POPUP_THEME_TEMPLATE, "extension/popupTheme.js must be the synced template copy");
+  // Tolerate CRLF introduced by autocrlf checkouts (windows runners): the
+  // canonical template ships LF; content equality modulo EOL is the contract.
+  assert.equal(
+    themeFile.replace(/\r\n/g, "\n"),
+    POPUP_THEME_TEMPLATE,
+    "extension/popupTheme.js must be the synced template copy"
+  );
   assert.ok(themeFile.includes('localStorage.getItem("pec_theme_mode")'), "bootstrap must read the persisted theme");
   assert.ok(themeFile.includes('setAttribute("data-theme"'), "bootstrap must apply the theme attribute");
 });

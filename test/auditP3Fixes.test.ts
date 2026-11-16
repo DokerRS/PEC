@@ -48,7 +48,7 @@ test("P3/jsonStore: writeJsonAtomic fsyncs the temp file before rename", () => {
   }
 });
 
-test("P3/jsonStore: renameAtomicWithRetries retries transient EPERM/EBUSY on Windows", () => {
+test("P3/jsonStore: renameAtomicWithRetries retries transient EPERM/EBUSY on Windows", { skip: process.platform !== "win32" }, () => {
   const dir = path.join(TEST_TMP_DIR, "p3-rename-retry");
   fs.mkdirSync(dir, { recursive: true });
   const tmp = path.join(dir, "src.tmp");
