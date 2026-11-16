@@ -417,6 +417,12 @@ export function createAppSyncRouter(
         card: syncCard,
       };
 
+      // THEME-WEB-1: when the dashboard "Sync theme" toggle is off
+      // (appBldCfg.themeSyncEnabled === false) the server stops pushing the
+      // corporate theme - the field is omitted and the C client keeps its own
+      // default (pec_sync.h guards `if (thObj && thObj->type == J_OBJ)`).
+      const themeBlock = appBldCfg.themeSyncEnabled === false ? undefined : theme;
+
       res.json({
         ok: true,
         ...(issuedInstanceToken ? { instanceToken: issuedInstanceToken } : {}),
@@ -425,7 +431,7 @@ export function createAppSyncRouter(
         activeProxy: proxyPayload,
         availableProxies,
         serverRules,
-        theme,
+        ...(themeBlock ? { theme: themeBlock } : {}),
         update: {
           hasUpdate,
           latestVersion,

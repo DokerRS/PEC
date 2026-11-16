@@ -149,7 +149,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
 
               <label for="chkSyncThemeWithApps" style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 11px; color: var(--text); user-select: none;">
                 <input type="checkbox" id="chkSyncThemeWithApps" checked onchange="toggleSyncThemeWithApps(this.checked)" style="margin-top: 2px;" />
-                <span data-i18n="lblSyncThemeWithApps">Синхронизировать тему и значок с расширениями и приложениями</span>
+                <span data-i18n="lblSyncThemeWithApps">Синхронизировать тему с расширениями и приложениями</span>
               </label>
             </div>
 

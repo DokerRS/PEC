@@ -431,35 +431,43 @@ export function buildAppProfile(cfg: AppBuildConfig, baseUrl: string): object {
       fleetToken: cfg.defaultToken || process.env.EXT_SHARED_TOKEN || "corp-proxy-secret-token-change-me",
       intervalMinutes: cfg.syncIntervalMinutes || 15,
     },
-    Theme: (() => {
-      const mode = cfg.defaultThemeMode || "dark";
-      const isLightMode = mode === "light";
-      let bg = cfg.themeBackground || (isLightMode ? "#f1f5f9" : "#0b1120");
-      let card = cfg.themeCard || (isLightMode ? "#ffffff" : "#131d36");
-      if (isLightMode) {
-        if (/^#0[0-9a-f]{5}$/i.test(bg) || /^#1[0-9a-f]{5}$/i.test(bg) || /^#2[0-4][0-9a-f]{4}$/i.test(bg)) {
-          bg = cfg.presetStyle === "dark-obsidian" ? "#faf5ff" : (cfg.presetStyle === "emerald-secops" ? "#f0fdf4" : "#f1f5f9");
-        }
-        if (/^#0[0-9a-f]{5}$/i.test(card) || /^#1[0-9a-f]{5}$/i.test(card) || /^#2[0-4][0-9a-f]{4}$/i.test(card)) {
-          card = "#ffffff";
-        }
-      } else {
-        if (/^#f[0-9a-f]{5}$/i.test(bg) || /^#e[0-9a-f]{5}$/i.test(bg)) {
-          bg = "#0b1120";
-        }
-        if (/^#f[0-9a-f]{5}$/i.test(card) || /^#e[0-9a-f]{5}$/i.test(card) || card.toLowerCase() === "#ffffff") {
-          card = "#131d36";
-        }
-      }
-      return {
-        preset: cfg.presetStyle || "cyber-blue",
-        layout: cfg.uiLayout || "console",
-        mode,
-        primary: cfg.themeColor || (isLightMode ? "#2563eb" : "#38bdf8"),
-        background: bg,
-        card,
-      };
-    })(),
+    // THEME-WEB-1: corporate theme push is gated by the dashboard "Sync theme"
+    // toggle (themeSyncEnabled). Absent/true keeps legacy behavior; explicit
+    // false omits the Theme section entirely - the C client keeps its own
+    // default theme when the profile has no Theme block (profile.c:747).
+    ...(cfg.themeSyncEnabled === false
+      ? {}
+      : {
+          Theme: (() => {
+            const mode = cfg.defaultThemeMode || "dark";
+            const isLightMode = mode === "light";
+            let bg = cfg.themeBackground || (isLightMode ? "#f1f5f9" : "#0b1120");
+            let card = cfg.themeCard || (isLightMode ? "#ffffff" : "#131d36");
+            if (isLightMode) {
+              if (/^#0[0-9a-f]{5}$/i.test(bg) || /^#1[0-9a-f]{5}$/i.test(bg) || /^#2[0-4][0-9a-f]{4}$/i.test(bg)) {
+                bg = cfg.presetStyle === "dark-obsidian" ? "#faf5ff" : (cfg.presetStyle === "emerald-secops" ? "#f0fdf4" : "#f1f5f9");
+              }
+              if (/^#0[0-9a-f]{5}$/i.test(card) || /^#1[0-9a-f]{5}$/i.test(card) || /^#2[0-4][0-9a-f]{4}$/i.test(card)) {
+                card = "#ffffff";
+              }
+            } else {
+              if (/^#f[0-9a-f]{5}$/i.test(bg) || /^#e[0-9a-f]{5}$/i.test(bg)) {
+                bg = "#0b1120";
+              }
+              if (/^#f[0-9a-f]{5}$/i.test(card) || /^#e[0-9a-f]{5}$/i.test(card) || card.toLowerCase() === "#ffffff") {
+                card = "#131d36";
+              }
+            }
+            return {
+              preset: cfg.presetStyle || "cyber-blue",
+              layout: cfg.uiLayout || "console",
+              mode,
+              primary: cfg.themeColor || (isLightMode ? "#2563eb" : "#38bdf8"),
+              background: bg,
+              card,
+            };
+          })(),
+        }),
     Icon: {
       type: cfg.iconType || "shield",
       customDataUrl: cfg.customIconDataUrl || "",

@@ -157,6 +157,10 @@ export interface ExtensionBuildConfig {
   themeColor?: string;
   themeBackground?: string;
   themeCard?: string;
+  // THEME-WEB-1: E2E "Sync theme with extensions & apps" toggle. Absent/true
+  // keeps the legacy behavior (corporate theme ships in artifacts); explicit
+  // false stops the server from pushing the theme block.
+  themeSyncEnabled?: boolean;
   iconEmoji?: string;
   customIconDataUrl?: string;
   iconType?: "shield" | "lock" | "globe" | "bolt" | "server" | "key";
@@ -260,6 +264,8 @@ export interface AppBuildConfig {
   themeColor: string;
   themeBackground: string;
   themeCard: string;
+  // THEME-WEB-1: see ExtensionBuildConfig.themeSyncEnabled
+  themeSyncEnabled?: boolean;
   iconType: "shield" | "lock" | "globe" | "server" | "key";
   customIconDataUrl?: string;
   defaultServerUrl: string;

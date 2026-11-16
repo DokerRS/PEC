@@ -198,6 +198,11 @@ export function createAppBuilderRouter(
         }
       }
 
+      // THEME-WEB-1: E2E theme-sync toggle; strict boolean, absent keeps true
+      if (updates.themeSyncEnabled !== undefined) {
+        updates.themeSyncEnabled = updates.themeSyncEnabled === true || updates.themeSyncEnabled === "true";
+      }
+
       if (updates.legacyWin7 !== undefined) {
         updates.legacyWin7 = Boolean(updates.legacyWin7);
       }

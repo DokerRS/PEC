@@ -2,6 +2,7 @@
 // Theme Invariant: 100% parity with client/Windows/gui/pec_imgui_theme.h
 import { state } from './state.js';
 import { I18N } from './i18n.js';
+import { adminFetch } from './api.js';
 
 export { I18N };
 
@@ -155,6 +156,20 @@ export function setThemeSyncEnabled(enabled: boolean) {
     localStorage.setItem('pec_theme_sync_enabled', enabled ? 'true' : 'false');
   } catch (_) {}
   applyThemeSyncToConstructors();
+  // THEME-WEB-1: complete the E2E loop - the flag must leave the browser and
+  // gate corporate theme push server-side (app-build artifacts + /api/app/sync
+  // theme block). Fire-and-forget into both config endpoints; a failure must
+  // not break the local toggle (the next save of either config re-carries it).
+  const payload = JSON.stringify({ themeSyncEnabled: enabled });
+  const push = (url: string) => {
+    adminFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    }).catch(() => {});
+  };
+  push('/api/builder/config');
+  push('/api/app-builder/config');
 }
 
 export function setGlobalBrandIcon(icon: string) {
