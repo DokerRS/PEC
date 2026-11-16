@@ -172,15 +172,20 @@ cp .env.example .env
 | `APP_BUILD_INFO` | `./data/app_build_info.json` | Path to desktop client latest build info store |
 | `PANELS_3XUI_PATH` | `./data/panels_3xui.json` | Path to 3x-ui panels configuration store |
 | `RELEASES_META_PATH` | `./data/releases_meta.json` | Path to releases and version history store |
+| `PEC_RELEASES_DIR` | *(empty)* | Directory for published desktop client and extension releases (defaults to `./dist/releases`) |
+| `PEC_UPDATES_DIR` | *(empty)* | Directory served for CRX/updates.xml Chrome auto-updates via GPO (defaults to `./dist/updates`) |
 | `PROXY_HOST` | `10.0.0.1` | Default proxy host IP or domain name |
 | `PROXY_PORT` | `10809` | Default proxy port |
 | `PROBE_INSECURE_TLS` | `false` | Ignore TLS certificate errors when probe-checking proxy node availability |
-| `PEC_SYNC_INTERVAL_MIN` | `15` | Background periodic sync interval for extension and desktop app in minutes |
+| `PROXY_ECHO_URL` | *(empty)* | Echo endpoint URL used to probe proxy node egress IP (defaults to `http://api.ipify.org?format=json`) |
+| `PEC_SYNC_INTERVAL_MIN` | `15` | Background periodic sync interval for extension and desktop app in minutes (alias: `PEC_SYNC_INTERVAL_MINUTES`) |
 | `ROTATION_INTERVAL_MIN` | `1440` | Default interval for proxy credential rotation in minutes (24 hours) |
 | `XUI_PANEL_URL` | `https://3xui-host:2053/basepath` | Base URL of the 3x-ui management panel |
 | `XUI_ADMIN_USER` | `admin` | Admin username for 3x-ui panel login |
 | `XUI_ADMIN_PASS` | `change-me` | Admin password for 3x-ui panel login |
 | `XUI_INBOUND_REMARK` | `squid-in` | Remark of the inbound proxy to rotate |
+| `XUI_INBOUND_TAG` | *(empty)* | Tag of a specific Xray inbound to rotate; empty = auto-discovery via `XUI_INBOUND_REMARK` |
+| `XUI_INSECURE_SKIP_VERIFY` | `false` | Disable TLS certificate validation for the 3x-ui panel. ⚠️ MITM risk: use only for self-signed certificates in an isolated network segment |
 | `UPDATE_CHECK_REPO` | `vlv-code/PEC` | GitHub repository used for version update checks |
 | `CODE_SIGN_DIR` | `./certs` | Directory storing code signing certificates and keys |
 | `CODE_SIGN_PFX_PATH` | *(empty)* | Optional path to Authenticode PFX/P12 certificate for signing Windows binaries |
@@ -191,8 +196,7 @@ cp .env.example .env
 | `CODE_SIGN_ISSUER` | `"Corporate CA"` | Certificate issuer organization name |
 | `CODE_SIGN_TIMESTAMP_URL` | `http://timestamp.digicert.com` | RFC 3161 Authenticode timestamp server URL |
 | `LOG_LEVEL` | `info` | Server logging verbosity level (`debug`, `info`, `warn`, `error`) |
-| `METRICS_PORT` | `3000` | Dedicated Prometheus metrics exposition port (falls back to main `PORT`) |
-| `METRICS_AUTH` | `true` | Enforce admin token authentication on `/metrics` endpoint (set `false` for public scraper access) |
+| `LOG_FORMAT` | *(empty)* | Log output format: `text` (human-readable, default) or `json` (structured; forced automatically in production) |
 | `PEC_METRICS_PUBLIC` | `false` | Allow public access to `/metrics` without `ADMIN_TOKEN` authentication |
 | `AD_ENABLED` | `false` | Enable periodic synchronization and user validation with Active Directory / LDAP |
 | `AD_LDAP_URL` | `ldaps://dc01.corp.local:636` | LDAP server URL (LDAPS on port 636 is recommended for secure channel) |
@@ -203,6 +207,8 @@ cp .env.example .env
 | `AD_SYNC_INTERVAL_SEC` | `300` | Polling interval in seconds for background Active Directory sync |
 | `AD_REJECT_UNKNOWN_USERS` | `true` | Reject sync requests and trigger Kill-Switch (DIRECT) for unknown or disabled users |
 | `AD_TLS_REJECT_UNAUTHORIZED` | `true` | Enforce TLS certificate validation for Domain Controller LDAPS connections |
+| `AD_CONFIG_PATH` | *(empty)* | Path to the AD integration config saved from the web dashboard (defaults to `./data/ad_config.json`) |
+| `AD_CACHE_PATH` | *(empty)* | Path to the AD users cache used for instant Kill-Switch decisions (defaults to `./data/ad_cache.json`) |
 
 > ⚠️ **Security Notice:** Always change `EXT_SHARED_TOKEN` and set a distinct `ADMIN_TOKEN` before deploying to a production or public environment! The dashboard login password and the management APIs authenticate with `ADMIN_TOKEN`, not with the fleet token.
 >

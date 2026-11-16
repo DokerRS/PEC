@@ -4,10 +4,10 @@
 
 | Компонент | Версия | Поддержка |
 |-----------|--------|-----------|
-| Server | 1.x | Да |
-| Extension | 1.x | Да |
-| Windows Client | 2.x | Да |
-| Linux Client | 2.x | Да |
+| Server | 0.9.x-alpha | Да |
+| Extension | 0.9.x-alpha | Да |
+| Windows Client | 0.9.x-alpha | Да |
+| Linux Client | 0.9.x-alpha | Да |
 
 ---
 

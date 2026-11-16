@@ -8,6 +8,19 @@ data
 .github
 *.local
 .env
+# Cryptographic keys must never enter the build context (COPY . .):
+# the CRX key (extension/key.pem) and Authenticode material are mounted at
+# runtime (pec_extension volume / certs dir), never baked into images.
+*.pem
+*.key
+*.pfx
+certs
+# Local scratch and non-runtime directories are not needed inside the image.
+scratch
+.agents
+docs
+test
+assets
 current_creds.json
 audit_log.json
 instances_meta.json

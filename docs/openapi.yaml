@@ -3,8 +3,8 @@ info:
   title: PEC - Proxy Extension Corp Fleet & Management API
   version: 1.0.0
   license:
-    name: MIT
-    url: https://opensource.org/licenses/MIT
+    name: AGPL-3.0-or-later
+    url: https://www.gnu.org/licenses/agpl-3.0.html
   description: |
     Enterprise API for managing selective routing, GeoBases, extension constructor studio,
     Windows Active Directory GPO distribution, native desktop clients (PEC-App), and automated
@@ -394,28 +394,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /api/proxies/probe:
+  /api/proxies/check-all:
     post:
-      summary: Probe Proxy Connectivity
-      description: Tests egress connectivity and latency through a specific proxy node or all nodes.
-      operationId: probeProxies
+      summary: Probe All Proxy Nodes
+      description: Tests TCP connectivity, protocol handshake, and egress IP through every configured proxy node (concurrency-limited).
+      operationId: checkAllProxies
       security:
         - AdminBearer: []
         - AdminHeader: []
         - AdminCookie: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                id:
-                  type: string
-                  description: Optional proxy node ID to probe individually
       responses:
         '200':
-          description: Probe results including latency and reachable status
+          description: Probe results keyed by proxy node ID
           content:
             application/json:
               schema:
@@ -423,12 +413,65 @@ paths:
                 properties:
                   ok:
                     type: boolean
-                  latencyMs:
-                    type: number
-                  ip:
-                    type: string
+                  results:
+                    type: object
+                    additionalProperties:
+                      $ref: '#/components/schemas/ProxyCheckResult'
         '401':
           description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Probe execution failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/proxies/{id}/check:
+    post:
+      summary: Probe Single Proxy Node
+      description: Tests TCP connectivity, protocol handshake, and egress IP through one proxy node identified by ID.
+      operationId: checkProxyById
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Proxy node ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Probe result including latency and egress status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    $ref: '#/components/schemas/ProxyCheckResult'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Proxy node not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Probe execution failed
           content:
             application/json:
               schema:
@@ -546,22 +589,66 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /api/rotation/status:
+  /api/rotation/config:
     get:
-      summary: Proxy Credential Rotation Status
-      description: Returns scheduler telemetry, next rotation countdown, and inbound target information.
-      operationId: getRotationStatus
+      summary: Get Rotation Configuration and Recent History
+      description: |
+        Returns the password-masked rotation configuration together with the last 10 rotation
+        history entries. The 3x-ui admin password never leaves the server in plaintext.
+      operationId: getRotationConfig
       security:
         - AdminBearer: []
         - AdminHeader: []
         - AdminCookie: []
       responses:
         '200':
-          description: Current rotation status and timer state
+          description: Current rotation configuration and recent history
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RotationStatus'
+                type: object
+                properties:
+                  config:
+                    $ref: '#/components/schemas/RotationConfigPublic'
+                  history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RotationHistoryEntry'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Update Rotation Configuration
+      description: |
+        Partially updates the rotation configuration (interval, panel URL, credentials, inbound).
+        The 3x-ui admin password is never echoed back - responses always carry a masked value.
+      operationId: updateRotationConfig
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RotationConfigPublic'
+      responses:
+        '200':
+          description: Updated rotation configuration (admin password masked)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotationConfigPublic'
+        '400':
+          description: Invalid configuration payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
           description: Unauthorized admin access
           content:
@@ -569,11 +656,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /api/rotation/rotate:
+  /api/rotation/rotate-now:
     post:
       summary: Trigger Manual Credential Rotation
-      description: Connects to 3x-ui / Xray panel, generates new credentials, and updates current_creds.json atomically.
-      operationId: triggerRotation
+      description: Connects to the 3x-ui / Xray panel, generates new credentials, and updates current_creds.json atomically. Falls back to standalone atomic rotation when the panel is unreachable.
+      operationId: rotateNow
       security:
         - AdminBearer: []
         - AdminHeader: []
@@ -588,10 +675,8 @@ paths:
                 properties:
                   ok:
                     type: boolean
-                  message:
-                    type: string
-                  user:
-                    type: string
+                  result:
+                    $ref: '#/components/schemas/RotationHistoryEntry'
         '401':
           description: Unauthorized admin access
           content:
@@ -600,31 +685,6 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Rotation error or panel connection failed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/rotation/history:
-    get:
-      summary: Rotation Event History Audit Log
-      description: Retrieves historical credential rotation records and status entries.
-      operationId: getRotationHistory
-      security:
-        - AdminBearer: []
-        - AdminHeader: []
-        - AdminCookie: []
-      responses:
-        '200':
-          description: History entries
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/RotationHistoryEntry'
-        '401':
-          description: Unauthorized admin access
           content:
             application/json:
               schema:
@@ -1147,33 +1207,65 @@ components:
         colorPalette:
           type: string
 
-    RotationStatus:
+    RotationConfigPublic:
       type: object
       properties:
-        status:
-          type: string
+        enabled:
+          type: boolean
         intervalMinutes:
           type: integer
-        lastRotation:
+        panelUrl:
           type: string
-          format: date-time
-        nextRotation:
+        adminUser:
           type: string
-          format: date-time
+        adminPass:
+          type: string
+          description: Masked value ("********") in responses; accepts a new plaintext password in update requests.
+        inboundRemark:
+          type: string
         inboundTag:
+          type: string
+        insecureSkipVerify:
+          type: boolean
+        lastStatus:
           type: string
 
     RotationHistoryEntry:
       type: object
       properties:
+        id:
+          type: string
         timestamp:
           type: string
           format: date-time
-        action:
+        source:
+          type: string
+          enum: [3x-ui, standalone-atomic, manual]
+        user:
+          type: string
+        success:
+          type: boolean
+        error:
+          type: string
+
+    ProxyCheckResult:
+      type: object
+      properties:
+        id:
           type: string
         status:
           type: string
-        details:
+          enum: [ONLINE, OFFLINE, TIMEOUT, ERROR]
+        latencyMs:
+          type: integer
+        egressIp:
+          type: string
+        geoCountry:
+          type: string
+        checkedAt:
+          type: string
+          format: date-time
+        error:
           type: string
 
     AdStatusResponse:
@@ -1221,13 +1313,11 @@ components:
           type: boolean
           example: true
         lastSyncAt:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           example: '2026-11-13T12:00:00.000Z'
         lastSyncError:
-          type: string
-          nullable: true
+          type: [string, "null"]
           example: null
 
     AdConfigUpdateRequest:

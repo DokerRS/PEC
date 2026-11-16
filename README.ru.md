@@ -167,15 +167,20 @@ cp .env.example .env
 | `APP_BUILD_INFO` | `./data/app_build_info.json` | Путь к метаданным последней сборки десктопного клиента |
 | `PANELS_3XUI_PATH` | `./data/panels_3xui.json` | Путь к хранилищу параметров подключения к панелям 3x-ui |
 | `RELEASES_META_PATH` | `./data/releases_meta.json` | Путь к метаданным релизов и журналам версий |
+| `PEC_RELEASES_DIR` | *(пусто)* | Каталог публикаций релизов десктопного клиента и расширения (по умолчанию `./dist/releases`) |
+| `PEC_UPDATES_DIR` | *(пусто)* | Каталог отдачи CRX/updates.xml для автообновления Chrome по GPO (по умолчанию `./dist/updates`) |
 | `PROXY_HOST` | `10.0.0.1` | Хост/IP корпоративного прокси по умолчанию |
 | `PROXY_PORT` | `10809` | Порт корпоративного прокси по умолчанию |
 | `PROBE_INSECURE_TLS` | `false` | Игнорировать ошибки TLS-сертификатов при probe-проверке доступности прокси-узлов |
-| `PEC_SYNC_INTERVAL_MIN` | `15` | Интервал фоновой периодической синхронизации расширения и десктопного приложения в минутах |
+| `PROXY_ECHO_URL` | *(пусто)* | URL echo-эндпоинта для проверки egress-IP прокси-узлов (по умолчанию `http://api.ipify.org?format=json`) |
+| `PEC_SYNC_INTERVAL_MIN` | `15` | Интервал фоновой периодической синхронизации расширения и десктопного приложения в минутах (алиас: `PEC_SYNC_INTERVAL_MINUTES`) |
 | `ROTATION_INTERVAL_MIN` | `1440` | Интервал автоматической ротации учетных данных прокси в минутах (24 часа) |
 | `XUI_PANEL_URL` | `https://3xui-host:2053/basepath` | URL панели управления 3x-ui |
 | `XUI_ADMIN_USER` | `admin` | Логин администратора 3x-ui |
 | `XUI_ADMIN_PASS` | `change-me` | Пароль администратора 3x-ui |
 | `XUI_INBOUND_REMARK` | `squid-in` | Примечание (Remark) целевого инбаунда для ротации |
+| `XUI_INBOUND_TAG` | *(пусто)* | Тег конкретного инбаунда Xray для ротации; пусто = автопоиск по `XUI_INBOUND_REMARK` |
+| `XUI_INSECURE_SKIP_VERIFY` | `false` | Отключить проверку TLS-сертификата панели 3x-ui. ⚠️ Риск MITM: только для self-signed сертификатов в изолированном сетевом контуре |
 | `UPDATE_CHECK_REPO` | `vlv-code/PEC` | Репозиторий GitHub для проверки обновлений версий |
 | `CODE_SIGN_DIR` | `./certs` | Каталог для хранения сертификатов и ключей подписи кода |
 | `CODE_SIGN_PFX_PATH` | *(пусто)* | Путь к PFX/P12 сертификату Authenticode для подписи Windows EXE/MSI |
@@ -186,8 +191,7 @@ cp .env.example .env
 | `CODE_SIGN_ISSUER` | `"Corporate CA"` | Издатель сертификата |
 | `CODE_SIGN_TIMESTAMP_URL` | `http://timestamp.digicert.com` | URL сервера меток времени RFC 3161 |
 | `LOG_LEVEL` | `info` | Уровень детализации логирования сервера (`debug`, `info`, `warn`, `error`) |
-| `METRICS_PORT` | `3000` | Выделенный порт отдачи метрик Prometheus (по умолчанию совпадает с `PORT`) |
-| `METRICS_AUTH` | `true` | Требовать авторизацию токеном администратора для `/metrics` (или `false` для публичного доступа) |
+| `LOG_FORMAT` | *(пусто)* | Формат логов: `text` (читаемый, по умолчанию) или `json` (структурированный; включается автоматически в production) |
 | `PEC_METRICS_PUBLIC` | `false` | Разрешить публичный доступ к `/metrics` без передачи `ADMIN_TOKEN` |
 | `AD_ENABLED` | `false` | Включение периодической синхронизации и валидации пользователей в Active Directory / LDAP |
 | `AD_LDAP_URL` | `ldaps://dc01.corp.local:636` | URL LDAP-сервера (рекомендуется защищенный протокол LDAPS на порту 636) |
@@ -198,6 +202,8 @@ cp .env.example .env
 | `AD_SYNC_INTERVAL_SEC` | `300` | Интервал опроса Active Directory и обновления локального кэша в секундах |
 | `AD_REJECT_UNKNOWN_USERS` | `true` | Отклонять ли запросы синхронизации от неизвестных или заблокированных в AD пользователей (Kill-Switch) |
 | `AD_TLS_REJECT_UNAUTHORIZED` | `true` | Проверять ли валидность TLS-сертификата контроллера домена при LDAPS-соединении |
+| `AD_CONFIG_PATH` | *(пусто)* | Путь к конфигурации AD-интеграции, сохраняемой из веб-панели (по умолчанию `./data/ad_config.json`) |
+| `AD_CACHE_PATH` | *(пусто)* | Путь к кэшу пользователей AD для мгновенных решений Kill-Switch (по умолчанию `./data/ad_cache.json`) |
 
 > ⚠️ **Предупреждение по безопасности:** Обязательно замените `EXT_SHARED_TOKEN` и задайте отдельный `ADMIN_TOKEN` перед запуском в рабочей среде! Дашборд и management-API авторизуются через `ADMIN_TOKEN` (заголовок `X-Admin-Token`), а не через fleet-токен.
 >
