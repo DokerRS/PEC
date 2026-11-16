@@ -265,7 +265,20 @@ inline void ApplyProfileTheme(const PBProfile* prof, ImGuiStyle* dst = nullptr)
             );
         }
         if (prof->theme.background) PecTheme::CanvasBg      = ColorrefToImVec4(prof->theme.background);
-        if (prof->theme.card)       PecTheme::CardBg        = ColorrefToImVec4(prof->theme.card);
+        if (prof->theme.card)
+        {
+            PecTheme::CardBg = ColorrefToImVec4(prof->theme.card);
+            // THEME-NAT-2: unified ImGui<->GDI light-mode contract — same guard as
+            // ui/theme.h ApplyProfileTheme (and the server-side THEME-WEB-3 sanitization):
+            // a dark custom card must never leak into a light profile.
+            if (PecTheme::IsLightMode &&
+                (GetRValue(prof->theme.card) < 160 ||
+                 GetGValue(prof->theme.card) < 160 ||
+                 GetBValue(prof->theme.card) < 160))
+            {
+                PecTheme::CardBg = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+            }
+        }
     }
 
     // Apply colors to Dear ImGui
