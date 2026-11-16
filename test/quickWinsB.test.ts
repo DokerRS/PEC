@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import http from "node:http";
+import express from "express";
 import { getAppVersion } from "../src/version.js";
 import { renderDashboardHtml } from "../src/views/dashboardView.js";
 import { initDashboardCredentials, resetDashboardCredentialsForTest } from "../src/auth.js";
+import { createSystemRouter } from "../src/routes/systemRoutes.js";
+import { TEST_TOKEN } from "./helpers/setup.js";
 
 test("B2: getAppVersion returns package.json version and renders in dashboard badge", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf-8"));
@@ -18,13 +22,49 @@ test("B2: getAppVersion returns package.json version and renders in dashboard ba
   assert.ok(!html.includes(">v1.3.0</span>"), "hardcoded v1.3.0 must not be present");
 });
 
-test("B3: update check repo defaults to vlv-code/PEC and honors UPDATE_CHECK_REPO env", () => {
-  const systemRoutesContent = fs.readFileSync(path.join(process.cwd(), "src/routes/systemRoutes.ts"), "utf-8");
-  assert.ok(
-    systemRoutesContent.includes('process.env.UPDATE_CHECK_REPO || "vlv-code/PEC"'),
-    "default repo must be vlv-code/PEC with UPDATE_CHECK_REPO env override"
+test("B3: update check repo defaults to vlv-code/PEC and honors UPDATE_CHECK_REPO env", async () => {
+  // AUDIT-QA-P3: behavioral — exercised through GET /api/github/releases and its
+  // `repo` echo instead of reading route source text. The echo is present on
+  // every outcome (200 / 400 / 404 / 502), so the precedence chain is verified
+  // offline without depending on GitHub availability.
+  const app = express();
+  app.use(
+    createSystemRouter({
+      port: 3000,
+      getFleetToken: () => TEST_TOKEN,
+      defaultFleetToken: "default-token",
+      adminTokenConfigured: true,
+      credsStorePath: "/tmp/creds.json",
+    })
   );
-  assert.ok(!systemRoutesContent.includes("balukabalukasa/pec-proxy-corp"), "stale repo must be removed");
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
+
+  const origEnv = process.env.UPDATE_CHECK_REPO;
+  try {
+    // 1. Env override wins when no query param is given.
+    process.env.UPDATE_CHECK_REPO = "env-probe/env-probe";
+    const resEnv = await fetch(`${baseUrl}/api/github/releases`);
+    const bodyEnv = (await resEnv.json()) as any;
+    assert.equal(bodyEnv.repo, "env-probe/env-probe", "UPDATE_CHECK_REPO env must override the default repo");
+
+    // 2. Query param takes precedence over env.
+    const resQuery = await fetch(`${baseUrl}/api/github/releases?repo=query-probe/query-probe`);
+    const bodyQuery = (await resQuery.json()) as any;
+    assert.equal(bodyQuery.repo, "query-probe/query-probe", "?repo= query param must take precedence over env");
+
+    // 3. Default is vlv-code/PEC when neither is set (stale repo is gone).
+    delete process.env.UPDATE_CHECK_REPO;
+    const resDefault = await fetch(`${baseUrl}/api/github/releases`);
+    const bodyDefault = (await resDefault.json()) as any;
+    assert.equal(bodyDefault.repo, "vlv-code/PEC", "default update-check repo must be vlv-code/PEC");
+    assert.notEqual(bodyDefault.repo, "balukabalukasa/pec-proxy-corp", "stale repo must never be used");
+  } finally {
+    if (origEnv === undefined) delete process.env.UPDATE_CHECK_REPO;
+    else process.env.UPDATE_CHECK_REPO = origEnv;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 test("B1: initDashboardCredentials prints bootstrap credentials banner on fallback creation", () => {

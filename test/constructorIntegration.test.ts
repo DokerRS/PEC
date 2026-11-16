@@ -6,6 +6,7 @@ import path from "node:path";
 import { buildExtensionFiles, saveBuildConfig, getBuildConfig, generateExtensionFiles, parseDataUrlBuffer } from "../src/packager.js";
 import { ExtensionBuildConfig } from "../src/types.js";
 import { renderDashboardHtml } from "../src/views/dashboardView.js";
+import { createDashboardVmEnv } from "./helpers/dashboardVm.js";
 
 test("packager accepts uiLayout, colorPalette, and defaultThemeMode and renders into popup", async () => {
   const cfg: ExtensionBuildConfig = {
@@ -85,21 +86,21 @@ test("dashboard.css configures .popup-frame-box with flexible fit-content width 
   assert.match(css, /\.popup-frame-box\s+iframe\s*\{[^}]*height:\s*580px/);
 });
 
-test("dashboard.js mockScript includes full chrome.storage.local mock with get/set", () => {
-  const js = fs.readFileSync(path.resolve(process.cwd(), "public/dashboard.js"), "utf-8");
+test("dashboard.min.js mockScript includes full chrome.storage.local mock with get/set", () => {
+  const js = fs.readFileSync(path.resolve(process.cwd(), "public/dashboard.min.js"), "utf-8");
   assert.ok(js.includes("storage: {") || js.includes("storage:{"));
   assert.ok(js.includes("__simStorage"));
   assert.ok(js.includes("pecUserRules"));
 });
 
-test("dashboard.js mockScript includes chrome.tabs mock", () => {
-  const js = fs.readFileSync(path.resolve(process.cwd(), "public/dashboard.js"), "utf-8");
+test("dashboard.min.js mockScript includes chrome.tabs mock", () => {
+  const js = fs.readFileSync(path.resolve(process.cwd(), "public/dashboard.min.js"), "utf-8");
   assert.ok(js.includes("tabs: {") || js.includes("tabs:{"));
   assert.ok(js.includes("query: function"));
 });
 
-test("dashboard.js mockScript supports SET_ENABLED, SAVE_USER_RULES, and GET_USER_RULES with action and type", () => {
-  const js = fs.readFileSync(path.resolve(process.cwd(), "public/dashboard.js"), "utf-8");
+test("dashboard.min.js mockScript supports SET_ENABLED, SAVE_USER_RULES, and GET_USER_RULES with action and type", () => {
+  const js = fs.readFileSync(path.resolve(process.cwd(), "public/dashboard.min.js"), "utf-8");
   assert.ok(js.includes("SET_ENABLED"));
   assert.ok(js.includes("SAVE_USER_RULES"));
   assert.ok(js.includes("GET_USER_RULES"));
@@ -107,12 +108,43 @@ test("dashboard.js mockScript supports SET_ENABLED, SAVE_USER_RULES, and GET_USE
   assert.ok(js.includes("GET_LOGS"));
 });
 
-test("dashboard.js handles PREVIEW_RESIZE with both width and height", () => {
-  const js = fs.readFileSync(path.resolve(process.cwd(), "public/dashboard.js"), "utf-8");
-  assert.ok(js.includes("__postPreviewSize"));
-  assert.ok(js.includes("PREVIEW_RESIZE"));
-  assert.match(js, /pf\.style\.width\s*=\s*Math\.max\(380,\s*Math\.min\(600/);
-  assert.match(js, /pf\.style\.height\s*=\s*Math\.max\(180,\s*Math\.min\(850/);
+test("dashboard.min.js handles PREVIEW_RESIZE with both width and height", () => {
+  // AUDIT-QA-1: behavioral contract. The preview iframe measures itself
+  // (__postPreviewSize must ship in the bundle) and the parent clamps both
+  // dimensions on the PREVIEW_RESIZE message (studio.ts message listener).
+  const js = fs.readFileSync(path.resolve(process.cwd(), "public/dashboard.min.js"), "utf-8");
+  assert.ok(js.includes("__postPreviewSize"), "iframe size reporter must ship in the bundle");
+  assert.ok(js.includes("PREVIEW_RESIZE"), "PREVIEW_RESIZE protocol must ship in the bundle");
+
+  const { getEl, emitWindowEvent } = createDashboardVmEnv();
+  const pf = getEl("previewFrame");
+  const frameWindow = {};
+  pf.contentWindow = frameWindow;
+
+  // Oversized content clamps to the maximum band.
+  emitWindowEvent("message", {
+    source: frameWindow,
+    data: { type: "PREVIEW_RESIZE", width: 2000, height: 5000 },
+  });
+  assert.equal(pf.style.width, "600px", "width must clamp to 600px max");
+  assert.equal(pf.style.height, "850px", "height must clamp to 850px max");
+  assert.equal(pf.style.overflow, "hidden");
+
+  // Tiny content clamps to the minimum band.
+  emitWindowEvent("message", {
+    source: frameWindow,
+    data: { type: "PREVIEW_RESIZE", width: 100, height: 50 },
+  });
+  assert.equal(pf.style.width, "380px", "width must clamp to 380px min");
+  assert.equal(pf.style.height, "180px", "height must clamp to 180px min");
+
+  // Messages from a foreign source must be ignored (sandbox isolation).
+  emitWindowEvent("message", {
+    source: {},
+    data: { type: "PREVIEW_RESIZE", width: 111, height: 222 },
+  });
+  assert.equal(pf.style.width, "380px", "foreign source messages must not resize the frame");
+  assert.equal(pf.style.height, "180px", "foreign source messages must not resize the frame");
 });
 
 test("Extension Studio provides popup and stealth modes without kiosk", () => {
@@ -184,10 +216,34 @@ test("generateExtensionFiles escapes customIconDataUrl in SVG preview to prevent
   assert.doesNotMatch(svg, /href="[^"]*"[^>]*onmouseover/);
 });
 
-test("dashboard.js applyUiModePreset accepts triggerSave parameter to avoid extraneous save on initial load", () => {
-  const js = fs.readFileSync(path.resolve(process.cwd(), "public/dashboard.js"), "utf-8");
-  assert.match(js, /function\s+applyUiModePreset\s*\(\s*mode\s*,\s*triggerSave\s*=\s*true\s*\)/);
-  assert.match(js, /highlightTemplateChip\s*\(\s*cfg\.uiMode\s*,\s*false\s*\)/);
+test("dashboard.min.js applyUiModePreset saves by default and suppresses save on initial load (triggerSave=false)", () => {
+  // AUDIT-QA-1: behavioral contract (was a source-shape regex on the orphaned
+  // monolith). Default triggerSave=true schedules the 500ms debounced save via
+  // onConfigChangeLive; triggerSave=false (initial load path) must not.
+  const { ctx, getEl, pendingTimers } = createDashboardVmEnv();
+
+  // Initial load path: explicit triggerSave=false — no extraneous save.
+  ctx.window.applyUiModePreset("stealth", false);
+  assert.equal(getEl("bldUiMode").value, "stealth");
+  assert.equal(getEl("bldPresetBadge").textContent, "Stealth Agent");
+  assert.ok(getEl("chip-stealth").classList.contains("active"), "stealth chip must be highlighted");
+  assert.ok(!getEl("chip-popup").classList.contains("active"), "popup chip must be dimmed");
+  assert.equal(
+    pendingTimers().filter((t) => t.delay === 500).length,
+    0,
+    "triggerSave=false must not schedule the debounced config save"
+  );
+
+  // Default: triggerSave=true — debounced save is scheduled.
+  ctx.window.applyUiModePreset("popup");
+  assert.equal(getEl("bldPresetBadge").textContent, "Self-Service Pro");
+  assert.ok(getEl("chip-popup").classList.contains("active"), "popup chip must be highlighted");
+  assert.ok(!getEl("chip-stealth").classList.contains("active"), "stealth chip must be dimmed");
+  assert.equal(
+    pendingTimers().filter((t) => t.delay === 500).length,
+    1,
+    "default applyUiModePreset must schedule the 500ms debounced config save"
+  );
 });
 
 

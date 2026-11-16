@@ -2,6 +2,7 @@ import "./helpers/setup.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { setupDashboardDom } from "./helpers/dashboardDom.js";
+import { waitFor } from "./helpers/waitFor.js";
 
 // ============================================================================
 // Group 1: Инициализация и переключение вкладок (Proxies, Studio, Telemetry, Presets)
@@ -108,8 +109,11 @@ test("dashboard regression: 1.4 tab switching to Telemetry activates fleet pane 
     assert.equal(fleetBtn?.getAttribute("aria-selected"), "true", "Fleet tab button must have aria-selected='true'");
     assert.ok(fleetPane?.classList.contains("active"), "Fleet pane #tab-instances must have active class");
 
-    // Allow async loadInstances fetch chain (/api/proxies -> /api/instances) to complete
-    await new Promise((r) => setTimeout(r, 60));
+    // AUDIT-QA-P3: event-driven wait for the async loadInstances fetch chain
+    // (/api/proxies -> /api/instances) instead of a fixed sleep.
+    await waitFor(() => fetchCalls.some((c) => c.url === "/api/instances"), {
+      label: "loadInstances to fetch /api/instances",
+    });
 
     const fetchedInstances = fetchCalls.some((c) => c.url === "/api/instances");
     assert.ok(fetchedInstances, "Switching to Telemetry/Fleet tab must fetch /api/instances");
@@ -154,8 +158,10 @@ test("dashboard regression: 1.5 presets load and render into routing container",
     const container = document.getElementById("presetsContainer");
     assert.ok(container, "Presets container #presetsContainer must exist in routing tab");
 
-    // Allow async render
-    await new Promise((r) => setTimeout(r, 50));
+    // AUDIT-QA-P3: wait for the preset names to actually appear in the DOM.
+    await waitFor(() => container.innerHTML.includes("Corporate VPN"), {
+      label: "presets to render into #presetsContainer",
+    });
 
     const html = container.innerHTML;
     assert.ok(html.includes("Corporate VPN &amp; Split") || html.includes("Corporate VPN & Split"), "Preset name must be rendered in DOM");
@@ -277,8 +283,9 @@ test("dashboard regression: 3.1 App Studio form collects form values into config
   try {
     const { window, document, fetchCalls } = env;
 
-    // Allow initial background theme sync save to settle
-    await new Promise((r) => setTimeout(r, 60));
+    // AUDIT-QA-P3: no background save settle-wait needed — the shipped bundle's
+    // onAppConfigChangeLive() only flags dirty state and never POSTs, so the
+    // awaited saveAppStudioConfigAction below is the only save in flight.
 
     // Populate App Studio inputs
     const nameEl = document.getElementById("appBuildName") as HTMLInputElement;
@@ -301,9 +308,17 @@ test("dashboard regression: 3.1 App Studio form collects form values into config
 
     assert.equal(result, true, "saveAppStudioConfigAction must return true on success");
 
+    // AUDIT-QA-P3: select this test's own POST by its unique payload instead of
+    // the last POST, so any unrelated request can never shadow it.
     const saveCall = fetchCalls
       .filter((c) => c.url === "/api/app-builder/config" && c.method === "POST")
-      .pop();
+      .find((c) => {
+        try {
+          return JSON.parse(c.body).name === "Custom Enterprise Proxy Client";
+        } catch {
+          return false;
+        }
+      });
     assert.ok(saveCall, "Must execute POST /api/app-builder/config");
 
     const payload = JSON.parse(saveCall.body);
@@ -327,8 +342,9 @@ test("dashboard regression: 3.2 App Studio successful save resets isAppStudioDir
 
     env.setMockResponse("/api/app-builder/config", { ok: true, name: "PEC - Client" });
 
-    // Allow initial background theme sync save to settle
-    await new Promise((r) => setTimeout(r, 60));
+    // AUDIT-QA-P3: no background save settle-wait needed — the shipped bundle's
+    // onAppConfigChangeLive() never POSTs; the awaited save action is the only
+    // save in flight.
 
     // Set dirty flag
     window.isAppStudioDirty = true;
@@ -356,8 +372,7 @@ test("dashboard regression: 3.3 App Studio save failure preserves isAppStudioDir
     env.setMockResponse("/api/app-builder/config:status", 500);
     env.setMockResponse("/api/app-builder/config", { ok: false, error: "Disk write error" });
 
-    // Allow initial background theme sync save to settle
-    await new Promise((r) => setTimeout(r, 60));
+    // AUDIT-QA-P3: no background save settle-wait needed (see 3.2).
 
     window.isAppStudioDirty = true;
 

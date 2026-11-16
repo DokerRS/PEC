@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { renderDashboardHtml } from "../src/views/dashboardView.js";
 import { setupDashboardDom } from "./helpers/dashboardDom.js";
+import { waitFor } from "./helpers/waitFor.js";
 
 test("Task 4: Fleet table includes Proxy Server column and dashboard.js handles assignment", () => {
   const html = renderDashboardHtml();
@@ -84,8 +85,12 @@ test("D-01 regression: loadInstances() executes in JSDOM environment without Ref
       await env.window.loadInstances();
     }, "loadInstances must not reject or throw");
 
-    // Wait for asynchronous loadDesktopInstances() to finish its fetch & render
-    await new Promise((r) => setTimeout(r, 80));
+    // AUDIT-QA-P3: event-driven wait for the async loadDesktopInstances()
+    // render instead of a fixed sleep.
+    await waitFor(
+      () => (env.document.getElementById("desktopFleetTableBody")?.innerHTML || "").includes("FINANCE-PC"),
+      { label: "loadDesktopInstances to render desktop rows" }
+    );
 
     // Verify no ReferenceError or TypeError was caught and logged during execution
     const referenceErrors = env.loggedErrors.filter((args) =>
@@ -183,8 +188,10 @@ test("Fleet UI: select-instance-proxy change event triggers /api/instances/assig
     proxySelect.value = "proxy-corp-2";
     proxySelect.dispatchEvent(new env.window.Event("change", { bubbles: true }));
 
-    // Wait a brief tick for async event handler
-    await new Promise((r) => setTimeout(r, 60));
+    // AUDIT-QA-P3: wait for the async change handler to issue its request.
+    await waitFor(() => env.fetchCalls.some((c) => c.url === "/api/instances/assign-proxy" && c.method === "POST"), {
+      label: "proxy change handler to POST /api/instances/assign-proxy",
+    });
 
     const assignCall = env.fetchCalls.find((c) => c.url === "/api/instances/assign-proxy");
     assert.ok(assignCall, "changing proxy select must issue request to /api/instances/assign-proxy");
@@ -239,7 +246,10 @@ test("Fleet UI: select-instance-profile change event triggers /api/instances/ass
     profileSelect.value = "prof-pac-new";
     profileSelect.dispatchEvent(new env.window.Event("change", { bubbles: true }));
 
-    await new Promise((r) => setTimeout(r, 60));
+    // AUDIT-QA-P3: wait for the async change handler to issue its request.
+    await waitFor(() => env.fetchCalls.some((c) => c.url === "/api/instances/assign-profile" && c.method === "POST"), {
+      label: "profile change handler to POST /api/instances/assign-profile",
+    });
 
     const assignCall = env.fetchCalls.find((c) => c.url === "/api/instances/assign-profile");
     assert.ok(assignCall, "changing profile select must issue request to /api/instances/assign-profile");
@@ -508,7 +518,11 @@ test("UI-05: dashboardView contains instancesTargetRow and saveCurrentProfile co
     };
 
     env.window.renderProfile(env.window.currentProfile);
-    await new Promise((r) => setTimeout(r, 60));
+    // AUDIT-QA-P3: wait for the async instance checkbox render (renderProfile
+    // fetches the instance list) instead of a fixed sleep.
+    await waitFor(() => env.document.querySelector('input.prof-instance-checkbox[value="inst-102"]') !== null, {
+      label: "renderProfile to render instance checkboxes",
+    });
 
     const instRow = env.document.getElementById("instancesTargetRow");
     assert.strictEqual(instRow?.style.display, "block", "instancesTargetRow must be displayed when targetScope is instances");
@@ -560,7 +574,8 @@ test("UI-06: switchTab('app-studio') preserves modified state when isAppStudioDi
     // Clear dirty flag and switchTab again
     env.window.isAppStudioDirty = false;
     env.window.switchTab("app-studio");
-    await new Promise((res) => setTimeout(res, 80));
+    // AUDIT-QA-P3: wait for the reload to actually happen instead of a fixed sleep.
+    await waitFor(() => loadCount === 2, { label: "switchTab to reload App Studio config" });
     assert.strictEqual(loadCount, 2, "switchTab reloads config when clean");
   } finally {
     env.teardown();

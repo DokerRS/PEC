@@ -6,8 +6,10 @@ import path from "node:path";
 import vm from "node:vm";
 import { renderDashboardHtml } from "../src/views/dashboardView.js";
 
+// AUDIT-QA-1: migrated from orphaned public/dashboard.js to the shipped bundle
+// (public/dashboard.min.js, built from src/client/dashboard via esbuild).
 const dashboardJs = fs.readFileSync(
-  path.join(process.cwd(), "public", "dashboard.js"),
+  path.join(process.cwd(), "public", "dashboard.min.js"),
   "utf-8"
 );
 
@@ -115,6 +117,12 @@ function createMockDashboardEnvironment(
       removeEventListener: () => {},
       location: { href: "http://localhost:3000" },
     },
+    // index.ts boot reads localStorage at module top-level
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    },
     document: {
       getElementById: getEl,
       querySelector: (sel: string) => {
@@ -161,6 +169,19 @@ function createMockDashboardEnvironment(
   sandbox.window.document = sandbox.document;
   sandbox.global = sandbox.window;
   sandbox.self = sandbox.window;
+
+  // studio.ts bridges currentLang via Object.defineProperty(window, ...) — in a
+  // real browser window IS the global object; in this vm sandbox it is not, so
+  // bare `currentLang` reads must delegate to the window property.
+  Object.defineProperty(sandbox, "currentLang", {
+    configurable: true,
+    get() {
+      return sandbox.window.currentLang;
+    },
+    set(v: string) {
+      sandbox.window.currentLang = v;
+    },
+  });
 
   const ctx = vm.createContext(sandbox);
   vm.runInContext(dashboardJs, ctx);

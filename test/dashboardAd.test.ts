@@ -2,6 +2,7 @@ import "./helpers/setup.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { setupDashboardDom } from "./helpers/dashboardDom.js";
+import { waitFor } from "./helpers/waitFor.js";
 
 const DEFAULT_MOCK_RESPONSES = {
   "/api/ad/status": {
@@ -211,11 +212,15 @@ test("dashboardAd: renders fleet table with domainUser badge for modern instance
     if (typeof window.stopDashboardTimers === "function") {
       window.stopDashboardTimers();
     }
-    await new Promise((r) => setTimeout(r, 100));
+    // AUDIT-QA-P3: stopDashboardTimers() clears intervals synchronously —
+    // no settle sleep needed.
 
     // Load fleet instances into DOM
     await window.loadInstances();
-    await new Promise((r) => setTimeout(r, 50));
+    // AUDIT-QA-P3: wait for the data rows (not the loading placeholder) to render.
+    await waitFor(() => (document.getElementById("fleetTableBody")?.innerHTML || "").includes("inst-ad-user-01"), {
+      label: "loadInstances to render fleet data rows",
+    });
 
     const tbody = document.getElementById("fleetTableBody");
     assert.ok(tbody, "fleetTableBody must exist in DOM");
@@ -263,10 +268,14 @@ test("dashboardAd: filters fleet table by domain user in search input", async ()
     if (typeof window.stopDashboardTimers === "function") {
       window.stopDashboardTimers();
     }
-    await new Promise((r) => setTimeout(r, 100));
+    // AUDIT-QA-P3: stopDashboardTimers() clears intervals synchronously —
+    // no settle sleep needed.
 
     await window.loadInstances();
-    await new Promise((r) => setTimeout(r, 50));
+    // AUDIT-QA-P3: wait for the data rows (not the loading placeholder) to render.
+    await waitFor(() => (document.getElementById("fleetTableBody")?.innerHTML || "").includes("inst-ad-user-01"), {
+      label: "loadInstances to render fleet data rows",
+    });
 
     const searchInput = document.getElementById("fleetSearchInput") as HTMLInputElement;
     const tbody = document.getElementById("fleetTableBody") as HTMLElement;

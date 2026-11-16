@@ -5,8 +5,10 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 
+// AUDIT-QA-1: migrated from orphaned public/dashboard.js to the shipped bundle
+// (public/dashboard.min.js, built from src/client/dashboard via esbuild).
 const dashboardJs = fs.readFileSync(
-  path.join(process.cwd(), "public", "dashboard.js"),
+  path.join(process.cwd(), "public", "dashboard.min.js"),
   "utf-8"
 );
 
@@ -32,27 +34,42 @@ test("dashboardAppStudioLogic: required App Studio functions are defined and exp
     "downloadAppProfileAction",
   ];
 
+  // Behavioral contract (AUDIT-QA-1): inline HTML handlers and QA suites rely on
+  // runtime window exposures of the shipped bundle, not on source text.
+  const { ctx } = createMockDashboardEnvironment();
+
   for (const fn of requiredFunctions) {
-    assert.ok(
-      dashboardJs.includes(`function ${fn}`) || dashboardJs.includes(`${fn} =`),
-      `Function ${fn} must be defined in dashboard.js`
-    );
-    assert.ok(
-      dashboardJs.includes(`window.${fn} = ${fn}`) || dashboardJs.includes(`window.${fn} =`),
-      `Function ${fn} must be exposed on window`
+    assert.equal(
+      typeof ctx.window[fn],
+      "function",
+      `Function ${fn} must be exposed on window at runtime by dashboard.min.js`
     );
   }
 });
 
-test("dashboardAppStudioLogic: theme presets map correctly in dashboard.js", () => {
-  assert.ok(dashboardJs.includes("cyber-blue"), "Must support cyber-blue preset");
-  assert.ok(dashboardJs.includes("dark-obsidian"), "Must support dark-obsidian preset");
-  assert.ok(dashboardJs.includes("nordic-arctic"), "Must support nordic-arctic preset");
-  assert.ok(dashboardJs.includes("emerald-secops"), "Must support emerald-secops preset");
-  assert.ok(dashboardJs.includes("enterprise-light"), "Must support enterprise-light preset");
-  assert.ok(dashboardJs.includes("emerald-sentinel"), "Must support emerald-sentinel preset");
-  assert.ok(dashboardJs.includes("sunset-amber"), "Must support sunset-amber preset");
-  assert.ok(dashboardJs.includes("minimal-light"), "Must support minimal-light preset");
+test("dashboardAppStudioLogic: all 8 App Studio theme presets apply behaviorally", () => {
+  const presetTitles: Record<string, string> = {
+    "cyber-blue": "Cyber Blue",
+    "dark-obsidian": "Dark Obsidian",
+    "nordic-arctic": "Nordic Arctic",
+    "emerald-secops": "Emerald SecOps",
+    "enterprise-light": "Enterprise Light",
+    "emerald-sentinel": "Emerald SecOps",
+    "sunset-amber": "Sunset Amber",
+    "minimal-light": "Minimal Light",
+  };
+
+  const { ctx, getEl } = createMockDashboardEnvironment();
+
+  for (const preset of Object.keys(presetTitles)) {
+    assert.doesNotThrow(() => ctx.window.setAppPresetTheme(preset), `preset ${preset} must apply`);
+    assert.equal(getEl("appPresetStyle").value, preset, `preset ${preset} must update select value`);
+    assert.equal(
+      getEl("appPresetBadge").textContent,
+      presetTitles[preset],
+      `preset ${preset} must update badge title`
+    );
+  }
 });
 
 function createMockDashboardEnvironment(
@@ -134,6 +151,12 @@ function createMockDashboardEnvironment(
       removeEventListener: () => {},
       location: { href: "http://localhost:3000" },
     },
+    // index.ts boot reads localStorage at module top-level
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    },
     document: {
       getElementById: getEl,
       querySelector: (sel: string) => {
@@ -210,6 +233,19 @@ function createMockDashboardEnvironment(
   sandbox.window.document = sandbox.document;
   sandbox.global = sandbox.window;
   sandbox.self = sandbox.window;
+
+  // studio.ts bridges currentLang via Object.defineProperty(window, ...) — in a
+  // real browser window IS the global object; in this vm sandbox it is not, so
+  // bare `currentLang` reads must delegate to the window property.
+  Object.defineProperty(sandbox, "currentLang", {
+    configurable: true,
+    get() {
+      return sandbox.window.currentLang;
+    },
+    set(v: string) {
+      sandbox.window.currentLang = v;
+    },
+  });
 
   const ctx = vm.createContext(sandbox);
   vm.runInContext(dashboardJs, ctx);
@@ -401,19 +437,31 @@ test("dashboardAppStudioLogic: downloadAppScriptAction sets correct filenames fo
   assert.equal(downloadedFiles[1], "verify-pec-app.ps1", "verify action must download verify-pec-app.ps1");
 });
 
-test("dashboardAppStudioLogic: updateAppLivePreview reflects active proxy pill and direct fallback", () => {
-  const { ctx, getEl } = createMockDashboardEnvironment();
+test("dashboardAppStudioLogic: updateAppLivePreview reflects active proxy pill and direct fallback", async () => {
+  const mockProxies = [
+    { type: "socks5", host: "192.168.1.50", port: 10808, isActive: true, name: "Office-Node" },
+  ];
 
-  // Test when no proxies exist -> DIRECT
+  const { ctx, getEl } = createMockDashboardEnvironment(async (url: string) => {
+    if (url === "/api/proxies") {
+      return { ok: true, status: 200, json: async () => mockProxies };
+    }
+    if (url === "/api/app-builder/config") {
+      return { ok: true, status: 200, json: async () => ({ name: "App", version: "1.0.0", processRules: [] }) };
+    }
+    if (url === "/api/app-builder/info") {
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  });
+
+  // Before any proxies are loaded -> DIRECT
   ctx.window.updateAppLivePreview();
   assert.equal(getEl("appPreviewNodeTag").textContent, "DIRECT");
 
-  // Set mock proxies
-  ctx.sandbox = ctx;
-  vm.runInContext(
-    `currentProxiesList = [{ type: 'socks5', host: '192.168.1.50', port: 10808, isActive: true, name: 'Office-Node' }];`,
-    ctx
-  );
+  // AUDIT-QA-1: currentProxiesList is module-private in the bundle; populate it
+  // through the real flow (loadAppStudioConfig fetches /api/proxies).
+  await ctx.window.loadAppStudioConfig();
 
   ctx.window.updateAppLivePreview();
   assert.equal(getEl("appPreviewNodeTag").textContent, "SOCKS5 192.168.1.50:10808");
