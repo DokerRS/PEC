@@ -18,6 +18,7 @@ test("SEC-2: pinned fetch defeats DNS rebinding between validation and connect",
   const prevAllow = process.env.ALLOW_INTERNAL_PANEL;
   delete process.env.ALLOW_INTERNAL_PANEL;
   const realLookup = dns.promises.lookup.bind(dns.promises);
+  const realCbLookup = dns.lookup.bind(dns);
 
   let localHits = 0;
   const server = http.createServer((_req, res) => {
@@ -39,6 +40,37 @@ test("SEC-2: pinned fetch defeats DNS rebinding between validation and connect",
     return [{ address: "127.0.0.1", family: 4 }];
   };
 
+  // P3-C: also trap the callback-style resolver (node's net default and
+  // makePinnedLookup's host-mismatch fallback). Correct pinning serves the
+  // frozen addresses and never re-resolves; any connect-time DNS call for the
+  // target host is itself proof of broken pinning (in production that lookup
+  // returns the attacker's rebound record).
+  const cbLookups: string[] = [];
+  (dns as any).lookup = (hostname: string, ...rest: any[]) => {
+    cbLookups.push(String(hostname).toLowerCase());
+    return (realCbLookup as any)(hostname, ...rest);
+  };
+
+  // P3-C: classify the rejection. The expected outcome is a connect-stage
+  // failure against the PINNED address (192.0.2.1: unreachable -> timeout /
+  // refused / unreachable). ENOTFOUND / getaddrinfo instead means the fetch
+  // re-resolved the hostname through a resolver the promises-mock cannot see —
+  // with a bare assert.rejects() that case is indistinguishable from the
+  // protection working, which is exactly how broken pinning hides.
+  const resolutionFailure = /ENOTFOUND|EAI_AGAIN|getaddrinfo|dns resolution failed/i;
+  const connectFailure =
+    /ETIMEDOUT|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|ECONNRESET|UND_ERR_CONNECT_TIMEOUT|TimeoutError|operation was aborted/i;
+  const errorChainText = (err: any): string => {
+    const parts: string[] = [];
+    let cur = err;
+    let guard = 0;
+    while (cur && guard++ < 8) {
+      parts.push(`${cur.code || ""} ${cur.name || ""} ${cur.message || ""}`);
+      cur = cur.cause;
+    }
+    return parts.join(" | ");
+  };
+
   try {
     const { createSsrfPinnedFetch } = await import("../src/rotate.js");
     const plan = await createSsrfPinnedFetch(`http://rebind.corp.test:${port}`);
@@ -46,18 +78,72 @@ test("SEC-2: pinned fetch defeats DNS rebinding between validation and connect",
 
     await assert.rejects(
       () => plan.fetch(`http://rebind.corp.test:${port}/csrf-token`, { signal: AbortSignal.timeout(750) }),
+      (err: any) => {
+        const chain = errorChainText(err);
+        assert.ok(
+          !resolutionFailure.test(chain),
+          `P3-C: pinning broken — name re-resolution instead of a pinned connect (${chain})`
+        );
+        assert.ok(
+          connectFailure.test(chain),
+          `P3-C: expected a connect-stage failure to the pinned 192.0.2.1, got: ${chain}`
+        );
+        return true;
+      },
       "pinned fetch must not follow the rebound DNS record to 127.0.0.1"
     );
     assert.strictEqual(localHits, 0, "the loopback rebind target must receive zero connections");
     assert.ok(resolveCount >= 1, "validation performed the DNS lookup");
+    assert.deepStrictEqual(
+      cbLookups.filter((h) => h === "rebind.corp.test"),
+      [],
+      "P3-C: nothing may re-resolve the hostname at connect time — a callback-style lookup is proof of broken pinning"
+    );
     plan.close();
   } finally {
     (dns.promises as any).lookup = realLookup;
+    (dns as any).lookup = realCbLookup;
     if (prevAllow !== undefined) process.env.ALLOW_INTERNAL_PANEL = prevAllow;
     if (typeof (server as any).closeAllConnections === "function") {
       (server as any).closeAllConnections();
     }
     await new Promise<void>((r) => server.close(() => r()));
+  }
+});
+
+test("P3-C negative control: the callback-style lookup trap detects re-resolution while pinned hosts never touch DNS", async () => {
+  // Proves the hardened detector above can actually fire: makePinnedLookup's
+  // host-mismatch fallback goes through callback-style dns.lookup (what broken
+  // pinning looks like at connect time), while the matching host is served
+  // from the frozen cache without any resolver call.
+  const realCbLookup = dns.lookup.bind(dns);
+  const seen: string[] = [];
+  (dns as any).lookup = (hostname: string, ...rest: any[]) => {
+    seen.push(String(hostname).toLowerCase());
+    return (realCbLookup as any)(hostname, ...rest);
+  };
+
+  try {
+    const { makePinnedLookup } = await import("../src/rotate.js");
+    const lookup = makePinnedLookup("pinned.host.test", [{ address: "203.0.113.5", family: 4 }]);
+
+    // Mismatched host falls back to normal DNS — recorded by the trap.
+    await new Promise<void>((resolve) => {
+      lookup("mismatch.host.test", {}, (_err: Error | null) => resolve());
+    });
+    assert.ok(
+      seen.includes("mismatch.host.test"),
+      "P3-C detector must record callback-style re-resolution attempts"
+    );
+
+    // Pinned host is served from the frozen cache — zero DNS traffic.
+    seen.length = 0;
+    await new Promise<void>((resolve) => {
+      lookup("PINNED.HOST.TEST", {}, (_err: Error | null, _addr: string) => resolve());
+    });
+    assert.deepStrictEqual(seen, [], "a pinned host must be served without touching DNS");
+  } finally {
+    (dns as any).lookup = realCbLookup;
   }
 });
 
