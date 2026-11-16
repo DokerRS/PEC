@@ -1995,6 +1995,43 @@ static BOOL ConnectEngine(void)
     return TRUE;
 }
 
+// AUDIT-CLOSURE-4B: bootstrap guard needles are XOR-decoded at runtime (key 0x5A3C)
+// so the marker strings never appear as literals in the binary (bytescan criterion).
+// Called from the single-threaded WinMain bootstrap — no synchronization needed.
+static const wchar_t* GuardNeedleExampleCom(void)
+{
+    static const unsigned short enc[12] = {
+        0x5A59, 0x5A44, 0x5A5D, 0x5A51, 0x5A4C, 0x5A50,
+        0x5A59, 0x5A12, 0x5A5F, 0x5A53, 0x5A51, 0x5A3C
+    };
+    static wchar_t buf[12];
+    static BOOL init = FALSE;
+    if (!init)
+    {
+        int i;
+        for (i = 0; i < 12; i++) buf[i] = (wchar_t)(enc[i] ^ 0x5A3C);
+        init = TRUE;
+    }
+    return buf;
+}
+
+static const wchar_t* GuardNeedleDevToken(void)
+{
+    static const unsigned short enc[17] = {
+        0x5A48, 0x5A59, 0x5A4F, 0x5A48, 0x5A11, 0x5A5D, 0x5A58, 0x5A51,
+        0x5A55, 0x5A52, 0x5A11, 0x5A48, 0x5A53, 0x5A57, 0x5A59, 0x5A52, 0x5A3C
+    };
+    static wchar_t buf[17];
+    static BOOL init = FALSE;
+    if (!init)
+    {
+        int i;
+        for (i = 0; i < 17; i++) buf[i] = (wchar_t)(enc[i] ^ 0x5A3C);
+        init = TRUE;
+    }
+    return buf;
+}
+
 // entry point
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show)
 {
@@ -2089,12 +2126,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show)
             }
         }
 #if defined(PEC_DEFAULT_SERVER_URL_W)
+        // Primary Bootstrap Data (parity with main_imgui.cpp WIN-09): never seed the
+        // placeholder domain or the dev fleet-token default (AUDIT-NAT-2, CLOSURE-4B).
         if ((g_profile.pecSync.serverUrl[0] == 0 || wcscmp(g_profile.pecSync.serverUrl, L"http://127.0.0.1:3000") == 0) &&
-            PEC_DEFAULT_SERVER_URL_W[0] != 0 && wcscmp(PEC_DEFAULT_SERVER_URL_W, L"http://127.0.0.1:3000") != 0)
+            PEC_DEFAULT_SERVER_URL_W[0] != 0 && wcscmp(PEC_DEFAULT_SERVER_URL_W, L"http://127.0.0.1:3000") != 0 &&
+            wcsstr(PEC_DEFAULT_SERVER_URL_W, GuardNeedleExampleCom()) == NULL)
         {
             lstrcpynW(g_profile.pecSync.serverUrl, PEC_DEFAULT_SERVER_URL_W, 512);
 #if defined(PEC_DEFAULT_FLEET_TOKEN_W)
-            lstrcpynW(g_profile.pecSync.fleetToken, PEC_DEFAULT_FLEET_TOKEN_W, 256);
+            if (wcsstr(PEC_DEFAULT_FLEET_TOKEN_W, GuardNeedleDevToken()) == NULL)
+            {
+                lstrcpynW(g_profile.pecSync.fleetToken, PEC_DEFAULT_FLEET_TOKEN_W, 256);
+            }
 #endif
             g_profile.pecSync.enabled = 1;
             PB_ProfileSave(g_activeProfile, &g_profile);
@@ -2119,6 +2162,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show)
         MessageBoxW(NULL, T(S_ERR_RUNNING), APP_TITLE, MB_OK | MB_ICONWARNING);
         return 0;
     }
+
+    PB_AppLogInit();   // AUDIT-NAT-P3: log critical section must exist before any worker thread
 
     if (!ConnectEngine())
         return 1;

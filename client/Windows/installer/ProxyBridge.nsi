@@ -1,5 +1,13 @@
 !define PRODUCT_NAME "PEC-App"
-!define PRODUCT_VERSION "2.2.0"
+; AUDIT-NAT-P3 (single version source): the packaging pipeline injects
+; -DPRODUCT_VERSION=x.y.z / -DVI_VERSION=x.y.z.w (see src/appPackager.ts). The 0.0.0
+; fallback marks bare `makensis ProxyBridge.nsi` runs — never hardcode a release here.
+!ifndef PRODUCT_VERSION
+  !define PRODUCT_VERSION "0.0.0"
+!endif
+!ifndef VI_VERSION
+  !define VI_VERSION "0.0.0.0"
+!endif
 !define PRODUCT_PUBLISHER "PEC Team"
 !define PRODUCT_WEB_SITE "https://pec.local"
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
@@ -8,7 +16,7 @@
 Unicode True
 
 ; Version Information
-VIProductVersion "2.2.0.0"
+VIProductVersion "${VI_VERSION}"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "ProductVersion" "${PRODUCT_VERSION}"
 VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"
@@ -165,7 +173,10 @@ Section "MainSection" SEC01
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name=all program="$INSTDIR\ProxyBridge_CLI.exe"'
   nsExec::ExecToLog 'sc create PECAppSvc binPath= "\"$INSTDIR\PECAppSvc.exe\"" start= auto DisplayName= "PEC-App Service"'
   nsExec::ExecToLog 'sc description PECAppSvc "Privileged traffic-redirection engine for PEC-App. Lets the PEC-App run without administrator rights."'
-  nsExec::ExecToLog 'sc sdset PECAppSvc "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)"'
+  ; AUDIT-NAT-P3: the IU ACE follows the canonical MS non-admin service template
+  ; (CCLCSWRPWPDTLOCRRC = query config/dependents, start, stop, interrogate, read) so
+  ; the GUI can query status and start/stop via pb_ipc.h SCM helpers as documented.
+  nsExec::ExecToLog 'sc sdset PECAppSvc "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)"'
   ; Local group that may drive the service; the signed-in user is added to it.
   IfFileExists "$INSTDIR\PECAppSvc.exe" 0 +3
     nsExec::ExecToLog '"$INSTDIR\PECAppSvc.exe" --setup-users'

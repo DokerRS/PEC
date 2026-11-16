@@ -118,6 +118,21 @@ export function decryptPassword(config: StoredCertificateConfig): string {
       let decrypted = decipher.update(config.encryptedPassword, "base64", "utf8");
       decrypted += decipher.final("utf8");
       console.warn("[CodeSign] Successfully decrypted password using legacy master key fallback; migrating...");
+      // AUDIT-SRV-P3: actually complete the migration - re-encrypt with the
+      // current master key so the legacy seed path is not exercised forever.
+      try {
+        const configPath = getConfigPath();
+        const stored = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        const reEncrypted = encryptPassword(decrypted);
+        fs.writeFileSync(
+          configPath,
+          JSON.stringify({ ...stored, ...reEncrypted }, null, 2),
+          { mode: 0o600 }
+        );
+        console.warn("[CodeSign] Migrated legacy certificate password to the current master key");
+      } catch (migrateErr: any) {
+        console.warn("[CodeSign] Legacy password migration failed (will retry on next decrypt):", migrateErr?.message || migrateErr);
+      }
       return decrypted;
     } catch (fallbackErr) {
       console.warn("[CodeSign] Failed to decrypt certificate password:", primaryErr);
@@ -402,6 +417,55 @@ export function deleteCertificate(): boolean {
   return removed;
 }
 
+/**
+ * AUDIT-SEC-3: build signtool argv for passwordless cert-store signing.
+ * signtool.exe has no readpass-file support, so the PFX is imported into the
+ * CurrentUser\My store (password delivered via process env, never argv) and
+ * signing addresses the certificate by thumbprint. This function never
+ * receives the password, which is the enforceable contract.
+ */
+export function buildSigntoolCertStoreArgs(thumbprint: string, timestampUrl: string, targetPath: string): string[] {
+  const signArgs: string[] = ["sign", "/sha1", thumbprint, "/fd", "sha256"];
+  if (timestampUrl) {
+    signArgs.push("/tr", timestampUrl, "/td", "sha256");
+  }
+  signArgs.push(targetPath);
+  return signArgs;
+}
+
+/**
+ * PowerShell script that imports the PFX into CurrentUser\My when the
+ * certificate is not already present. The password reaches PowerShell through
+ * $env:PFX_PASS (set by the caller on the child process env), never through
+ * the command line.
+ */
+export function buildPfxImportScript(pfxFile: string, thumbprint: string): string {
+  const safePfx = pfxFile.replace(/'/g, "''");
+  const safeThumbprint = thumbprint.replace(/[^0-9a-fA-F]/g, "");
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "$existing = Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $_.Thumbprint -eq '" + safeThumbprint + "' }",
+    "if (-not $existing) {",
+    "  $pass = ConvertTo-SecureString -String $env:PFX_PASS -AsPlainText -Force",
+    "  $cert = Import-PfxCertificate -FilePath '" + safePfx + "' -CertStoreLocation Cert:\\CurrentUser\\My -Password $pass",
+    "  if ($cert.Thumbprint -ne '" + safeThumbprint + "') { throw 'Imported certificate thumbprint mismatch' }",
+    "}",
+  ].join("\n");
+}
+
+function importPfxToCurrentUserStore(pfxFile: string, password: string, thumbprint: string): void {
+  child_process.execFileSync(
+    "powershell",
+    ["-NoProfile", "-Command", buildPfxImportScript(pfxFile, thumbprint)],
+    {
+      windowsHide: true,
+      timeout: 30000,
+      env: { ...process.env, PFX_PASS: password },
+      stdio: ["ignore", "pipe", "pipe"],
+    }
+  );
+}
+
 export function signBinary(targetPath: string): boolean {
   if (!fs.existsSync(targetPath)) {
     return false;
@@ -488,19 +552,41 @@ export function signBinary(targetPath: string): boolean {
         return true;
       }
     } else if (hasSigntool) {
-      const signArgs: string[] = ["sign", "/f", pfxFile];
-      // AR-6 (N-1): Microsoft signtool.exe does NOT support /pfile, only /p <password> in argv
-      if (password) {
-        signArgs.push("/p", password);
+      // AUDIT-SEC-3: the PFX password must never appear in the signtool
+      // command line (readable by any local process via WMI/Win32_Process).
+      // Sign passwordless from the CurrentUser cert store by thumbprint; the
+      // password is only used inside the PowerShell import via $env:PFX_PASS.
+      let thumbprint = (status.thumbprint || "").replace(/\s+/g, "").toUpperCase();
+      if (!/^[0-9A-F]{40,64}$/.test(thumbprint)) {
+        try {
+          thumbprint = extractCertificateMetadata(fs.readFileSync(pfxFile), password).thumbprint
+            .replace(/\s+/g, "")
+            .toUpperCase();
+        } catch {}
       }
-      signArgs.push("/fd", "sha256");
-      if (tsUrl) {
-        signArgs.push("/tr", tsUrl, "/td", "sha256");
+      if (!/^[0-9A-F]{40,64}$/.test(thumbprint)) {
+        console.warn(
+          `[CodeSign] Cannot determine certificate thumbprint for passwordless signing of ${path.basename(targetPath)}; refusing to pass the PFX password through argv`
+        );
+        return false;
       }
-      signArgs.push(targetPath);
+      try {
+        importPfxToCurrentUserStore(pfxFile, password, thumbprint);
+      } catch (importErr: any) {
+        console.warn(
+          `[CodeSign] Failed to import PFX into CurrentUser\\My store: ${importErr?.message || importErr}`
+        );
+        return false;
+      }
+      const signArgs = buildSigntoolCertStoreArgs(thumbprint, tsUrl, targetPath);
+      // P3-B: the passwordless /sha1 flow never reads PFX_PASS - the secret is
+      // only consumed by the PowerShell import above. Strip it (including any
+      // operator-exported value) so the signing process env stays clean.
+      const signEnv: NodeJS.ProcessEnv = { ...process.env };
+      delete signEnv.PFX_PASS;
       child_process.execFileSync("signtool.exe", signArgs, {
         windowsHide: true,
-        env: { ...process.env, PFX_PASS: password },
+        env: signEnv,
         stdio: "pipe",
       });
       return true;

@@ -36,6 +36,19 @@ export function toPunycodeDomain(domain: string): string {
 import { GEO_PRESETS } from "./defaultPresets.js";
 export { GEO_PRESETS } from "./defaultPresets.js";
 
+/**
+ * AUDIT-SRV-P3: hard cap on routing preset entries, enforced at import time.
+ * Oversized geodata lists previously sailed through the 20MB download limit
+ * and only triggered a post-hoc warning once PAC generation had already
+ * produced a multi-megabyte script that every fleet browser then had to
+ * compile on each sync.
+ */
+export const MAX_ROUTING_PRESET_ENTRIES = 500_000;
+
+export function isWithinPresetEntryLimit(count: number): boolean {
+  return Number.isFinite(count) && count > 0 && count <= MAX_ROUTING_PRESET_ENTRIES;
+}
+
 const DEFAULT_PROFILES: RoutingProfile[] = [
   {
     id: "profile_default_split",

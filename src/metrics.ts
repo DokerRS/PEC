@@ -26,7 +26,9 @@ export function recordRotation(source: string, status: "success" | "failure"): v
 }
 
 export function recordRateLimitBlock(endpoint?: string): void {
-  const cleanEndpoint = (endpoint || "unknown").trim();
+  // AUDIT-SRV-P3: URL paths reach this metric label verbatim - strip control
+  // characters (log forging) and cap length (unbounded label cardinality).
+  const cleanEndpoint = (endpoint || "unknown").replace(/[\r\n\t\x00-\x1f]/g, " ").trim().slice(0, 120);
   const key = cleanEndpoint || "default";
   const current = rateLimitCounters.get(key) || 0;
   rateLimitCounters.set(key, current + 1);

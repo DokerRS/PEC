@@ -4,9 +4,10 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { RotationConfig, RotationHistoryItem } from "./types.js";
 import { executeRotation, validateSafeEndpointUrl } from "./rotate.js";
-import { writeJsonAtomic } from "./jsonStore.js";
+import { writeJsonAtomic, readJsonStore } from "./jsonStore.js";
 import { getRotationConfigPath, getRotationHistoryPath } from "./storage.js";
 import { logger } from "./logger.js";
+import { startAdSync, stopAdSync } from "./adSync.js";
 
 const ROTATION_CONFIG_FILE = getRotationConfigPath();
 const HISTORY_FILE = getRotationHistoryPath();
@@ -48,14 +49,19 @@ const DEFAULT_CONFIG: RotationConfig = {
 function loadInitialConfig(): RotationConfig {
   let loaded: Partial<RotationConfig> = {};
 
-  // 1. Primary config file
-  try {
-    if (fs.existsSync(ROTATION_CONFIG_FILE)) {
-      const raw = fs.readFileSync(ROTATION_CONFIG_FILE, "utf-8");
-      loaded = JSON.parse(raw);
+  // 1. Primary config file. AUDIT-SRV-P3: readJsonStore preserves a torn file
+  // as .corrupt-<timestamp> instead of silently degrading to defaults.
+  if (fs.existsSync(ROTATION_CONFIG_FILE)) {
+    const stored = readJsonStore<Partial<RotationConfig>>(ROTATION_CONFIG_FILE);
+    if (stored && typeof stored === "object") {
+      loaded = stored;
+    } else {
+      logger.error(
+        `[scheduler] rotation_config.json is unreadable; the broken original was preserved as ` +
+          `${ROTATION_CONFIG_FILE}.corrupt-<timestamp>. Falling back to defaults/environment - ` +
+          `verify panel credentials and interval settings.`
+      );
     }
-  } catch (e) {
-    logger.warn("[scheduler] Error reading rotation_config.json:", e);
   }
 
   // Merge: Never let an empty adminPass or placeholder panelUrl wipe out environment variables
@@ -97,16 +103,18 @@ let currentConfig: RotationConfig = loadInitialConfig();
 let timerHandle: NodeJS.Timeout | null = null;
 let rotationHistory: RotationHistoryItem[] = [];
 
-// Load persisted history
-try {
-  if (fs.existsSync(HISTORY_FILE)) {
-    const raw = fs.readFileSync(HISTORY_FILE, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      rotationHistory = parsed.slice(0, MAX_HISTORY_ENTRIES);
-    }
+// Load persisted history (AUDIT-SRV-P3: loud degradation + .corrupt preservation)
+if (fs.existsSync(HISTORY_FILE)) {
+  const storedHistory = readJsonStore<RotationHistoryItem[]>(HISTORY_FILE);
+  if (Array.isArray(storedHistory)) {
+    rotationHistory = storedHistory.slice(0, MAX_HISTORY_ENTRIES);
+  } else {
+    logger.error(
+      `[scheduler] rotation_history.json is unreadable; rotation audit trail starts empty. ` +
+        `The broken original was preserved as ${HISTORY_FILE}.corrupt-<timestamp>.`
+    );
   }
-} catch {}
+}
 
 function saveState() {
   try {
@@ -162,6 +170,11 @@ async function doRunManualRotation(): Promise<RotationHistoryItem> {
     // Recalculate next rotation time
     if (currentConfig.enabled) {
       currentConfig.nextRotationAt = new Date(Date.now() + currentConfig.intervalMinutes * 60 * 1000).toISOString();
+      // AUDIT-SRV-P3 (timer drift): the old code only recalculated the
+      // displayed nextRotationAt while the setInterval kept firing on the
+      // original schedule - after a manual rotation the promised interval
+      // silently shrank. Re-arm the interval from the manual rotation.
+      armRotationInterval();
     }
 
     rotationHistory.unshift(result);
@@ -239,7 +252,21 @@ export function updateRotationConfig(updates: Partial<RotationConfig>): Rotation
   return { ...currentConfig };
 }
 
+export function periodicAdSyncTask(): void {
+  startAdSync();
+}
+
 export function startScheduler() {
+  periodicAdSyncTask();
+  armRotationInterval();
+}
+
+/**
+ * (Re)arm the rotation setInterval from NOW. Extracted from startScheduler so
+ * a manual rotation can re-anchor the schedule without re-triggering the AD
+ * periodic sync (AUDIT-SRV-P3 drift fix).
+ */
+function armRotationInterval() {
   if (timerHandle) {
     clearInterval(timerHandle);
     timerHandle = null;
@@ -265,7 +292,7 @@ export function startScheduler() {
 
   const intervalMs = intervalMinutes * 60 * 1000;
   currentConfig.nextRotationAt = new Date(Date.now() + intervalMs).toISOString();
-  logger.info(`[scheduler] Started rotation timer: interval=${intervalMinutes}m, next=${currentConfig.nextRotationAt}`);
+  logger.info(`[scheduler] Rotation timer armed: interval=${intervalMinutes}m, next=${currentConfig.nextRotationAt}`);
 
   timerHandle = setInterval(async () => {
     logger.info("[scheduler] Triggering scheduled password rotation...");
@@ -290,4 +317,5 @@ export function stopScheduler(): void {
     timerHandle = null;
     logger.info("[scheduler] Stopped rotation timer.");
   }
+  stopAdSync();
 }

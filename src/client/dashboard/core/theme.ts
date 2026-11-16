@@ -120,6 +120,27 @@ export function closeCustomizationPopover() {
   if (popover) popover.style.display = 'none';
 }
 
+/**
+ * UI-HANDLERS-REGRESSION (DISPATCH-POSTINCIDENT-2): dashboardView.ts emits
+ * inline handlers referencing these global names —
+ *   btnCustomization      onclick="toggleCustomizationPopover(event)"
+ *   chkSyncThemeWithApps  onchange="toggleSyncThemeWithApps(this.checked)"
+ * The UI-MODULAR-1 port lost them, so the shipped dashboard threw
+ * ReferenceError on both interactions. Wrappers only: the canonical
+ * implementations above stay the single source of truth; they reach window
+ * through the existing `...theme` spread in index.ts.
+ */
+export function toggleCustomizationPopover(event?: Event) {
+  if (event && typeof event.preventDefault === 'function') {
+    event.preventDefault();
+  }
+  openCustomizationPopover();
+}
+
+export function toggleSyncThemeWithApps(checked: boolean | string) {
+  setThemeSyncEnabled(checked === true || checked === 'true');
+}
+
 export function isThemeSyncEnabled(): boolean {
   try {
     const stored = localStorage.getItem('pec_theme_sync_enabled');

@@ -2,7 +2,7 @@ import "./loadEnv.js";
 import fs from "node:fs";
 import { ProxyConfiguration, ExtensionInstance, DesktopInstance } from "./types.js";
 import { resolveProfileForInstance, getProfileById } from "./routing.js";
-import { writeJsonAtomic } from "./jsonStore.js";
+import { writeJsonAtomic, readJsonStore } from "./jsonStore.js";
 import { getProxyConfigPath, getInstancesMetaPath } from "./storage.js";
 import { getActiveProxy, getProxyById } from "./proxies.js";
 import { logger } from "./logger.js";
@@ -162,24 +162,35 @@ let persistentMeta: Record<
     enrolledAt?: string;
     revoked?: boolean;
     username?: string;
+    domainUser?: string;
+    isLegacy?: boolean;
+    legacy?: boolean;
     pairedAppId?: string;
     pairedHostname?: string;
     verifiedByApp?: boolean;
     lastSeen?: number;
   }
 > = Object.create(null);
-try {
-  if (fs.existsSync(INSTANCES_META_PATH)) {
-    const raw = fs.readFileSync(INSTANCES_META_PATH, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      persistentMeta = Object.assign(Object.create(null), persistentMeta, parsed);
-      delete (persistentMeta as any)["__proto__"];
-      delete (persistentMeta as any)["constructor"];
-      delete (persistentMeta as any)["prototype"];
-    }
+if (fs.existsSync(INSTANCES_META_PATH)) {
+  // AUDIT-SRV-1: a torn instances_meta.json used to silently reset to defaults,
+  // resurrecting revoked instances (revoked flags / token hashes lost) with no
+  // trace. readJsonStore preserves the broken original as .corrupt-<timestamp>
+  // for post-mortem; when the store is lost we must warn loudly instead.
+  const loadedMeta = readJsonStore<typeof persistentMeta>(INSTANCES_META_PATH);
+  if (loadedMeta && typeof loadedMeta === "object" && !Array.isArray(loadedMeta)) {
+    persistentMeta = Object.assign(Object.create(null), persistentMeta, loadedMeta);
+    delete (persistentMeta as any)["__proto__"];
+    delete (persistentMeta as any)["constructor"];
+    delete (persistentMeta as any)["prototype"];
+  } else {
+    logger.error(
+      `[instances] SECURITY REGRESSION: ${INSTANCES_META_PATH} is unreadable; instances meta was reset to defaults — ` +
+        "revoked flags, token enrollments and domain-user bindings are LOST. " +
+        "The broken original is preserved with a .corrupt-<timestamp> suffix next to it. " +
+        "Restore it manually or re-revoke affected instances immediately."
+    );
   }
-} catch {}
+}
 
 /**
  * Prune persistent metadata to MAX_PERSISTENT_META entries using FIFO eviction.
@@ -213,6 +224,7 @@ export function registerHeartbeat(
     userAgent?: string;
     activeProxyMode?: string;
     group?: string;
+    domainUser?: string;
   },
   opts?: {
     ip: string;
@@ -221,6 +233,7 @@ export function registerHeartbeat(
     userAgent?: string;
     activeProxyMode?: string;
     group?: string;
+    domainUser?: string;
   }
 ): ExtensionInstance {
   const data = typeof dataOrId === "string"
@@ -239,6 +252,35 @@ export function registerHeartbeat(
 
   const existing = instancesMap.get(cleanId);
   const now = new Date().toISOString();
+  const rawDomainUser = (data as any).domainUser ? String((data as any).domainUser).trim().slice(0, 128) : undefined;
+  if (!persistentMeta[cleanId]) {
+    persistentMeta[cleanId] = {};
+  }
+  if (rawDomainUser) {
+    if (persistentMeta[cleanId].domainUser && persistentMeta[cleanId].domainUser.toLowerCase() !== rawDomainUser.toLowerCase()) {
+      logger.warn(`[instances] Prevented domainUser overwrite for ${cleanId}: existing='${persistentMeta[cleanId].domainUser}', incoming='${rawDomainUser}'`);
+    } else {
+      const changed = persistentMeta[cleanId].domainUser !== rawDomainUser || !persistentMeta[cleanId].username || persistentMeta[cleanId].isLegacy !== false;
+      persistentMeta[cleanId].domainUser = rawDomainUser;
+      persistentMeta[cleanId].isLegacy = false;
+      persistentMeta[cleanId].legacy = false;
+      if (!persistentMeta[cleanId].username) {
+        persistentMeta[cleanId].username = rawDomainUser;
+      }
+      if (changed) {
+        saveInstancesMeta();
+      }
+    }
+  } else {
+    if (!persistentMeta[cleanId].domainUser) {
+      if (!persistentMeta[cleanId].isLegacy) {
+        persistentMeta[cleanId].isLegacy = true;
+        persistentMeta[cleanId].legacy = true;
+        saveInstancesMeta();
+      }
+    }
+  }
+
   if (persistentMeta[cleanId]) {
     persistentMeta[cleanId].lastSeen = Date.now();
   }
@@ -276,7 +318,9 @@ export function registerHeartbeat(
     tokenHash: meta.tokenHash || existing?.tokenHash,
     enrolledAt: meta.enrolledAt || existing?.enrolledAt,
     revoked: meta.revoked !== undefined ? meta.revoked : existing?.revoked,
-    username: meta.username || existing?.username,
+    domainUser: rawDomainUser || meta.domainUser || existing?.domainUser,
+    isLegacy: meta.isLegacy !== undefined ? meta.isLegacy : (!rawDomainUser && !meta.domainUser && !existing?.domainUser),
+    username: meta.username || existing?.username || rawDomainUser,
     pairedAppId: meta.pairedAppId || existing?.pairedAppId,
     pairedHostname: meta.pairedHostname || existing?.pairedHostname,
     verifiedByApp: meta.verifiedByApp !== undefined ? meta.verifiedByApp : existing?.verifiedByApp,
@@ -434,6 +478,27 @@ export function registerDesktopHeartbeat(data: {
   }
 
   const existingDesktop = desktopInstancesMap.get(cleanAppId);
+
+  const rawUser = String(data.username || "").trim().slice(0, 128);
+  if (rawUser && rawUser !== "unknown-user") {
+    if (!persistentMeta[cleanAppId]) {
+      persistentMeta[cleanAppId] = {};
+    }
+    if (persistentMeta[cleanAppId].username && persistentMeta[cleanAppId].username.toLowerCase() !== rawUser.toLowerCase()) {
+      logger.warn(`[instances] Prevented desktop username overwrite for ${cleanAppId}: existing='${persistentMeta[cleanAppId].username}', incoming='${rawUser}'`);
+    } else {
+      const changed = persistentMeta[cleanAppId].username !== rawUser || persistentMeta[cleanAppId].domainUser !== rawUser;
+      persistentMeta[cleanAppId].username = rawUser;
+      persistentMeta[cleanAppId].domainUser = rawUser;
+      if (changed) {
+        saveInstancesMeta();
+      }
+    }
+  }
+
+  if (persistentMeta[cleanAppId]) {
+    persistentMeta[cleanAppId].lastSeen = Date.now();
+  }
 
   // Preserve existing pairing if not explicitly provided or cleared in incoming payload
   let incomingPairing = data.pairedExtension;
@@ -643,28 +708,27 @@ export function enrollInstanceToken(instanceId: string, tokenHash: string): bool
  */
 export function revokeInstanceToken(instanceId: string): boolean {
   if (isUnsafeObjectId(instanceId)) return false;
-  let changed = false;
-  if (persistentMeta[instanceId]) {
-    delete persistentMeta[instanceId].tokenHash;
-    delete persistentMeta[instanceId].enrolledAt;
-    persistentMeta[instanceId].revoked = true;
-    changed = true;
-    saveInstancesMeta();
+  if (!persistentMeta[instanceId]) {
+    persistentMeta[instanceId] = {};
   }
+  delete persistentMeta[instanceId].tokenHash;
+  delete persistentMeta[instanceId].enrolledAt;
+  persistentMeta[instanceId].revoked = true;
+  saveInstancesMeta();
+
   const existing = instancesMap.get(instanceId);
   if (existing) {
     existing.tokenHash = undefined;
     existing.enrolledAt = undefined;
     existing.revoked = true;
-    changed = true;
   }
-  return changed;
+  return true;
 }
 
 /**
  * Retrieve persistent metadata (tokenHash, enrolledAt, revoked) for an instance.
  */
-export function getInstanceMeta(instanceId: string): { group?: string; assignedProfileId?: string; assignedProxyId?: string; tokenHash?: string; enrolledAt?: string; revoked?: boolean; pairedAppId?: string; pairedHostname?: string; verifiedByApp?: boolean; lastSeen?: number } | undefined {
+export function getInstanceMeta(instanceId: string): { group?: string; assignedProfileId?: string; assignedProxyId?: string; tokenHash?: string; enrolledAt?: string; revoked?: boolean; username?: string; domainUser?: string; isLegacy?: boolean; legacy?: boolean; pairedAppId?: string; pairedHostname?: string; verifiedByApp?: boolean; lastSeen?: number } | undefined {
   if (isUnsafeObjectId(instanceId)) return undefined;
   return persistentMeta[instanceId];
 }

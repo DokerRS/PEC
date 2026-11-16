@@ -20,6 +20,13 @@
 [![Boosty](https://img.shields.io/badge/Donate-Boosty-F15F2C.svg)](https://boosty.to/oovlvoo)
 [![USDT TON](https://img.shields.io/badge/Donate-USDT%20TON-26A17B.svg)](#support-the-project)
 
+<!-- META-PROJECT:ENTRY:BEGIN -->
+[![Built with Meta-Project](https://img.shields.io/badge/Built%20with-Meta--Project-blueviolet)](https://github.com/vlv-code/meta-project)
+
+Agent instructions: [AGENTS.md](AGENTS.md) | Policy: [.agents/project_knowledge/boundaries.md](.agents/project_knowledge/boundaries.md)
+*To inspect, configure, or adapt your environment, run `python scripts/inspect_meta_project.py` or invoke the `init-meta-project` skill.*
+<!-- META-PROJECT:ENTRY:END -->
+
 **PEC - Proxy Extension Corp** is an open-source platform for central proxy fleet management, browser extension construction & packaging (Chrome Manifest V3), Windows Active Directory GPO distribution, and automated credential rotation with Xray / 3x-ui panels.
 
 ---
@@ -39,7 +46,8 @@
 3. **Extension Constructor Studio & GPO Deployment**:
    - Compiles and signs `.CRX` extension packages on-the-fly using 2048-bit RSA keys.
    - Generates enterprise `updates.xml` manifests for silent Google Chrome auto-updates.
-   - Production-tested Active Directory GPO deployment: Group Policy Preferences (Registry) configuration for Google Chrome, Microsoft Edge, and Yandex Browser (`normal_installed` with safeguard against internal security layer deactivation), automated `.reg` files, PowerShell deployment/diagnostic scripts (`deploy-pec-gpo.ps1`, `verify-pec-gpo.ps1`), and GPMC guides.
+   - **Native GPP Registry Pack (Tier-1)**: Production-ready Active Directory GPO deployment via Group Policy Preferences (`Registry.xml`) for silent GPMC import (`User Configuration -> Preferences -> Windows Settings -> Registry`). Supports cross-browser policy distribution (Google Chrome, Microsoft Edge, Yandex Browser), dynamic user mapping (`domainUser = "%USERDOMAIN%\%USERNAME%"`), and automatic policy removal upon AD group exclusion via `removePolicy="1"`. Standalone PowerShell scripts (`deploy-pec-gpo.ps1`, `verify-pec-gpo.ps1`) and `.reg` templates are included for non-GPMC or testing environments.
+   - **Active Directory Web Management & Soft Migration**: Integrated dashboard controls in the GPO tab for runtime LDAPS settings (`data/ad_config.json`), live connection testing (`POST /api/ad/test`), and instant manual sync. Supports phased fleet rollout via Soft Migration mode (`AD_REJECT_UNKNOWN_USERS=false`) with warning telemetry badges (`Legacy`) for unmanaged clients before transitioning to strict Zero-Trust enforcement.
    - Three operational UI modes: **Self-Service Pro** (full diagnostic & temporary bypass controls), **Kiosk / Restricted** (read-only popup), and **Stealth Agent** (invisible background worker).
    - Real-time interactive preview sandbox with instant state simulation (Online, Bypassed, Offline, Re-auth).
 
@@ -58,8 +66,10 @@
    - Atomic disk writes for credential storage with corruption auto-recovery.
    - SSRF protection prohibiting loopback and cloud metadata endpoint access (`169.254.169.254`).
 
-7. **Fleet Telemetry & Global Controls**:
+7. **Fleet Telemetry, Zero-Trust AD Sync & Instant Kill-Switch**:
    - Central heartbeat sync (`POST /api/sync`) tracking extension and desktop client instances, client IP, egress geo, and versioning.
+   - **Active Directory Zero-Trust Sync & Instant Kill-Switch**: Periodic server-side LDAPS synchronization (`AD_SYNC_INTERVAL_SEC`) against domain controllers (`AD_LDAP_URL`), verifying client user membership in target security groups (`AD_REQUIRED_GROUP_DN`). Extensions transmit domain identities (`domainUser`), which are bound to instance IDs to prevent identity spoofing. When a user is removed or disabled in AD, the server triggers an instant Kill-Switch on the next sync interval (HTTP 403 with `action: "DISABLE_PROXY"`), forcing the client extension to immediately revert traffic to DIRECT.
+   - **Fleet Telemetry & Phased Rollout Badges**: Live telemetry inspector distinguishes verified domain accounts (`badge-ad-user`), warns on unmanaged legacy clients (`badge-legacy`), and provides multi-attribute filtering by domain username, instance ID, browser, or profile.
    - In-memory LRU protection preventing DoS and memory exhaustion.
    - Emergency **Global Kill-Switch** allowing administrators to immediately revert the entire fleet to direct internet routing.
 
@@ -162,15 +172,20 @@ cp .env.example .env
 | `APP_BUILD_INFO` | `./data/app_build_info.json` | Path to desktop client latest build info store |
 | `PANELS_3XUI_PATH` | `./data/panels_3xui.json` | Path to 3x-ui panels configuration store |
 | `RELEASES_META_PATH` | `./data/releases_meta.json` | Path to releases and version history store |
+| `PEC_RELEASES_DIR` | *(empty)* | Directory for published desktop client and extension releases (defaults to `./dist/releases`) |
+| `PEC_UPDATES_DIR` | *(empty)* | Directory served for CRX/updates.xml Chrome auto-updates via GPO (defaults to `./dist/updates`) |
 | `PROXY_HOST` | `10.0.0.1` | Default proxy host IP or domain name |
 | `PROXY_PORT` | `10809` | Default proxy port |
 | `PROBE_INSECURE_TLS` | `false` | Ignore TLS certificate errors when probe-checking proxy node availability |
-| `PEC_SYNC_INTERVAL_MIN` | `15` | Background periodic sync interval for extension and desktop app in minutes |
+| `PROXY_ECHO_URL` | *(empty)* | Echo endpoint URL used to probe proxy node egress IP (defaults to `http://api.ipify.org?format=json`) |
+| `PEC_SYNC_INTERVAL_MIN` | `15` | Background periodic sync interval for extension and desktop app in minutes (alias: `PEC_SYNC_INTERVAL_MINUTES`) |
 | `ROTATION_INTERVAL_MIN` | `1440` | Default interval for proxy credential rotation in minutes (24 hours) |
 | `XUI_PANEL_URL` | `https://3xui-host:2053/basepath` | Base URL of the 3x-ui management panel |
 | `XUI_ADMIN_USER` | `admin` | Admin username for 3x-ui panel login |
 | `XUI_ADMIN_PASS` | `change-me` | Admin password for 3x-ui panel login |
 | `XUI_INBOUND_REMARK` | `squid-in` | Remark of the inbound proxy to rotate |
+| `XUI_INBOUND_TAG` | *(empty)* | Tag of a specific Xray inbound to rotate; empty = auto-discovery via `XUI_INBOUND_REMARK` |
+| `XUI_INSECURE_SKIP_VERIFY` | `false` | Disable TLS certificate validation for the 3x-ui panel. ⚠️ MITM risk: use only for self-signed certificates in an isolated network segment |
 | `UPDATE_CHECK_REPO` | `vlv-code/PEC` | GitHub repository used for version update checks |
 | `CODE_SIGN_DIR` | `./certs` | Directory storing code signing certificates and keys |
 | `CODE_SIGN_PFX_PATH` | *(empty)* | Optional path to Authenticode PFX/P12 certificate for signing Windows binaries |
@@ -181,9 +196,19 @@ cp .env.example .env
 | `CODE_SIGN_ISSUER` | `"Corporate CA"` | Certificate issuer organization name |
 | `CODE_SIGN_TIMESTAMP_URL` | `http://timestamp.digicert.com` | RFC 3161 Authenticode timestamp server URL |
 | `LOG_LEVEL` | `info` | Server logging verbosity level (`debug`, `info`, `warn`, `error`) |
-| `METRICS_PORT` | `3000` | Dedicated Prometheus metrics exposition port (falls back to main `PORT`) |
-| `METRICS_AUTH` | `true` | Enforce admin token authentication on `/metrics` endpoint (set `false` for public scraper access) |
+| `LOG_FORMAT` | *(empty)* | Log output format: `text` (human-readable, default) or `json` (structured; forced automatically in production) |
 | `PEC_METRICS_PUBLIC` | `false` | Allow public access to `/metrics` without `ADMIN_TOKEN` authentication |
+| `AD_ENABLED` | `false` | Enable periodic synchronization and user validation with Active Directory / LDAP |
+| `AD_LDAP_URL` | `ldaps://dc01.corp.local:636` | LDAP server URL (LDAPS on port 636 is recommended for secure channel) |
+| `AD_BIND_DN` | `CN=svc_pec,OU=ServiceAccounts,DC=corp,DC=local` | Service account Bind DN for directory queries |
+| `AD_BIND_PASSWORD` | *(empty)* | Password for Active Directory service account |
+| `AD_SEARCH_BASE` | `DC=corp,DC=local` | Base DN for user searches |
+| `AD_REQUIRED_GROUP_DN` | `CN=SEC-Proxy-Users,OU=Groups,DC=corp,DC=local` | Mandatory Active Directory security group DN required for proxy access |
+| `AD_SYNC_INTERVAL_SEC` | `300` | Polling interval in seconds for background Active Directory sync |
+| `AD_REJECT_UNKNOWN_USERS` | `true` | Reject sync requests and trigger Kill-Switch (DIRECT) for unknown or disabled users |
+| `AD_TLS_REJECT_UNAUTHORIZED` | `true` | Enforce TLS certificate validation for Domain Controller LDAPS connections |
+| `AD_CONFIG_PATH` | *(empty)* | Path to the AD integration config saved from the web dashboard (defaults to `./data/ad_config.json`) |
+| `AD_CACHE_PATH` | *(empty)* | Path to the AD users cache used for instant Kill-Switch decisions (defaults to `./data/ad_cache.json`) |
 
 > ⚠️ **Security Notice:** Always change `EXT_SHARED_TOKEN` and set a distinct `ADMIN_TOKEN` before deploying to a production or public environment! The dashboard login password and the management APIs authenticate with `ADMIN_TOKEN`, not with the fleet token.
 >
@@ -287,6 +312,7 @@ sudo nginx -t && sudo systemctl reload nginx
 - **Rate Limiting**: Sliding-window rate limiters protect `/creds` (60/min), `/api/sync` (120/min), and 3x-ui connection tests (15/min).
 - **Fleet Registry Protection**: Maximum instance limit (2000 items) with automatic LRU eviction protects against memory exhaustion attacks.
 - **Multi-Profile & Instance Identity (`instanceToken`) Persistence**: The browser extension intentionally persists `instanceToken` in `chrome.storage.local`. This preserves a stable client instance identity across browser restarts, OS reboots, and Manifest V3 background service worker recycles. Without persistence, each worker wakeup or browser restart would create a new instance record on the server, causing uncontrolled instance sprawl and churn in the server registry (`instances.ts`). This architecture is secure because: (1) `instanceToken` is an opaque, low-privilege telemetry handle used only for heartbeat synchronization (`POST /api/sync`) and conveys no administrative access; (2) `chrome.storage.local` is fully sandboxed per-extension by Chromium; (3) the server enforces an LRU capacity bound (`MAX_INSTANCES = 2000`).
+- **Active Directory Zero-Trust & Identity Binding**: Server-side LDAPS group verification (`AD_ENABLED=true`). Instances bind their `instanceId` to the reported `domainUser` upon enrollment; cross-identity spoofing attempts are rejected with HTTP 403. When `AD_REJECT_UNKNOWN_USERS=true`, clients lacking verified Active Directory domain identities are denied proxy credentials and automatically switched to DIRECT.
 - **Least Privilege**: Docker containers and systemd services run under an isolated unprivileged user `pecuser`.
 
 ---

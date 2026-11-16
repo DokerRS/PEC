@@ -31,6 +31,12 @@ jobs:
       - name: Type check (tsc --noEmit)
         run: npm run lint
 
+      - name: Build Dashboard UI bundle
+        run: npm run build:ui
+
+      - name: Dashboard UI Bundle Drift Check (ensure public/dashboard.min.js matches src/client/dashboard)
+        run: git diff --exit-code public/dashboard.min.js
+
       - name: Run test suite
         env:
           SKIP_NATIVE_REBUILD: "true"
@@ -39,9 +45,6 @@ jobs:
       - name: Test coverage report
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
         run: npm run test:coverage
-
-      - name: Build Dashboard UI bundle
-        run: npm run build:ui
 
       - name: Production bundle build
         run: npm run build
@@ -220,3 +223,13 @@ jobs:
       - name: Run E2E Profile Tests (e2e_profile.sh)
         run: |
           sudo env PB_DIR="$GITHUB_WORKSPACE/client/Linux/output" ./client/Linux/tests/e2e_profile.sh
+
+  docker-build:
+    name: Docker Image Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build production Docker image (no push)
+        run: docker build -t pec-proxy-extension-corp:ci .

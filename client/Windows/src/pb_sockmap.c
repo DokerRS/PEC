@@ -39,14 +39,19 @@ static DWORD WINAPI sockmap_thread(LPVOID arg)
         if (addr.Event == WINDIVERT_EVENT_SOCKET_CONNECT && addr.Socket.Protocol == IPPROTO_TCP &&
             addr.Socket.LocalPort != 0 && addr.Socket.ProcessId != 0)
         {
-            SOCKMAP_ENTRY *e = &g_sockmap[addr.Socket.LocalPort];
+            // AUDIT-NAT-7: the WinDivert SOCKET layer reports ports in network byte order,
+            // while the lookup side (get_process_id_from_connection) matches host-order
+            // ports against ntohs()'d MIB_TCPROW_OWNER_PID rows. Normalize once here so
+            // store and lookup agree on the same slot.
+            UINT16 lport = ntohs(addr.Socket.LocalPort);
+            SOCKMAP_ENTRY *e = &g_sockmap[lport];
             InterlockedExchange(&e->tick, 0);                       // invalidate while updating
             InterlockedExchange(&e->pid, (LONG)addr.Socket.ProcessId);
             LONG t = (LONG)GetTickCount(); if (t == 0) t = 1;
             InterlockedExchange(&e->tick, t);
             if (InterlockedIncrement(&g_sock_events) == 1)
                 log_message("Process lookup: socket events active (first: PID %lu, local port %u)",
-                            (unsigned long)addr.Socket.ProcessId, (unsigned)addr.Socket.LocalPort);
+                            (unsigned long)addr.Socket.ProcessId, (unsigned)lport);
         }
     }
     return 0;

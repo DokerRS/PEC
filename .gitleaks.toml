@@ -1,0 +1,79 @@
+# ==============================================================================
+# PEC - Proxy Extension Corp: Gitleaks configuration
+# Extends the built-in rule set with project-specific credential assignments
+# (two-token model, 3x-ui panel login, AD bind account, PAC & code-signing keys).
+# Consumed by .github/workflows/security.yml (gitleaks-action).
+# ==============================================================================
+
+[extend]
+useDefault = true
+
+# Value charset is deliberately narrow (no '$', quotes, or spaces) so compose
+# interpolation (`${ADMIN_TOKEN:-}`) and empty .env.example defaults never fire.
+# The `=<value>` anchor also keeps `<VAR>_FILE=` secret-file references out.
+
+[[rules]]
+id = "pec-env-admin-token"
+description = "PEC ADMIN_TOKEN assignment"
+regex = '''ADMIN_TOKEN[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=-]{20,})'''
+secretGroup = 1
+keywords = ["admin_token"]
+tags = ["pec", "token"]
+
+[[rules]]
+id = "pec-env-fleet-token"
+description = "PEC EXT_SHARED_TOKEN assignment"
+regex = '''EXT_SHARED_TOKEN[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=-]{20,})'''
+secretGroup = 1
+keywords = ["ext_shared_token"]
+tags = ["pec", "token"]
+
+[[rules]]
+id = "pec-env-pac-signing-secret"
+description = "PEC PAC_SIGNING_SECRET assignment"
+regex = '''PAC_SIGNING_SECRET[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=-]{20,})'''
+secretGroup = 1
+keywords = ["pac_signing_secret"]
+tags = ["pec", "secret"]
+
+[[rules]]
+id = "pec-env-ad-bind-password"
+description = "PEC AD_BIND_PASSWORD assignment"
+regex = '''AD_BIND_PASSWORD[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=!-]{20,})'''
+secretGroup = 1
+keywords = ["ad_bind_password"]
+tags = ["pec", "password"]
+
+[[rules]]
+id = "pec-env-xui-admin-pass"
+description = "PEC XUI_ADMIN_PASS assignment"
+regex = '''XUI_ADMIN_PASS[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=!-]{20,})'''
+secretGroup = 1
+keywords = ["xui_admin_pass"]
+tags = ["pec", "password"]
+
+[[rules]]
+id = "pec-env-code-sign-password"
+description = "PEC CODE_SIGN_PASSWORD assignment"
+regex = '''CODE_SIGN_PASSWORD[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=!-]{20,})'''
+secretGroup = 1
+keywords = ["code_sign_password"]
+tags = ["pec", "password"]
+
+[[rules]]
+id = "pec-env-code-sign-master-key"
+description = "PEC CODE_SIGN_MASTER_KEY assignment"
+regex = '''CODE_SIGN_MASTER_KEY[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=!-]{20,})'''
+secretGroup = 1
+keywords = ["code_sign_master_key"]
+tags = ["pec", "secret"]
+
+[allowlist]
+description = "PEC test fixtures, env template, and documentation placeholders"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)test/.*''',
+  '''(^|/)docs/.*''',
+  '''(^|/)\.agents/.*''',
+  '''(^|/)README(\.ru)?\.md$''',
+]

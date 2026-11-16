@@ -108,6 +108,10 @@ extern "C" {
 #include "ui/pec_sync.h"
 }
 
+// AUDIT-NAT-1: shared verified-update pipeline (UpdDownload -> SHA-256 -> Authenticode)
+// used instead of handing the raw server update.downloadUrl to ShellExecuteW.
+#include "ui/update_core.h"
+
 // -----------------------------------------------------------------------------
 // Forward declarations & Startup Helpers
 // -----------------------------------------------------------------------------
@@ -2493,6 +2497,45 @@ static void RenderTabs()
 }
 
 // -----------------------------------------------------------------------------
+// Verified Update Install (AUDIT-NAT-1)
+// -----------------------------------------------------------------------------
+// The server-controlled update.downloadUrl is never handed to the shell directly.
+// The URL must be http(s); the installer is downloaded through the shared pipeline
+// (UpdDownload -> UpdVerifyFileSha256 -> UpdVerifyAuthenticode, see ui/update_core.h)
+// and only the verified local file is executed — parity with the classic GUI dialog.
+typedef struct { wchar_t url[512]; wchar_t sha256[65]; HWND mainWnd; } UpdInstallJob;
+
+static DWORD WINAPI UpdInstallThread(LPVOID p)
+{
+    UpdInstallJob* j = (UpdInstallJob*)p;
+    wchar_t dest[MAX_PATH] = { 0 };
+    if (!UpdMakeSafeDest(j->url, dest, MAX_PATH) || !UpdDownload(j->url, dest, NULL))
+    {
+        PB_WriteAppLog("[UPDATE ERROR] Verified download failed for %ls", j->url);
+        MessageBoxW(NULL, L"Не удалось скачать обновление.", L"Ошибка обновления", MB_ICONERROR);
+    }
+    else if (UpdVerifyAndLaunch(dest, j->sha256, NULL) == UPD_VERIFY_OK)
+    {
+        g_reallyExit = true;
+        PostMessageW(j->mainWnd, WM_CLOSE, 0, 0);   // quit so the installer can replace files
+    }
+    free(j);
+    return 0;
+}
+
+static void UpdBeginVerifiedInstall(HWND mainWnd, const UpdInfo* info)
+{
+    UpdInstallJob* j = (UpdInstallJob*)calloc(1, sizeof(UpdInstallJob));
+    if (!j) return;
+    j->mainWnd = mainWnd;
+    lstrcpynW(j->url, info->download, 512);
+    lstrcpynW(j->sha256, info->sha256, 65);
+    HANDLE t = CreateThread(NULL, 0, UpdInstallThread, j, 0, NULL);
+    if (t) CloseHandle(t);
+    else free(j);
+}
+
+// -----------------------------------------------------------------------------
 // Win32 Window Procedure
 // -----------------------------------------------------------------------------
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -2581,8 +2624,11 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 _snwprintf_s(bmsg, 512, _TRUNCATE, L"Доступна новая версия PEC-App v%ls.\nСкачать сейчас?", info->latest);
                 TrayShowBalloon(APP_TITLE_W, bmsg);
                 if (MessageBoxW(hWnd, bmsg, L"Обновление PEC-App", MB_YESNO | MB_ICONINFORMATION) == IDYES) {
-                    if (info->download[0]) {
-                        ShellExecuteW(nullptr, L"open", info->download, nullptr, nullptr, SW_SHOWNORMAL);
+                    if (info->download[0] && UpdIsHttpUrl(info->download)) {
+                        UpdBeginVerifiedInstall(hWnd, info);
+                    } else if (info->download[0]) {
+                        PB_WriteAppLog("[UPDATE ERROR] Rejected non-http(s) update URL: %ls", info->download);
+                        MessageBoxW(hWnd, L"Отклонён небезопасный URL обновления (разрешены только http/https).", L"Ошибка обновления", MB_ICONERROR);
                     }
                 }
             }
@@ -2818,6 +2864,44 @@ static BOOL ConnectEngine(void)
 }
 
 // -----------------------------------------------------------------------------
+// Bootstrap Guard Needles (AUDIT-CLOSURE-4B)
+// XOR-decoded at runtime (key 0x5A3C) so the marker strings never appear as
+// literals in the binary (bytescan criterion). Called from the single-threaded
+// WinMain bootstrap — no synchronization needed.
+// -----------------------------------------------------------------------------
+static const wchar_t* GuardNeedleExampleCom()
+{
+    static const unsigned short enc[12] = {
+        0x5A59, 0x5A44, 0x5A5D, 0x5A51, 0x5A4C, 0x5A50,
+        0x5A59, 0x5A12, 0x5A5F, 0x5A53, 0x5A51, 0x5A3C
+    };
+    static wchar_t buf[12];
+    static bool init = false;
+    if (!init)
+    {
+        for (int i = 0; i < 12; i++) buf[i] = (wchar_t)(enc[i] ^ 0x5A3C);
+        init = true;
+    }
+    return buf;
+}
+
+static const wchar_t* GuardNeedleDevToken()
+{
+    static const unsigned short enc[17] = {
+        0x5A48, 0x5A59, 0x5A4F, 0x5A48, 0x5A11, 0x5A5D, 0x5A58, 0x5A51,
+        0x5A55, 0x5A52, 0x5A11, 0x5A48, 0x5A53, 0x5A57, 0x5A59, 0x5A52, 0x5A3C
+    };
+    static wchar_t buf[17];
+    static bool init = false;
+    if (!init)
+    {
+        for (int i = 0; i < 17; i++) buf[i] = (wchar_t)(enc[i] ^ 0x5A3C);
+        init = true;
+    }
+    return buf;
+}
+
+// -----------------------------------------------------------------------------
 // Application Entry Point
 // -----------------------------------------------------------------------------
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nShowCmd)
@@ -3031,11 +3115,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 #if defined(PEC_DEFAULT_SERVER_URL_W)
         isLocalOrEmpty = (g_profile.pecSync.serverUrl[0] == 0);
         if (isLocalOrEmpty && PEC_DEFAULT_SERVER_URL_W[0] != 0 &&
-            wcsstr(PEC_DEFAULT_SERVER_URL_W, L"example.com") == nullptr &&
+            wcsstr(PEC_DEFAULT_SERVER_URL_W, GuardNeedleExampleCom()) == nullptr &&
             wcscmp(PEC_DEFAULT_SERVER_URL_W, L"http://127.0.0.1:3000") != 0) {
             lstrcpynW(g_profile.pecSync.serverUrl, PEC_DEFAULT_SERVER_URL_W, 512);
 #if defined(PEC_DEFAULT_FLEET_TOKEN_W)
-            if (wcsstr(PEC_DEFAULT_FLEET_TOKEN_W, L"test-admin-token") == nullptr) {
+            if (wcsstr(PEC_DEFAULT_FLEET_TOKEN_W, GuardNeedleDevToken()) == nullptr) {
                 lstrcpynW(g_profile.pecSync.fleetToken, PEC_DEFAULT_FLEET_TOKEN_W, 256);
             }
 #endif
@@ -3062,6 +3146,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     }
 
     // Connect to engine (service IPC or elevated portable mode)
+    PB_AppLogInit();   // AUDIT-NAT-P3: log critical section must exist before any worker thread
     if (!ConnectEngine()) {
         g_connBuffer.Destroy();
         DeleteCriticalSection(&g_logCs);

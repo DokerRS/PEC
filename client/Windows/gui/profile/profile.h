@@ -132,6 +132,7 @@ BOOL PB_ProfileExport(const wchar_t* name, const wchar_t* destPath);
 void PB_GetLogsDir(wchar_t* out, int cch);
 void PB_GetLogFilePath(wchar_t* out, int cch);
 void PB_WriteAppLog(const char* fmt, ...);
+void PB_AppLogInit(void);   // call once at startup, before spawning worker threads
 
 // App log UI callback bridge
 typedef void (*PB_AppLogUiCallback)(const char* msg, int level);

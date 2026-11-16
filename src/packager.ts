@@ -7,6 +7,7 @@ import AdmZip from "adm-zip";
 import {
   BACKGROUND_TEMPLATE,
   MANAGED_SCHEMA_TEMPLATE,
+  POPUP_THEME_TEMPLATE,
   renderBackgroundJs,
   renderPopupHtml,
   renderPopupJs,
@@ -15,8 +16,9 @@ import {
   renderDeployGpoScript,
   renderVerifyGpoScript,
   renderGpoReadme,
+  renderGppRegistryXml,
 } from "./templates/gpoTemplates.js";
-import { writeJsonAtomic, writeFileAtomic } from "./jsonStore.js";
+import { writeJsonAtomic, writeFileAtomic, readJsonStore } from "./jsonStore.js";
 import { getBuilderConfigPath, getReleasesDir } from "./storage.js";
 import { recordRelease } from "./releases.js";
 import type { ExtensionBuildConfig, ExtensionBuildInfo } from "./types.js";
@@ -68,12 +70,20 @@ export const DEFAULT_BUILD_CONFIG: ExtensionBuildConfig = {
 
 let currentBuildConfig: ExtensionBuildConfig = { ...DEFAULT_BUILD_CONFIG };
 
-try {
-  if (fs.existsSync(BUILD_CONFIG_PATH)) {
-    const raw = fs.readFileSync(BUILD_CONFIG_PATH, "utf-8");
-    currentBuildConfig = { ...DEFAULT_BUILD_CONFIG, ...JSON.parse(raw) };
+// AUDIT-SRV-P3: a torn extension_build_config.json used to silently reset the
+// studio build settings. readJsonStore preserves the broken original as
+// .corrupt-<timestamp>; losing operator customizations must be loud.
+if (fs.existsSync(BUILD_CONFIG_PATH)) {
+  const storedBuild = readJsonStore<Partial<ExtensionBuildConfig>>(BUILD_CONFIG_PATH);
+  if (storedBuild && typeof storedBuild === "object") {
+    currentBuildConfig = { ...DEFAULT_BUILD_CONFIG, ...storedBuild };
+  } else {
+    console.error(
+      `[packager] extension_build_config.json is unreadable; build settings were reset to defaults. ` +
+        `The broken original was preserved as ${BUILD_CONFIG_PATH}.corrupt-<timestamp> - restore it to recover studio customizations.`
+    );
   }
-} catch {}
+}
 
 export const SEMVER_REGEX =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
@@ -324,6 +334,7 @@ export function generateGpoConfig(
       content += `"extToken"="${regEscape(token)}"\n`;
       content += `"credsUrl"="${regEscape(credsUrl)}"\n`;
       content += `"syncUrl"="${regEscape(syncUrl)}"\n`;
+      content += `"domainUser"="${regEscape("%USERDOMAIN%\\%USERNAME%")}"\n`;
       if (targetGroup) {
         content += `"targetGroup"="${targetGroup}"\n`;
       }
@@ -350,6 +361,12 @@ export function generateGpoConfig(
     options?.targetGroup || ""
   );
   const verifyScript = renderVerifyGpoScript(extensionId, serverBaseUrl, token);
+  const registryXml = renderGppRegistryXml(
+    extensionId,
+    serverBaseUrl,
+    token,
+    options?.targetGroup || ""
+  );
   const readmeContent = renderGpoReadme(extensionId, serverBaseUrl);
 
   return {
@@ -363,6 +380,7 @@ export function generateGpoConfig(
     deployScript,
     verifyScript,
     readmeContent,
+    registryXml,
   };
 }
 
@@ -680,6 +698,7 @@ const EXTENSION_SOURCE_FILES = [
   "background.js",
   "popup.html",
   "popup.js",
+  "popupTheme.js",
   "managed_schema.json",
   "icon.svg",
 ] as const;
@@ -836,6 +855,9 @@ export function generateExtensionFiles(
   const popupJs = renderPopupJs(mergedCfg);
   writeGeneratedFile("popup.js", popupJs, mergedCfg, force);
 
+  // AUDIT-EXT-2: external pre-render theme bootstrap (MV3 CSP forbids inline scripts)
+  writeGeneratedFile("popupTheme.js", POPUP_THEME_TEMPLATE, mergedCfg, force);
+
   const renderedBg = renderBackgroundJs(mergedCfg);
 
   return {
@@ -849,6 +871,7 @@ export function generateExtensionFiles(
     "managed_schema.json": MANAGED_SCHEMA_TEMPLATE,
     "popup.html": popupHtml,
     "popup.js": popupJs,
+    "popupTheme.js": POPUP_THEME_TEMPLATE,
   };
 }
 
@@ -881,6 +904,7 @@ export async function buildExtensionFiles(cfg: ExtensionBuildConfig): Promise<Re
     "managed_schema.json": MANAGED_SCHEMA_TEMPLATE,
     "popup.html": renderPopupHtml(mergedCfg, colors),
     "popup.js": renderPopupJs(mergedCfg),
+    "popupTheme.js": POPUP_THEME_TEMPLATE,
   };
 
   return files;
@@ -1037,6 +1061,7 @@ export function packageExtension(baseUrl: string = ""): ExtensionBuildInfo & { z
   if (buildConfigToPack.uiMode === "stealth") {
     try { fs.rmSync(path.join(UNPACKED_DIR, "popup.html"), { force: true }); } catch {}
     try { fs.rmSync(path.join(UNPACKED_DIR, "popup.js"), { force: true }); } catch {}
+    try { fs.rmSync(path.join(UNPACKED_DIR, "popupTheme.js"), { force: true }); } catch {}
   }
 
   // Create ZIP directly from the clean UNPACKED_DIR
@@ -1135,6 +1160,8 @@ export function packageExtension(baseUrl: string = ""): ExtensionBuildInfo & { z
   return result;
 }
 
+export const buildGpoPackage = generateGpoDeploymentPack;
+
 export function generateGpoDeploymentPack(
   baseUrl: string = "",
   token: string = ""
@@ -1190,6 +1217,7 @@ export function generateGpoDeploymentPack(
     "extension-settings-yandex.json",
     Buffer.from(JSON.stringify(gpo.extensionSettingsEntries.yandex, null, 2), "utf-8")
   );
+  zip.addFile("Registry.xml", Buffer.from(gpo.registryXml, "utf-8"));
   zip.addFile("README-GPO.md", Buffer.from(gpo.readmeContent, "utf-8"));
   const gpoLicense = path.resolve("./LICENSE");
   if (fs.existsSync(gpoLicense)) {

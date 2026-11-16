@@ -1400,7 +1400,12 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           Централизованное управление инстансами расширения, профилями и прокси-нодами
         </p>
 
-        <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;" data-i18n="titleRegisteredDevices">Зарегистрированный флот</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+          <div style="font-size: 14px; font-weight: 600;" data-i18n="titleRegisteredDevices">Зарегистрированный флот</div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="text" id="fleetSearchInput" class="form-input form-input-sm" style="margin-bottom: 0; min-width: 240px; font-size: 12px; padding: 4px 8px;" placeholder="Поиск по ID, IP, пользователю или AD..." data-i18n-ph="placeholderFleetSearch" oninput="filterFleetTable()" />
+          </div>
+        </div>
 
         <!-- Floating / Anchored Bulk Actions Toolbar -->
         <div id="fleetBulkBar" class="fleet-bulk-bar" style="display: none;">
@@ -1605,6 +1610,93 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- Active Directory / LDAPS Integration Card -->
+      <div class="card" style="margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <h2 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+              <span>🏢</span>
+              <span data-i18n="titleAdIntegration">Интеграция с Active Directory / LDAPS</span>
+              <span id="badgeAdStatus" class="badge badge-secondary" data-i18n="badgeAdDisabled">Отключено</span>
+            </h2>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 0;" data-i18n="descAdIntegration">
+              Синхронизация учетных записей пользователей домена и мгновенный отзыв доступа (Kill-Switch)
+            </p>
+          </div>
+          <div style="display: flex; gap: 16px; align-items: center; font-size: 12px;">
+            <div>
+              <span style="color: var(--text-muted);" data-i18n="lblAdLastSync">Последняя синхронизация:</span>
+              <strong id="lblAdLastSync" style="font-family: var(--mono); margin-left: 4px;">—</strong>
+            </div>
+            <div>
+              <span style="color: var(--text-muted);" data-i18n="lblAdUsersCount">Пользователей в кэше:</span>
+              <span id="lblAdUsersCount" class="badge badge-primary" style="margin-left: 4px;">0</span>
+            </div>
+          </div>
+        </div>
+
+        <form id="adConfigForm" onsubmit="event.preventDefault(); saveAdConfigAction();">
+          <div style="margin-bottom: 14px; padding: 10px 14px; background: rgba(var(--primary-rgb), 0.05); border: 1px solid rgba(var(--primary-rgb), 0.2); border-radius: 6px;">
+            <label for="adEnabled" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0; font-weight: 600;">
+              <input type="checkbox" id="adEnabled" name="adEnabled" onchange="toggleAdFieldsState()" />
+              <span data-i18n="lblAdEnabled">Включить интеграцию с Active Directory</span>
+            </label>
+          </div>
+
+          <div id="adFieldsContainer" class="grid-2">
+            <div>
+              <label for="adUrl" data-i18n="lblAdUrl">LDAP/LDAPS URL контроллера домена</label>
+              <input type="text" id="adUrl" name="adUrl" placeholder="ldaps://dc.corp.local:636" style="font-family: var(--mono);" />
+
+              <label for="adBindDn" data-i18n="lblAdBindDn">Учетная запись службы (Bind DN)</label>
+              <input type="text" id="adBindDn" name="adBindDn" placeholder="CN=pec-service,OU=ServiceAccounts,DC=corp,DC=local" style="font-family: var(--mono);" />
+
+              <label for="adPassword">
+                <span data-i18n="lblAdPassword">Пароль учетной записи</span>
+                <span id="adPasswordHint" style="font-size: 11px; color: var(--text-muted); font-weight: normal; margin-left: 6px;"></span>
+              </label>
+              <input type="password" id="adPassword" name="adPassword" placeholder="Введите пароль..." autocomplete="new-password" />
+
+              <label for="adBaseDn" data-i18n="lblAdBaseDn">Базовый DN для поиска (Search Base)</label>
+              <input type="text" id="adBaseDn" name="adBaseDn" placeholder="DC=corp,DC=local" style="font-family: var(--mono);" />
+            </div>
+
+            <div>
+              <label for="adGroupDn" data-i18n="lblAdGroupDn">Обязательная группа доступа (DN)</label>
+              <input type="text" id="adGroupDn" name="adGroupDn" placeholder="CN=ProxyFleetUsers,OU=Groups,DC=corp,DC=local" style="font-family: var(--mono);" />
+
+              <label for="adInterval" data-i18n="lblAdInterval">Интервал синхронизации (сек)</label>
+              <input type="number" id="adInterval" name="adInterval" min="10" max="86400" step="10" placeholder="300" style="font-family: var(--mono);" />
+
+              <label for="adMigrationMode" data-i18n="lblAdMigrationMode">Режим миграции флота</label>
+              <select id="adMigrationMode" name="adMigrationMode" class="form-select">
+                <option value="soft" data-i18n="optAdMigrationSoft">Мягкая миграция (рекомендуется): старые версии расширений без доменного логина продолжают работать</option>
+                <option value="strict" data-i18n="optAdMigrationStrict">Строгий Zero-Trust: блокировать все устройства без доменного логина</option>
+              </select>
+
+              <div style="margin-top: 18px;">
+                <label for="adTlsReject" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="adTlsReject" name="adTlsReject" checked />
+                  <span data-i18n="lblAdTlsReject">Строгая проверка SSL/TLS сертификата LDAPS (rejectUnauthorized)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; align-items: center;">
+            <button type="submit" id="btnSaveAdConfig" class="btn" data-i18n="btnSaveAdConfig">
+              <img src="/icons/save.png" class="icon-inline" alt="save"> Сохранить настройки
+            </button>
+            <button type="button" id="btnTestAdConnection" class="btn-secondary" onclick="testAdConnectionAction()" data-i18n="btnTestAdConnection">
+              <img src="/icons/activity.png" class="icon-inline" alt="test"> Проверить подключение
+            </button>
+            <button type="button" id="btnSyncAdNow" class="btn-secondary" onclick="syncAdNowAction()" data-i18n="btnSyncAdNow">
+              <img src="/icons/refresh.png" class="icon-inline" alt="sync"> Синхронизировать сейчас
+            </button>
+          </div>
+        </form>
       </div>
     </div>
 

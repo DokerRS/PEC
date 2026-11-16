@@ -10,7 +10,7 @@ import crypto from "node:crypto";
  * Pinned per Security Requirement M-22.
  */
 export const EXPECTED_WINDOWS_BINARY_HASHES: Record<string, string> = {
-  "PEC-App.exe": "f0895aa71907d3510edbdaa72c12c57bacdffff2c88636e9a62c75ecff887c65",
+  "PEC-App.exe": "0359f1a67d930491381a569c84d2a9640e9900f4bf2866eb97e60c1d5b3f93f5",
   "PEC-CLI.exe": "e9377db1339ee74d09ff666adfc176317e94c6bb8b3bd119bc77331cff8ae7f9",
   "PECAppSvc.exe": "9eb04e786582dbbb48b1695cfc5098caaf04e5a3af217d3a357f0fbf9ee3cf51",
   "PEC-App-Setup.exe": "80866b2d16a4e340492224a49227c33aca615e236439e55549356f1ddfa9865c",

@@ -14,6 +14,14 @@ services:
       - HOST=0.0.0.0
       - EXT_SHARED_TOKEN=${EXT_SHARED_TOKEN:?Set EXT_SHARED_TOKEN in .env (see .env.example)}
       - ADMIN_TOKEN=${ADMIN_TOKEN:?Set ADMIN_TOKEN in .env (a long random value, distinct from EXT_SHARED_TOKEN)}
+      # Docker secrets mode: replace the direct token lines above with file
+      # references (read natively by loadEnv.ts loadDockerSecrets, e.g. via
+      # `secrets:` + /run/secrets/... mounts):
+      #   - ADMIN_TOKEN_FILE=/run/secrets/admin_token
+      #   - EXT_SHARED_TOKEN_FILE=/run/secrets/ext_shared_token
+      #   - ADMIN_PASSWORD_FILE=/run/secrets/admin_password
+      #   - PAC_SIGNING_SECRET_FILE=/run/secrets/pac_signing_secret
+      #   - CODE_SIGN_MASTER_KEY_FILE=/run/secrets/code_sign_master_key
       # All persistent state lives in /app/data (mounted volume below) so
       # profiles, rotation config and instance metadata survive redeploys.
       - DATA_DIR=/app/data

@@ -4,7 +4,8 @@ import { GEO_PRESETS, getAllProfiles, saveProfile, deleteProfile } from "../rout
 import { getRoutingPresets, saveRoutingPresets } from "../storage.js";
 import { RoutingPresetItem } from "../types.js";
 import { parseGeoSite, parseGeoIp, parsePlaintextList } from "../geodata/datParser.js";
-import { validateSafeEndpointUrlAsync } from "../rotate.js";
+import { validateSafeEndpointUrlAsync, createSsrfPinnedFetch } from "../rotate.js";
+import { MAX_ROUTING_PRESET_ENTRIES, isWithinPresetEntryLimit } from "../routing.js";
 import { recordAudit, getClientIp } from "../audit.js";
 
 async function downloadBodyWithLimit(response: globalThis.Response, maxSize: number): Promise<Buffer> {
@@ -166,6 +167,10 @@ export function createRoutingRouter(): Router {
       if (cleanEntries.length === 0) {
         return res.status(400).json({ error: "entries cannot be empty" });
       }
+      // AUDIT-SRV-P3: cap preset size (PAC generation guard)
+      if (!isWithinPresetEntryLimit(cleanEntries.length)) {
+        return res.status(400).json({ error: `Preset too large: ${cleanEntries.length} entries exceed the ${MAX_ROUTING_PRESET_ENTRIES} entry limit` });
+      }
 
       const cleanId = id.trim();
       const presets = getRoutingPresets();
@@ -267,28 +272,45 @@ export function createRoutingRouter(): Router {
         return res.status(400).json({ error: "SSRF validation failed: target is forbidden" });
       }
 
-      let response: globalThis.Response;
+      // AUDIT-SEC-2: pin the connection to the DNS-verified addresses so a
+      // rebinding record flipped after validation cannot redirect this fetch.
+      const plan = await createSsrfPinnedFetch(url.trim());
+      if (!plan.valid) {
+        return res.status(400).json({ error: "SSRF validation failed: target is forbidden" });
+      }
+
+      let buffer: Buffer;
       try {
-        response = await fetch(url.trim(), {
-          redirect: "manual",
-          signal: AbortSignal.timeout(10000),
-        });
-      } catch (fetchErr: any) {
-        return res.status(400).json({ error: `Failed to fetch URL: ${fetchErr?.message || fetchErr}` });
-      }
+        let response: globalThis.Response;
+        try {
+          response = await plan.fetch(url.trim(), {
+            redirect: "manual",
+            signal: AbortSignal.timeout(10000),
+          });
+        } catch (fetchErr: any) {
+          return res.status(400).json({ error: `Failed to fetch URL: ${fetchErr?.message || fetchErr}` });
+        }
 
-      if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
-        return res.status(400).json({ error: "HTTP redirects are forbidden for security reasons" });
-      }
+        if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
+          return res.status(400).json({ error: "HTTP redirects are forbidden for security reasons" });
+        }
 
-      if (!response.ok) {
-        return res.status(400).json({ error: `Remote server returned HTTP ${response.status}` });
-      }
+        if (!response.ok) {
+          return res.status(400).json({ error: `Remote server returned HTTP ${response.status}` });
+        }
 
-      const MAX_SIZE = 20 * 1024 * 1024; // 20MB
-      const buffer = await downloadBodyWithLimit(response, MAX_SIZE);
+        const MAX_SIZE = 20 * 1024 * 1024; // 20MB
+        buffer = await downloadBodyWithLimit(response, MAX_SIZE);
+      } finally {
+        plan.close();
+      }
 
       const { entries, inferredType } = parseGeodataBuffer(buffer, url, type, tag);
+      // AUDIT-SRV-P3: cap preset size at import so PAC generation cannot be
+      // blown up by an oversized geodata list.
+      if (!isWithinPresetEntryLimit(entries.length)) {
+        return res.status(400).json({ error: `Imported preset too large: ${entries.length} entries exceed the ${MAX_ROUTING_PRESET_ENTRIES} entry limit` });
+      }
       let parsedUrlPath = "";
       try {
         parsedUrlPath = new URL(url).pathname.split("/").pop() || "";
@@ -380,6 +402,10 @@ export function createRoutingRouter(): Router {
       }
 
       const { entries, inferredType } = parseGeodataBuffer(buf, filename, type, tag);
+      // AUDIT-SRV-P3: cap preset size at import (PAC generation guard)
+      if (!isWithinPresetEntryLimit(entries.length)) {
+        return res.status(400).json({ error: `Imported preset too large: ${entries.length} entries exceed the ${MAX_ROUTING_PRESET_ENTRIES} entry limit` });
+      }
       const cleanName = name || filename;
       const id = req.body.id || `preset:${crypto.randomBytes(4).toString("hex")}`;
 
@@ -443,28 +469,44 @@ export function createRoutingRouter(): Router {
         return res.status(400).json({ error: "SSRF validation failed: target is forbidden" });
       }
 
-      let response: globalThis.Response;
+      // AUDIT-SEC-2: pin the connection to the DNS-verified addresses so a
+      // rebinding record flipped after validation cannot redirect this fetch.
+      const plan = await createSsrfPinnedFetch(preset.sourceUrl);
+      if (!plan.valid) {
+        return res.status(400).json({ error: "SSRF validation failed: target is forbidden" });
+      }
+
+      let buffer: Buffer;
       try {
-        response = await fetch(preset.sourceUrl, {
-          redirect: "manual",
-          signal: AbortSignal.timeout(10000),
-        });
-      } catch (fetchErr: any) {
-        return res.status(400).json({ error: `Failed to refresh URL: ${fetchErr?.message || fetchErr}` });
-      }
+        let response: globalThis.Response;
+        try {
+          response = await plan.fetch(preset.sourceUrl, {
+            redirect: "manual",
+            signal: AbortSignal.timeout(10000),
+          });
+        } catch (fetchErr: any) {
+          return res.status(400).json({ error: `Failed to refresh URL: ${fetchErr?.message || fetchErr}` });
+        }
 
-      if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
-        return res.status(400).json({ error: "HTTP redirects are forbidden for security reasons" });
-      }
+        if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
+          return res.status(400).json({ error: "HTTP redirects are forbidden for security reasons" });
+        }
 
-      if (!response.ok) {
-        return res.status(400).json({ error: `Remote server returned HTTP ${response.status}` });
-      }
+        if (!response.ok) {
+          return res.status(400).json({ error: `Remote server returned HTTP ${response.status}` });
+        }
 
-      const MAX_SIZE = 20 * 1024 * 1024;
-      const buffer = await downloadBodyWithLimit(response, MAX_SIZE);
+        const MAX_SIZE = 20 * 1024 * 1024;
+        buffer = await downloadBodyWithLimit(response, MAX_SIZE);
+      } finally {
+        plan.close();
+      }
 
       const { entries } = parseGeodataBuffer(buffer, preset.sourceUrl, preset.type, preset.sourceTag);
+      // AUDIT-SRV-P3: cap preset size on refresh (PAC generation guard)
+      if (!isWithinPresetEntryLimit(entries.length)) {
+        return res.status(400).json({ error: `Refreshed preset too large: ${entries.length} entries exceed the ${MAX_ROUTING_PRESET_ENTRIES} entry limit` });
+      }
       preset.entries = entries;
       preset.domains = entries;
       preset.lastUpdated = new Date().toISOString();

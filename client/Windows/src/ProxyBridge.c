@@ -1258,10 +1258,12 @@ PROXYBRIDGE_API BOOL ProxyBridge_Start(void)
         if (udp_relay_thread == NULL)
         {
             running = FALSE;
-            WaitForSingleObject(cleanup_thread, INFINITE);
+            // AUDIT-NAT-P3: bounded joins — a worker outliving this function would run
+            // code from an unloaded DLL.
+            WaitForSingleObject(cleanup_thread, 8000);
             CloseHandle(cleanup_thread);
             cleanup_thread = NULL;
-            WaitForSingleObject(proxy_thread, INFINITE);
+            WaitForSingleObject(proxy_thread, 8000);
             CloseHandle(proxy_thread);
             proxy_thread = NULL;
             return FALSE;
@@ -1319,9 +1321,29 @@ PROXYBRIDGE_API BOOL ProxyBridge_Start(void)
                 break;
         }
         running = FALSE;
-        WaitForSingleObject(proxy_thread, INFINITE);
+        // AUDIT-NAT-P3: WinDivert fail path — join every worker already spawned above
+        // (bounded: the caller may unload this DLL right after FALSE is returned).
+        WaitForSingleObject(proxy_thread, 8000);
         CloseHandle(proxy_thread);
         proxy_thread = NULL;
+        if (udp_relay_thread != NULL)
+        {
+            WaitForSingleObject(udp_relay_thread, 8000);
+            CloseHandle(udp_relay_thread);
+            udp_relay_thread = NULL;
+        }
+        if (cleanup_thread != NULL)
+        {
+            WaitForSingleObject(cleanup_thread, 8000);
+            CloseHandle(cleanup_thread);
+            cleanup_thread = NULL;
+        }
+        if (g_fw_thread != NULL)
+        {
+            WaitForSingleObject(g_fw_thread, 8000);
+            CloseHandle(g_fw_thread);
+            g_fw_thread = NULL;
+        }
         return FALSE;
     }
 

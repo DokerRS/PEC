@@ -209,11 +209,12 @@ INT_PTR CALLBACK CheckerDlgProc(HWND, UINT, WPARAM, LPARAM);
 static void CheckerLogCb(const char* line, void* user)
 {
     HWND dlg = (HWND)user;
-    int wn = MultiByteToWideChar(CP_ACP, 0, line, -1, NULL, 0);
+    // AUDIT-NAT-P3: engine log lines are UTF-8 — CP_ACP mangled non-ASCII output.
+    int wn = MultiByteToWideChar(CP_UTF8, 0, line, -1, NULL, 0);
     if (wn <= 0) return;
     wchar_t* w = (wchar_t*)malloc((size_t)wn * sizeof(wchar_t));
     if (!w) return;
-    MultiByteToWideChar(CP_ACP, 0, line, -1, w, wn);
+    MultiByteToWideChar(CP_UTF8, 0, line, -1, w, wn);
     PostMessageW(dlg, WM_APP_TESTLINE, 0, (LPARAM)w);   // dialog frees it
 }
 typedef struct { HWND dlg; UINT32 id; char host[256]; unsigned short port; } CheckerJob;

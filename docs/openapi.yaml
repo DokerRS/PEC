@@ -3,8 +3,8 @@ info:
   title: PEC - Proxy Extension Corp Fleet & Management API
   version: 1.0.0
   license:
-    name: MIT
-    url: https://opensource.org/licenses/MIT
+    name: AGPL-3.0-or-later
+    url: https://www.gnu.org/licenses/agpl-3.0.html
   description: |
     Enterprise API for managing selective routing, GeoBases, extension constructor studio,
     Windows Active Directory GPO distribution, native desktop clients (PEC-App), and automated
@@ -61,11 +61,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Forbidden - missing or invalid fleet token
+          description: Forbidden - missing or invalid fleet token, or access revoked by Active Directory Kill-Switch policy
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                adRevoked:
+                  summary: User membership revoked in Active Directory
+                  value:
+                    ok: false
+                    error: Access revoked by Active Directory
+                    action: DISABLE_PROXY
+                adIdentityRequired:
+                  summary: Domain user missing when rejectUnknownUsers is enabled
+                  value:
+                    ok: false
+                    error: AD identity required
+                    action: DISABLE_PROXY
+                tokenInvalid:
+                  summary: Missing or invalid fleet token
+                  value:
+                    ok: false
+                    error: Invalid credentials
 
   /api/app/sync:
     post:
@@ -376,28 +394,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /api/proxies/probe:
+  /api/proxies/check-all:
     post:
-      summary: Probe Proxy Connectivity
-      description: Tests egress connectivity and latency through a specific proxy node or all nodes.
-      operationId: probeProxies
+      summary: Probe All Proxy Nodes
+      description: Tests TCP connectivity, protocol handshake, and egress IP through every configured proxy node (concurrency-limited).
+      operationId: checkAllProxies
       security:
         - AdminBearer: []
         - AdminHeader: []
         - AdminCookie: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                id:
-                  type: string
-                  description: Optional proxy node ID to probe individually
       responses:
         '200':
-          description: Probe results including latency and reachable status
+          description: Probe results keyed by proxy node ID
           content:
             application/json:
               schema:
@@ -405,12 +413,65 @@ paths:
                 properties:
                   ok:
                     type: boolean
-                  latencyMs:
-                    type: number
-                  ip:
-                    type: string
+                  results:
+                    type: object
+                    additionalProperties:
+                      $ref: '#/components/schemas/ProxyCheckResult'
         '401':
           description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Probe execution failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/proxies/{id}/check:
+    post:
+      summary: Probe Single Proxy Node
+      description: Tests TCP connectivity, protocol handshake, and egress IP through one proxy node identified by ID.
+      operationId: checkProxyById
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Proxy node ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Probe result including latency and egress status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    $ref: '#/components/schemas/ProxyCheckResult'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Proxy node not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Probe execution failed
           content:
             application/json:
               schema:
@@ -528,22 +589,66 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /api/rotation/status:
+  /api/rotation/config:
     get:
-      summary: Proxy Credential Rotation Status
-      description: Returns scheduler telemetry, next rotation countdown, and inbound target information.
-      operationId: getRotationStatus
+      summary: Get Rotation Configuration and Recent History
+      description: |
+        Returns the password-masked rotation configuration together with the last 10 rotation
+        history entries. The 3x-ui admin password never leaves the server in plaintext.
+      operationId: getRotationConfig
       security:
         - AdminBearer: []
         - AdminHeader: []
         - AdminCookie: []
       responses:
         '200':
-          description: Current rotation status and timer state
+          description: Current rotation configuration and recent history
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RotationStatus'
+                type: object
+                properties:
+                  config:
+                    $ref: '#/components/schemas/RotationConfigPublic'
+                  history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RotationHistoryEntry'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Update Rotation Configuration
+      description: |
+        Partially updates the rotation configuration (interval, panel URL, credentials, inbound).
+        The 3x-ui admin password is never echoed back - responses always carry a masked value.
+      operationId: updateRotationConfig
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RotationConfigPublic'
+      responses:
+        '200':
+          description: Updated rotation configuration (admin password masked)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotationConfigPublic'
+        '400':
+          description: Invalid configuration payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
           description: Unauthorized admin access
           content:
@@ -551,11 +656,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /api/rotation/rotate:
+  /api/rotation/rotate-now:
     post:
       summary: Trigger Manual Credential Rotation
-      description: Connects to 3x-ui / Xray panel, generates new credentials, and updates current_creds.json atomically.
-      operationId: triggerRotation
+      description: Connects to the 3x-ui / Xray panel, generates new credentials, and updates current_creds.json atomically. Falls back to standalone atomic rotation when the panel is unreachable.
+      operationId: rotateNow
       security:
         - AdminBearer: []
         - AdminHeader: []
@@ -570,10 +675,8 @@ paths:
                 properties:
                   ok:
                     type: boolean
-                  message:
-                    type: string
-                  user:
-                    type: string
+                  result:
+                    $ref: '#/components/schemas/RotationHistoryEntry'
         '401':
           description: Unauthorized admin access
           content:
@@ -582,31 +685,6 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Rotation error or panel connection failed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/rotation/history:
-    get:
-      summary: Rotation Event History Audit Log
-      description: Retrieves historical credential rotation records and status entries.
-      operationId: getRotationHistory
-      security:
-        - AdminBearer: []
-        - AdminHeader: []
-        - AdminCookie: []
-      responses:
-        '200':
-          description: History entries
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/RotationHistoryEntry'
-        '401':
-          description: Unauthorized admin access
           content:
             application/json:
               schema:
@@ -660,6 +738,128 @@ paths:
                 type: string
         '401':
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/ad/status:
+    get:
+      summary: Active Directory Integration Status
+      description: Returns current Active Directory / LDAP synchronization status, statistics, and sanitized configuration (passwords omitted).
+      operationId: getAdStatus
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      responses:
+        '200':
+          description: Active Directory synchronization status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdStatusResponse'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error while retrieving status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/ad/config:
+    post:
+      summary: Update Active Directory Configuration
+      description: Updates persistent Active Directory connection and synchronization parameters in data/ad_config.json.
+      operationId: updateAdConfig
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdConfigUpdateRequest'
+      responses:
+        '200':
+          description: Configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error while updating configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/ad/test:
+    post:
+      summary: Test Active Directory LDAPS Connection
+      description: Validates connectivity and credentials against a domain controller without saving settings permanently.
+      operationId: testAdConnection
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdTestConnectionRequest'
+      responses:
+        '200':
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdTestConnectionResponse'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/ad/sync-now:
+    post:
+      summary: Trigger Immediate Active Directory Sync
+      description: Forces an immediate LDAPS query against the directory service to synchronize allowed users and refresh memory cache.
+      operationId: triggerAdSyncNow
+      security:
+        - AdminBearer: []
+        - AdminHeader: []
+        - AdminCookie: []
+      responses:
+        '200':
+          description: Sync execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdSyncNowResponse'
+        '401':
+          description: Unauthorized admin access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error during sync
           content:
             application/json:
               schema:
@@ -722,6 +922,10 @@ components:
         error:
           type: string
           example: Invalid parameters or unauthorized access
+        action:
+          type: string
+          description: Client instruction directive upon error (e.g. DISABLE_PROXY to fallback to DIRECT mode immediately)
+          example: DISABLE_PROXY
 
     ExtensionSyncRequest:
       type: object
@@ -738,6 +942,10 @@ components:
         selectedProxyId:
           type: string
           example: node_stockholm_01
+        domainUser:
+          type: string
+          description: Domain user identity (%USERDOMAIN%\%USERNAME%) populated from GPO managed storage policy for Active Directory Zero-Trust verification.
+          example: CORP\ivanov
 
     ExtensionSyncResponse:
       type: object
@@ -999,31 +1207,201 @@ components:
         colorPalette:
           type: string
 
-    RotationStatus:
+    RotationConfigPublic:
       type: object
       properties:
-        status:
-          type: string
+        enabled:
+          type: boolean
         intervalMinutes:
           type: integer
-        lastRotation:
+        panelUrl:
           type: string
-          format: date-time
-        nextRotation:
+        adminUser:
           type: string
-          format: date-time
+        adminPass:
+          type: string
+          description: Masked value ("********") in responses; accepts a new plaintext password in update requests.
+        inboundRemark:
+          type: string
         inboundTag:
+          type: string
+        insecureSkipVerify:
+          type: boolean
+        lastStatus:
           type: string
 
     RotationHistoryEntry:
       type: object
       properties:
+        id:
+          type: string
         timestamp:
           type: string
           format: date-time
-        action:
+        source:
+          type: string
+          enum: [3x-ui, standalone-atomic, manual]
+        user:
+          type: string
+        success:
+          type: boolean
+        error:
+          type: string
+
+    ProxyCheckResult:
+      type: object
+      properties:
+        id:
           type: string
         status:
           type: string
-        details:
+          enum: [ONLINE, OFFLINE, TIMEOUT, ERROR]
+        latencyMs:
+          type: integer
+        egressIp:
           type: string
+        geoCountry:
+          type: string
+        checkedAt:
+          type: string
+          format: date-time
+        error:
+          type: string
+
+    AdStatusResponse:
+      type: object
+      required:
+        - enabled
+        - ldapUrl
+        - bindDn
+        - searchBase
+        - requiredGroupDn
+        - syncIntervalSec
+        - rejectUnknownUsers
+        - tlsRejectUnauthorized
+        - usersCount
+        - hasPassword
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        ldapUrl:
+          type: string
+          example: ldaps://dc01.corp.local:636
+        bindDn:
+          type: string
+          example: CN=svc_pec,OU=ServiceAccounts,DC=corp,DC=local
+        searchBase:
+          type: string
+          example: DC=corp,DC=local
+        requiredGroupDn:
+          type: string
+          example: CN=SEC-Proxy-Users,OU=Groups,DC=corp,DC=local
+        syncIntervalSec:
+          type: integer
+          example: 300
+        rejectUnknownUsers:
+          type: boolean
+          example: true
+        tlsRejectUnauthorized:
+          type: boolean
+          example: true
+        usersCount:
+          type: integer
+          example: 42
+        hasPassword:
+          type: boolean
+          example: true
+        lastSyncAt:
+          type: [string, "null"]
+          format: date-time
+          example: '2026-11-13T12:00:00.000Z'
+        lastSyncError:
+          type: [string, "null"]
+          example: null
+
+    AdConfigUpdateRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        ldapUrl:
+          type: string
+          example: ldaps://dc01.corp.local:636
+        bindDn:
+          type: string
+          example: CN=svc_pec,OU=ServiceAccounts,DC=corp,DC=local
+        bindPassword:
+          type: string
+          description: Service account password. Leave empty or omit if retaining the previously saved password.
+          example: SecretPass123!
+        searchBase:
+          type: string
+          example: DC=corp,DC=local
+        requiredGroupDn:
+          type: string
+          example: CN=SEC-Proxy-Users,OU=Groups,DC=corp,DC=local
+        syncIntervalSec:
+          type: integer
+          minimum: 5
+          example: 300
+        rejectUnknownUsers:
+          type: boolean
+          example: true
+        tlsRejectUnauthorized:
+          type: boolean
+          example: true
+
+    AdTestConnectionRequest:
+      type: object
+      properties:
+        ldapUrl:
+          type: string
+          example: ldaps://dc01.corp.local:636
+        bindDn:
+          type: string
+          example: CN=svc_pec,OU=ServiceAccounts,DC=corp,DC=local
+        bindPassword:
+          type: string
+          example: SecretPass123!
+        tlsRejectUnauthorized:
+          type: boolean
+          example: true
+
+    AdTestConnectionResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Connected successfully
+        error:
+          type: string
+          example: connect ECONNREFUSED 10.0.0.1:636
+
+    AdSyncNowResponse:
+      type: object
+      required:
+        - ok
+        - usersCount
+        - syncedAt
+      properties:
+        ok:
+          type: boolean
+          example: true
+        usersCount:
+          type: integer
+          example: 42
+        syncedAt:
+          type: string
+          format: date-time
+          example: '2026-11-13T12:00:00.000Z'
+        warning:
+          type: string
+          description: Warning or non-fatal error during sync (e.g. stale cache retained)
+          example: connect ECONNREFUSED

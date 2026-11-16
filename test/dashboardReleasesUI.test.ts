@@ -4,6 +4,8 @@ import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
 import { renderDashboardHtml } from "../src/views/dashboardView.js";
+import { setupDashboardDom } from "./helpers/dashboardDom.js";
+import { waitFor } from "./helpers/waitFor.js";
 
 test("Dashboard UI: renderDashboardHtml includes Releases tab and Rollback table", () => {
   const html = renderDashboardHtml({
@@ -28,7 +30,7 @@ test("Dashboard UI: renderDashboardHtml includes Releases tab and Rollback table
   );
 });
 
-test("Dashboard UI: fleet table includes username column and pairing display", () => {
+test("Dashboard UI: fleet table includes username column and pairing display", async () => {
   const html = renderDashboardHtml({
     isDefaultTokenInUse: false,
   });
@@ -38,23 +40,50 @@ test("Dashboard UI: fleet table includes username column and pairing display", (
     "instancesTable must have user / username column header"
   );
 
-  const jsContent = fs.readFileSync(path.resolve("./public/dashboard.js"), "utf-8");
-  assert.ok(
-    jsContent.includes("loadReleases"),
-    "dashboard.js must contain loadReleases function"
-  );
-  assert.ok(
-    jsContent.includes("/api/releases/set-active"),
-    "dashboard.js must call /api/releases/set-active for rollback"
-  );
-  assert.ok(
-    jsContent.includes("downloadReleaseVersion"),
-    "dashboard.js must contain downloadReleaseVersion function"
-  );
-  assert.ok(
-    jsContent.includes("pairedAppId") || jsContent.includes("pairedHostname"),
-    "dashboard.js must handle paired desktop extension badge"
-  );
+  // AUDIT-QA-P3: behavioral contracts against the shipped bundle (were
+  // source-content asserts on the orphaned monolith).
+  const env = setupDashboardDom({
+    authenticated: true,
+    customResponses: {
+      "/api/instances": {
+        online: 1,
+        instances: [
+          {
+            instanceId: "inst-paired-01",
+            username: "operator@corp.local",
+            status: "ONLINE",
+            pairedAppId: "app-01",
+            pairedHostname: "OPERATOR-PC",
+          },
+        ],
+      },
+    },
+  });
+  try {
+    // Releases functions must be exposed on window at runtime.
+    assert.equal(typeof env.window.loadReleases, "function", "loadReleases must be exposed on window");
+    assert.equal(typeof env.window.downloadReleaseVersion, "function", "downloadReleaseVersion must be exposed on window");
+
+    // Rollback action must POST /api/releases/set-active.
+    env.setMockResponse("/api/releases/set-active", { ok: true });
+    env.window.pecConfirm = (async () => true) as any;
+    await env.window.setActiveReleaseVersion("extension", "1.2.0");
+    const rollbackCall = env.fetchCalls.find((c) => c.url === "/api/releases/set-active");
+    assert.ok(rollbackCall, "setActiveReleaseVersion must POST /api/releases/set-active for rollback");
+    assert.equal(rollbackCall.method, "POST");
+    assert.deepEqual(JSON.parse(rollbackCall.body), { type: "extension", version: "1.2.0" });
+
+    // Fleet rows must render the paired desktop badge from pairedAppId/pairedHostname.
+    await env.window.loadInstances();
+    await waitFor(
+      () => (env.document.getElementById("fleetTableBody")?.innerHTML || "").includes("inst-paired-01"),
+      { label: "loadInstances to render fleet rows" }
+    );
+    const fleetHtml = env.document.getElementById("fleetTableBody")?.innerHTML || "";
+    assert.ok(fleetHtml.includes("OPERATOR-PC") || fleetHtml.includes("🔗"), "paired desktop badge must render for pairedAppId instances");
+  } finally {
+    env.teardown();
+  }
 });
 
 test("Dashboard UI: renderReleasesTable correctly distinguishes active vs archived release rows", () => {
