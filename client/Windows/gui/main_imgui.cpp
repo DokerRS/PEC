@@ -108,6 +108,10 @@ extern "C" {
 #include "ui/pec_sync.h"
 }
 
+// AUDIT-NAT-1: shared verified-update pipeline (UpdDownload -> SHA-256 -> Authenticode)
+// used instead of handing the raw server update.downloadUrl to ShellExecuteW.
+#include "ui/update_core.h"
+
 // -----------------------------------------------------------------------------
 // Forward declarations & Startup Helpers
 // -----------------------------------------------------------------------------
@@ -2493,6 +2497,45 @@ static void RenderTabs()
 }
 
 // -----------------------------------------------------------------------------
+// Verified Update Install (AUDIT-NAT-1)
+// -----------------------------------------------------------------------------
+// The server-controlled update.downloadUrl is never handed to the shell directly.
+// The URL must be http(s); the installer is downloaded through the shared pipeline
+// (UpdDownload -> UpdVerifyFileSha256 -> UpdVerifyAuthenticode, see ui/update_core.h)
+// and only the verified local file is executed — parity with the classic GUI dialog.
+typedef struct { wchar_t url[512]; wchar_t sha256[65]; HWND mainWnd; } UpdInstallJob;
+
+static DWORD WINAPI UpdInstallThread(LPVOID p)
+{
+    UpdInstallJob* j = (UpdInstallJob*)p;
+    wchar_t dest[MAX_PATH] = { 0 };
+    if (!UpdMakeSafeDest(j->url, dest, MAX_PATH) || !UpdDownload(j->url, dest, NULL))
+    {
+        PB_WriteAppLog("[UPDATE ERROR] Verified download failed for %ls", j->url);
+        MessageBoxW(NULL, L"Не удалось скачать обновление.", L"Ошибка обновления", MB_ICONERROR);
+    }
+    else if (UpdVerifyAndLaunch(dest, j->sha256, NULL) == UPD_VERIFY_OK)
+    {
+        g_reallyExit = true;
+        PostMessageW(j->mainWnd, WM_CLOSE, 0, 0);   // quit so the installer can replace files
+    }
+    free(j);
+    return 0;
+}
+
+static void UpdBeginVerifiedInstall(HWND mainWnd, const UpdInfo* info)
+{
+    UpdInstallJob* j = (UpdInstallJob*)calloc(1, sizeof(UpdInstallJob));
+    if (!j) return;
+    j->mainWnd = mainWnd;
+    lstrcpynW(j->url, info->download, 512);
+    lstrcpynW(j->sha256, info->sha256, 65);
+    HANDLE t = CreateThread(NULL, 0, UpdInstallThread, j, 0, NULL);
+    if (t) CloseHandle(t);
+    else free(j);
+}
+
+// -----------------------------------------------------------------------------
 // Win32 Window Procedure
 // -----------------------------------------------------------------------------
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -2581,8 +2624,11 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 _snwprintf_s(bmsg, 512, _TRUNCATE, L"Доступна новая версия PEC-App v%ls.\nСкачать сейчас?", info->latest);
                 TrayShowBalloon(APP_TITLE_W, bmsg);
                 if (MessageBoxW(hWnd, bmsg, L"Обновление PEC-App", MB_YESNO | MB_ICONINFORMATION) == IDYES) {
-                    if (info->download[0]) {
-                        ShellExecuteW(nullptr, L"open", info->download, nullptr, nullptr, SW_SHOWNORMAL);
+                    if (info->download[0] && UpdIsHttpUrl(info->download)) {
+                        UpdBeginVerifiedInstall(hWnd, info);
+                    } else if (info->download[0]) {
+                        PB_WriteAppLog("[UPDATE ERROR] Rejected non-http(s) update URL: %ls", info->download);
+                        MessageBoxW(hWnd, L"Отклонён небезопасный URL обновления (разрешены только http/https).", L"Ошибка обновления", MB_ICONERROR);
                     }
                 }
             }

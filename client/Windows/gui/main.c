@@ -2089,12 +2089,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show)
             }
         }
 #if defined(PEC_DEFAULT_SERVER_URL_W)
+        // Primary Bootstrap Data (parity with main_imgui.cpp WIN-09): never seed the
+        // example.com placeholder or the dev "test-admin-token" fleet token (AUDIT-NAT-2).
         if ((g_profile.pecSync.serverUrl[0] == 0 || wcscmp(g_profile.pecSync.serverUrl, L"http://127.0.0.1:3000") == 0) &&
-            PEC_DEFAULT_SERVER_URL_W[0] != 0 && wcscmp(PEC_DEFAULT_SERVER_URL_W, L"http://127.0.0.1:3000") != 0)
+            PEC_DEFAULT_SERVER_URL_W[0] != 0 && wcscmp(PEC_DEFAULT_SERVER_URL_W, L"http://127.0.0.1:3000") != 0 &&
+            wcsstr(PEC_DEFAULT_SERVER_URL_W, L"example.com") == NULL)
         {
             lstrcpynW(g_profile.pecSync.serverUrl, PEC_DEFAULT_SERVER_URL_W, 512);
 #if defined(PEC_DEFAULT_FLEET_TOKEN_W)
-            lstrcpynW(g_profile.pecSync.fleetToken, PEC_DEFAULT_FLEET_TOKEN_W, 256);
+            if (wcsstr(PEC_DEFAULT_FLEET_TOKEN_W, L"test-admin-token") == NULL)
+            {
+                lstrcpynW(g_profile.pecSync.fleetToken, PEC_DEFAULT_FLEET_TOKEN_W, 256);
+            }
 #endif
             g_profile.pecSync.enabled = 1;
             PB_ProfileSave(g_activeProfile, &g_profile);

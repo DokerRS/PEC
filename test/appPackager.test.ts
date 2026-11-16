@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import crypto from "node:crypto";
 import AdmZip from "adm-zip";
 import zlib from "node:zlib";
@@ -495,38 +496,64 @@ test("setup.c extracts payload to a secure randomized temp directory with SYSTEM
 
 test("update.h enforces WinVerifyTrust Authenticode signature verification before launching installer (Audit H-1)", () => {
   const updateHeaderPath = path.resolve("./client/Windows/gui/ui/update.h");
+  const updateCorePath = path.resolve("./client/Windows/gui/ui/update_core.h");
   assert.strictEqual(fs.existsSync(updateHeaderPath), true, "update.h must exist");
+  assert.strictEqual(fs.existsSync(updateCorePath), true, "update_core.h (shared verified-update pipeline) must exist");
   const content = fs.readFileSync(updateHeaderPath, "utf-8");
+  const core = fs.readFileSync(updateCorePath, "utf-8");
 
-  // Must include WinTrust headers and library pragma
-  assert.ok(content.includes("<wintrust.h>"), "update.h must include <wintrust.h>");
-  assert.ok(content.includes("<softpub.h>"), "update.h must include <softpub.h>");
-  assert.ok(content.includes('"wintrust.lib"'), "update.h must link wintrust.lib");
+  // NAT-1 architecture: update.h routes through update_core.h and must not carry the
+  // trust machinery itself, only consume it.
+  assert.ok(content.includes('#include "update_core.h"'), "update.h must include update_core.h");
+
+  // Shared pipeline must include WinTrust headers and library pragma
+  assert.ok(core.includes("<wintrust.h>"), "update_core.h must include <wintrust.h>");
+  assert.ok(core.includes("<softpub.h>"), "update_core.h must include <softpub.h>");
+  assert.ok(core.includes('"wintrust.lib"'), "update_core.h must link wintrust.lib");
 
   // Must call WinVerifyTrust with WINTRUST_ACTION_GENERIC_VERIFY_V2
-  assert.ok(content.includes("WinVerifyTrust"), "update.h must call WinVerifyTrust");
+  assert.ok(core.includes("WinVerifyTrust"), "update_core.h must call WinVerifyTrust");
   assert.ok(
-    content.includes("WINTRUST_ACTION_GENERIC_VERIFY_V2"),
-    "update.h must verify with WINTRUST_ACTION_GENERIC_VERIFY_V2"
+    core.includes("WINTRUST_ACTION_GENERIC_VERIFY_V2"),
+    "update_core.h must verify with WINTRUST_ACTION_GENERIC_VERIFY_V2"
   );
 
   // Must clean up state with WTD_STATEACTION_CLOSE
   assert.ok(
-    content.includes("WTD_STATEACTION_CLOSE"),
-    "update.h must clean up trust provider state with WTD_STATEACTION_CLOSE"
+    core.includes("WTD_STATEACTION_CLOSE"),
+    "update_core.h must clean up trust provider state with WTD_STATEACTION_CLOSE"
   );
 
   // Must use headless / no-UI parameter
   assert.ok(
-    content.includes("WTD_UI_NONE"),
-    "update.h must set WTD_UI_NONE to prevent interactive trust dialogs"
+    core.includes("WTD_UI_NONE"),
+    "update_core.h must set WTD_UI_NONE to prevent interactive trust dialogs"
   );
 
-  // Must verify authenticode before ShellExecuteW
-  const verifyPos = content.indexOf("WinVerifyTrust");
-  const shellExecPos = content.lastIndexOf('ShellExecuteW(dlg, L"open", d->dest');
-  assert.ok(verifyPos !== -1 && shellExecPos !== -1, "Both WinVerifyTrust and ShellExecuteW must exist");
+  // NAT-1: server-controlled URLs must pass the http(s) scheme gate before any download
+  assert.ok(core.includes("UpdIsHttpUrl"), "update_core.h must provide the UpdIsHttpUrl scheme gate");
+  assert.ok(content.includes("UpdIsHttpUrl"), "update.h must gate downloads with UpdIsHttpUrl");
+
+  // The only installer launch lives in UpdVerifyAndLaunch, after WinVerifyTrust.
+  // Count ShellExecuteW in the core: exactly one — the verified local file.
+  const coreLaunches = core.split("ShellExecuteW").length - 1;
+  assert.strictEqual(coreLaunches, 1, "update_core.h must contain exactly one ShellExecuteW (verified local file only)");
+  const verifyPos = core.indexOf("WinVerifyTrust");
+  const shellExecPos = core.lastIndexOf('ShellExecuteW(owner, L"open", dest');
+  assert.ok(verifyPos !== -1 && shellExecPos !== -1, "Both WinVerifyTrust and ShellExecuteW must exist in update_core.h");
   assert.ok(verifyPos < shellExecPos, "WinVerifyTrust verification must occur before ShellExecuteW");
+
+  // Neither GUI may hand the raw server URL to the shell: no direct ShellExecuteW on
+  // info->download, and the ImGui path must go through the verified-install worker.
+  assert.ok(!content.includes('L"open", info->download'), "update.h must never ShellExecuteW the raw download URL");
+  assert.ok(!content.includes('L"open", d->url'), "update.h must never ShellExecuteW the raw download URL");
+  const imgui = fs.readFileSync(path.resolve("./client/Windows/gui/main_imgui.cpp"), "utf-8");
+  assert.ok(!imgui.includes('ShellExecuteW(nullptr, L"open", info->download'), "main_imgui.cpp must never ShellExecuteW the raw download URL");
+  assert.ok(imgui.includes("UpdBeginVerifiedInstall"), "main_imgui.cpp must install updates via UpdBeginVerifiedInstall");
+  assert.ok(imgui.includes("UpdIsHttpUrl"), "main_imgui.cpp must gate updates with UpdIsHttpUrl");
+  assert.ok(content.includes("UpdVerifyAndLaunch"), "update.h must launch through UpdVerifyAndLaunch");
+  assert.ok(core.includes("UpdVerifyAndLaunch"), "update_core.h must provide UpdVerifyAndLaunch");
+  assert.ok(core.includes("UpdMakeSafeDest"), "update_core.h must sanitize installer filenames via UpdMakeSafeDest");
 
   // If clang is present on the system, compile main.c (which includes update.h) to ensure zero compilation errors
   try {
@@ -745,7 +772,15 @@ test("buildAppBinaries with available compiler verifies PE integrity (> 100 KB a
 });
 
 test("writeVersionGenHeaders generates C headers with correct numeric and string definitions without shell escape corruption", () => {
-  const clientWinDir = path.resolve("./client/Windows");
+  // AUDIT-NAT-2-TS: generate into a sandbox replica of the client tree.
+  // This test used to call writeVersionGenHeaders against the REAL
+  // ./client/Windows tree, baking the test-env fleet token into the five
+  // committed version_gen.h headers on every npm test run.
+  const sandboxRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pec-vergen-"));
+  const clientWinDir = path.join(sandboxRoot, "Windows");
+  for (const sub of [path.join("gui", "res"), "installer", "cli", path.join("src", "service"), "."]) {
+    fs.mkdirSync(path.join(clientWinDir, sub), { recursive: true });
+  }
   const parsed = parseAppVersion("1.0.5");
   writeVersionGenHeaders(clientWinDir, parsed);
 
@@ -754,6 +789,12 @@ test("writeVersionGenHeaders generates C headers with correct numeric and string
 
   assert.strictEqual(fs.existsSync(guiVerGen), true, "gui version_gen.h must exist");
   assert.strictEqual(fs.existsSync(instVerGen), true, "installer version_gen.h must exist");
+  const realRepoHeader = path.resolve("./client/Windows/version_gen.h");
+  const realContentBefore = fs.readFileSync(realRepoHeader, "utf-8");
+  assert.ok(
+    !realContentBefore.includes("test-admin-token"),
+    "npm test must never bake the test fleet token into the committed client headers"
+  );
 
   const guiContent = fs.readFileSync(guiVerGen, "utf-8");
   assert.ok(guiContent.includes('#define PB_VER_MAJOR 1'), "Must define numeric major");
@@ -764,10 +805,21 @@ test("writeVersionGenHeaders generates C headers with correct numeric and string
   assert.ok(guiContent.includes('#define PEC_DEFAULT_SERVER_URL'), 'Must define PEC_DEFAULT_SERVER_URL');
   assert.ok(guiContent.includes('#define PEC_DEFAULT_SERVER_URL_W'), 'Must define PEC_DEFAULT_SERVER_URL_W');
   assert.ok(guiContent.includes('#define PEC_DEFAULT_FLEET_TOKEN'), 'Must define PEC_DEFAULT_FLEET_TOKEN');
+  // AUDIT-NAT-2-TS: placeholder and test tokens must sanitize to an empty default
+  assert.ok(
+    !guiContent.includes("test-admin-token") && !guiContent.includes("corp-proxy-secret-token-change-me"),
+    "placeholder/test fleet tokens must never be baked into version_gen.h"
+  );
+  assert.ok(
+    guiContent.includes('#define PEC_DEFAULT_FLEET_TOKEN ""'),
+    'test-env token must sanitize to an empty PEC_DEFAULT_FLEET_TOKEN default'
+  );
 
   const instContent = fs.readFileSync(instVerGen, "utf-8");
   assert.ok(instContent.includes('#define APP_VER_MAJOR 1'));
   assert.ok(instContent.includes('#define APP_VERSION_STR "1.0.5.0"'));
   assert.ok(instContent.includes('#define PEC_DEFAULT_SERVER_URL'));
+
+  fs.rmSync(sandboxRoot, { recursive: true, force: true });
 });
 
