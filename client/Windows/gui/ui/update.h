@@ -132,7 +132,19 @@ INT_PTR CALLBACK UpdateDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
     {
         LPNMHDR nh = (LPNMHDR)lp;
         if ((nh->code == NM_CLICK || nh->code == NM_RETURN) && nh->idFrom == IDC_UP_NOTES)
-        { PNMLINK link = (PNMLINK)lp; ShellExecuteW(dlg, L"open", link->item.szUrl, NULL, NULL, SW_SHOWNORMAL); }
+        {
+            PNMLINK link = (PNMLINK)lp;
+            // AUDIT-NAT-P3-A: the notes URL comes from the feed — apply the same
+            // http(s)-only gate as the download pipeline before any shell launch.
+            if (UpdIsHttpUrl(link->item.szUrl))
+            {
+                ShellExecuteW(dlg, L"open", link->item.szUrl, NULL, NULL, SW_SHOWNORMAL);
+            }
+            else
+            {
+                PB_WriteAppLog("[UPDATE ERROR] Rejected non-http(s) release-notes URL: %ls", link->item.szUrl);
+            }
+        }
         return TRUE;
     }
     case WM_APP_DLPROG:
