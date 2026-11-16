@@ -278,6 +278,33 @@ if (typeof window !== 'undefined') {
     initTabsAccessibility,
   });
 
+  // POPOVER-CLOSE-REGRESSION (THEME-DISPATCH-1-A): the UI-MODULAR-1 port lost
+  // the monolith's global document listeners (dashboard.js:1128-1151), so
+  // popovers could only be closed via modal backdrops. Click-outside close
+  // for both popovers + Escape -> closeAnyOpenModal(), ported 1:1.
+  document.addEventListener('click', function(e: any) {
+    const popover = document.getElementById('popoverCustomization');
+    const btn = document.getElementById('btnCustomization');
+    if (popover && popover.style.display !== 'none') {
+      if (!popover.contains(e.target) && (!btn || !btn.contains(e.target))) {
+        theme.closeCustomizationPopover();
+      }
+    }
+    const vPopover = document.getElementById('popoverVersionRelease');
+    const vBtn = document.getElementById('versionReleaseBadge');
+    if (vPopover && vPopover.style.display !== 'none') {
+      if (!vPopover.contains(e.target) && (!vBtn || !vBtn.contains(e.target))) {
+        studio.closeVersionPopover();
+      }
+    }
+  });
+
+  document.addEventListener('keydown', function(e: any) {
+    if (e.key === 'Escape') {
+      notify.closeAnyOpenModal();
+    }
+  });
+
   // Tab pause/resume on visibility change
   document.addEventListener('visibilitychange', function() {
     if (document.hidden) {
