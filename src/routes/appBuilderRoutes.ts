@@ -155,6 +155,63 @@ export function createAppBuilderRouter(
     message: "Rate limit exceeded for app package download.",
   });
 
+  // THEME-WEB-2: mirror the extension builder whitelist - the POST body used
+  // to be spread into the store verbatim ({...req.body}), letting a crafted
+  // request inject arbitrary keys into app_build_config.json.
+  const ALLOWED_APP_CONFIG_KEYS: ReadonlySet<string> = new Set([
+    "name",
+    "shortName",
+    "version",
+    "description",
+    "presetStyle",
+    "uiLayout",
+    "defaultThemeMode",
+    "themeColor",
+    "themeBackground",
+    "themeCard",
+    "themeSyncEnabled",
+    "iconType",
+    "customIconDataUrl",
+    "defaultServerUrl",
+    "defaultToken",
+    "syncIntervalMinutes",
+    "autoStartWithWindows",
+    "startMinimizedToTray",
+    "installAsService",
+    "trafficLogging",
+    "legacyWin7",
+    "defaultProxyId",
+    "inheritRoutingProfileId",
+    "includeExtensionRules",
+    "inheritRuleIds",
+    "processRules",
+  ]);
+
+  const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+
+  function filterAppBuildConfig(input: any): Record<string, any> {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+    const filtered: Record<string, any> = {};
+    for (const key of Object.keys(input)) {
+      if (ALLOWED_APP_CONFIG_KEYS.has(key)) {
+        filtered[key] = input[key];
+      }
+    }
+    return filtered;
+  }
+
+  /** THEME-WEB-2: returns an error message for the first invalid theme color. */
+  function validateThemeHexColors(updates: Record<string, any>): string | null {
+    for (const key of ["themeColor", "themeBackground", "themeCard"]) {
+      const value = updates[key];
+      if (value === undefined || value === null || value === "") continue;
+      if (typeof value !== "string" || !HEX_COLOR_RE.test(value)) {
+        return `Invalid ${key}: must be a hex color in #RRGGBB format`;
+      }
+    }
+    return null;
+  }
+
   router.get("/api/app-builder/config", (_req: Request, res: Response) => {
     res.json(getAppBuildConfig());
   });
@@ -168,7 +225,11 @@ export function createAppBuilderRouter(
         });
       }
 
-      const updates: any = { ...req.body };
+      const updates: any = filterAppBuildConfig(req.body);
+      const themeHexError = validateThemeHexColors(updates);
+      if (themeHexError) {
+        return res.status(400).json({ ok: false, error: themeHexError });
+      }
       if (updates.name !== undefined) {
         if (typeof updates.name !== "string" || !/^[A-Za-z0-9 ._-]{1,64}$/.test(updates.name)) {
           return res.status(400).json({ ok: false, error: "Invalid app name: must be 1-64 alphanumeric characters, spaces, dots, dashes, or underscores" });
@@ -325,7 +386,11 @@ export function createAppBuilderRouter(
   router.post("/api/app-builder/build", (req: Request, res: Response) => {
     try {
       if (req.body && Object.keys(req.body).length > 0) {
-        const updates: any = { ...req.body };
+        const updates: any = filterAppBuildConfig(req.body);
+        const themeHexError = validateThemeHexColors(updates);
+        if (themeHexError) {
+          return res.status(400).json({ ok: false, error: themeHexError });
+        }
         if (updates.version !== undefined) {
           if (typeof updates.version !== "string" || !SEMVER_REGEX.test(updates.version.trim())) {
             return res.status(400).json({ ok: false, error: "Invalid version format: must follow semver (e.g. 1.0.4)" });
