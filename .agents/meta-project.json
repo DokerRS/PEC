@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.1.0",
+  "project_id": "vlv-code/PEC",
+  "scenario": {
+    "profile": "active_development",
+    "deployment_mode": "shared_repo",
+    "collaboration_model": "specialized_swarm",
+    "verification_policy": "strict_independent",
+    "delegation_level": "controlled",
+    "constraints": [
+      "zero_dependency_core",
+      "fail_closed_boundaries",
+      "deterministic_extension_id",
+      "two_token_isolation"
+    ],
+    "unresolved_questions": []
+  },
+  "installations": {
+    "zc-main": {
+      "harness_id": "zcode",
+      "status": "active",
+      "description": "Primary ZCode environment (activated via init-meta-project Scenario 5 legacy adoption)"
+    }
+  },
+  "roles": {
+    "agent-intake-dispatcher": {
+      "description": "Intake Dispatcher: primary request intake, task decomposition, Fast-Track/Deep-Track routing, handoff packages",
+      "bindings": {
+        "zc-main": {
+          "actor_id": "vlv-code/PEC::zcode::zc-main::agent-intake-dispatcher",
+          "status": "active",
+          "profile_path": ".agents/team/agent-intake-dispatcher/profile.md"
+        }
+      }
+    },
+    "agent-general-worker": {
+      "description": "Base Developer: Express server, PAC routing, extension components, native PEC-App clients",
+      "bindings": {
+        "zc-main": {
+          "actor_id": "vlv-code/PEC::zcode::zc-main::agent-general-worker",
+          "status": "active",
+          "profile_path": ".agents/team/agent-general-worker/profile.md"
+        }
+      }
+    },
+    "agent-meta-guardian": {
+      "description": "Architecture Guardian: AGENTS.md passport control, knowledge slice refresh, invariant compliance",
+      "bindings": {
+        "zc-main": {
+          "actor_id": "vlv-code/PEC::zcode::zc-main::agent-meta-guardian",
+          "status": "active",
+          "profile_path": ".agents/team/agent-meta-guardian/profile.md"
+        }
+      }
+    },
+    "agent-qa-engineer": {
+      "description": "QA & Reliability Engineer: 50+ test suites, anti-regression rule, verification runs",
+      "bindings": {
+        "zc-main": {
+          "actor_id": "vlv-code/PEC::zcode::zc-main::agent-qa-engineer",
+          "status": "active",
+          "profile_path": ".agents/team/agent-qa-engineer/profile.md"
+        }
+      }
+    },
+    "agent-devops-infra": {
+      "description": "Infrastructure Architect & GitHub Steward: containerization, cross-compilation, CI/CD, Code-to-README Truth Parity",
+      "bindings": {
+        "zc-main": {
+          "actor_id": "vlv-code/PEC::zcode::zc-main::agent-devops-infra",
+          "status": "active",
+          "profile_path": ".agents/team/agent-devops-infra/profile.md"
+        }
+      }
+    },
+    "agent-security-auditor": {
+      "description": "Perimeter & Security Auditor: SSRF/DNS-rebinding audit, two-token isolation, rate limits, CRX/Authenticode/HMAC signatures",
+      "bindings": {
+        "zc-main": {
+          "actor_id": "vlv-code/PEC::zcode::zc-main::agent-security-auditor",
+          "status": "active",
+          "profile_path": ".agents/team/agent-security-auditor/profile.md"
+        }
+      }
+    },
+    "agent-native-desktop": {
+      "description": "Native Desktop Developer: Windows GUI (C/C++, DirectX 11, Dear ImGui) & service, Linux CLI/daemon, MinGW-w64 cross-compilation, theme parity contract",
+      "bindings": {
+        "zc-main": {
+          "actor_id": "vlv-code/PEC::zcode::zc-main::agent-native-desktop",
+          "status": "active",
+          "profile_path": ".agents/team/agent-native-desktop/profile.md"
+        }
+      }
+    }
+  }
+}

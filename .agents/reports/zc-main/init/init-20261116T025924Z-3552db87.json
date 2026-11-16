@@ -1,0 +1,100 @@
+{
+  "schema_version": "1.0.0",
+  "report_type": "init",
+  "project_id": "vlv-code/PEC",
+  "installation_id": "zc-main",
+  "harness_id": "zcode",
+  "actor_id": "vlv-code/PEC::zcode::zc-main::agent-meta-guardian",
+  "run_id": "init-20261116T025924Z-3552db87",
+  "created_at": "2026-11-16T02:59:24Z",
+  "status": "completed",
+  "git_state": {
+    "commit_sha": "8cb9dc8482bbeb3e52311540663fe05d250fd54b",
+    "branch": "dev/ad-security-integration",
+    "is_clean": false,
+    "modified_files": [
+      ".agents/project_knowledge/tasks.md",
+      "README.md",
+      ".agents/meta-project.json",
+      ".agents/project_knowledge/architecture.md",
+      ".agents/project_knowledge/archive/",
+      ".agents/project_knowledge/boundaries.md",
+      ".agents/project_knowledge/observations.md",
+      ".agents/project_knowledge/observations.md.lock",
+      ".agents/project_knowledge/weak_spots.md",
+      ".agents/skills/",
+      ".agents/team/",
+      "AGENTS.md",
+      "scripts/check_boundaries.py",
+      "scripts/compact_memory.py",
+      "scripts/inspect_meta_project.py",
+      "scripts/manage_reports.py",
+      "scripts/record_obs.py",
+      "scripts/sync_templates.py",
+      "scripts/update_meta_project.py",
+      "scripts/verify_identity.py"
+    ]
+  },
+  "input_fingerprints": {
+    ".agents/meta-project.json": "b5998f6a3657bf043e1d582abb48fa2a2c6b32ba1eb6f735f686cd4320f34a59",
+    ".agents/project_knowledge/boundaries.md": "94cb6ea19f96f1a1f4aa28c945377d6f2f4819c0a9221c37e6bfa8c4d8b0dc0e",
+    "AGENTS.md": "2c878cd6d1ecef811be6971e1e701864a4066a15b79a1215934487bff33cde82"
+  },
+  "references": {
+    "registry": ".agents/meta-project.json",
+    "passport": "AGENTS.md",
+    "boundaries": ".agents/project_knowledge/boundaries.md"
+  },
+  "scenario": {
+    "profile": "active_development",
+    "deployment_mode": "shared_repo",
+    "collaboration_model": "specialized_swarm",
+    "verification_policy": "strict_independent",
+    "delegation_level": "controlled",
+    "constraints": [
+      "zero_dependency_core",
+      "fail_closed_boundaries",
+      "deterministic_extension_id",
+      "two_token_isolation"
+    ],
+    "unresolved_questions": []
+  },
+  "environment": {
+    "capabilities": {},
+    "constraints": []
+  },
+  "components": {
+    "registry": ".agents/meta-project.json (schema 1.1.0, created)",
+    "runtime_scripts": "8 canonical scripts deployed verbatim to scripts/ from vlv-code/meta-project@main (md5 verified); legacy .agents/scripts/ removed",
+    "skills": "9 procedural skills refreshed verbatim to @main",
+    "passport": "AGENTS.md upgraded to 8-section format (added §3 tasks slice, §4 skill boundary table, §5 Local Verification Tooling, §7 Identity Protocol, §8 README badge)",
+    "boundaries": ".agents/project_knowledge/boundaries.md refreshed: AGENTS.md Yellow, .agents/** Yellow, scripts/check_boundaries.py + boundaries.md Red, .npmrc Yellow",
+    "placement": "local_overlay -> shared_repo switch: AGENTS.md/.agents removed from .git/info/exclude; README.md canonical badge added"
+  },
+  "checks": [
+    {
+      "name": "inspect_meta_project",
+      "status": "pass",
+      "detail": "HEALTHY_REGISTERED; 0 missing; 0 conflicts; capabilities 4/5 available (hooks: pre-commit boundary hook not installed)"
+    },
+    {
+      "name": "verify_identity",
+      "status": "pass",
+      "detail": "passed: 0 errors, registry and profiles in sync"
+    },
+    {
+      "name": "check_boundaries_audit_tree",
+      "status": "pass",
+      "detail": "100% coverage, 499 files (Green 141 / Yellow 318 / Red 40)"
+    }
+  ],
+  "recommendations_for_manage": [
+    "Install git pre-commit boundary hook to close the hooks capability gap (manage-meta-project scope)",
+    "Commit the now-visible meta-project files (18 paths) to origin to complete shared_repo adoption",
+    "specialized_swarm topology retained per user decision; upstream resolve_team_topology does not yet validate this shape - accepted deviation"
+  ],
+  "blockers_and_unresolved": [],
+  "next_step_readiness": {
+    "ready_for_manage": true
+  }
+}
