@@ -36,6 +36,9 @@ routing_profiles.json
 extension_build_config.json
 data/
 
+# Meta-project runtime lock files (record_obs.py atomic lock contract; 0-byte residue is by-design)
+.agents/project_knowledge/*.lock
+
 # Certificates and private keys (protect production secrets)
 *.pem
 *.key

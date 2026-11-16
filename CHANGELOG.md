@@ -2,6 +2,39 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [Unreleased] - 2026-11-16 — AUDIT-2026-11-16: Deep Audit Remediation
+
+Устранение находок глубокого аудита репозитория (6 доменных flash-аудитов, 0×P0 / 3×P1 / 19×P2 / ~50×P3), скоординированных диспетчером в три волны; независимая верификация — **вердикт PASS** (agent-security-auditor, strict_independent, полный сьют 795/795).
+
+### 🔴 Волна 1 — блокеры P1
+- **AUDIT-NAT-1**: server-controlled `update.downloadUrl` более не запускается через `ShellExecuteW` напрямую — единый verified-pipeline `update_core.h` (гейт схемы `UpdIsHttpUrl` → `UpdDownload` → SHA-256 → WinVerifyTrust/Authenticode → запуск); паритет ImGui и классического GUI (коммиты a033423, d32785e).
+- **AUDIT-NAT-2**: `PEC_DEFAULT_FLEET_TOKEN` во всех 5 копиях `version_gen.h` — пустая строка (безопасный дефолт); example.com/test-token guards; санитизация `PLACEHOLDER_FLEET_TOKENS` в appPackager; sandbox `PEC_CLIENT_WIN_DIR` для тестовых пересборок.
+- **AUDIT-INFRA-4**: CI — `build:ui` до `npm test` + drift-гейт `public/dashboard.min.js` (коммит e60e454).
+- **AUDIT-SEC-1**: `/api/app/sync` больше не раскрывает креды в `availableProxies` — только назначенный `activeProxy` (97b873d).
+- **AUDIT-SRV-1**: `instances_meta.json` через `readJsonStore` (.corrupt-<ts> контракт) с loud-warn (97b873d).
+
+### 🟠 Волна 2 — P2
+- **AUDIT-SEC-2**: SSRF TOCTOU — `createSsrfPinnedFetch`/`makePinnedLookup` (undici Agent с замороженным lookup, validated-адреса, `redirect: manual`).
+- **AUDIT-SEC-3**: подпись Authenticode без пароля PFX в argv (`/sha1` thumbprint; пароль только через `$env:PFX_PASS` в PowerShell-импорте) + P3-B: env signtool-процесса очищен от `PFX_PASS` (e95b6c5).
+- **AUDIT-SRV-2/3**: кламп `syncIntervalSec` 5..86400; транзакционность ротации (`rotationInFlight`, ретраи записи, честная диагностика FLEET DESYNC).
+- **AUDIT-EXT-1/2**: гейт `SET_ENABLED(true)` при killSwitch/revoked; inline FOUC-бутстрап темы вынесен в `popupTheme.js` (MV3 CSP `script-src 'self'`).
+- **AUDIT-NAT-3..7**: teardown сервиса (CancelSynchronousIo по thread-handle, bounded joins), PecProfileLock-снапшоты, {0}-инициализация wide-строк, нормализация byte-order портов.
+- **AUDIT-INFRA-1/2/3**: `.dockerignore` — крипто-материал исключён из build context (инвариант детерминированного extension ID); gitleaks-action пиннинг по SHA; OpenAPI — фиктивные пути заменены реальными эндпоинтами, license → AGPL-3.0-or-later (e60e454).
+
+### 🟡 Волна 3 — P3
+- **AUDIT-INFRA-P3**: удалены фиктивные `METRICS_PORT`/`METRICS_AUTH`; `.env.example`/README дополнены 9 реальными ключами (Truth Parity); SECURITY.md версии → 0.9.x-alpha; compose `<VAR>_FILE`-секреты; `docker-build` CI job; `.gitleaks.toml` (7 PEC-правил).
+- **AUDIT-QA-1/2/P3**: миграция сьютов на `dashboard.min.js`; виртуальные часы в EnrollmentTracker; sleep→await, source-content→поведенческие ассерты; юнит-тесты `src/client/dashboard` (70b00d4).
+- **AUDIT-SRV-P3/NAT-P3**: readJsonStore loud degradation, re-arm таймера ротации; DPAPI at-rest, bounded strings, единый источник версий, WM_NCDESTROY cleanup (6ea9033, 1ad6f0c).
+- **P3-A/B/C**: https-гейт syslink release_notes (8750304); env signtool без PFX_PASS (e95b6c5); ENOTFOUND-классификация в ssrfPinnedFetch-тестах (9e2599d).
+
+### 🛠 Инфраструктура и гигиена
+- `.gitignore`: `.agents/project_knowledge/*.lock` (0-байтовый остаток lock-контракта `record_obs.py` — by-design).
+- CI: docker-build job (без push), permissions не расширены.
+
+### ⏳ Известные ограничения (known issues)
+- **Stale-бинарники**: `templates/app/windows/PEC-App.exe`, `.pristine/PEC-App.exe`, `PEC-App.msi` (+`.pristine`) содержат маркеры-плейсхолдеры (`test-admin-token` utf16le / `corp-proxy-secret-token-change-me`) — known-issue до релизной пересборки (DISPATCH-CLOSURE-4). Эмпирически установлено: пересборка из HEAD устраняет оба маркера-секрета, однако литералы NAT-2-гардов (`wcsstr(..., L"test-admin-token")` в main.c/main_imgui.cpp) компилируются в exe как UTF-16LE и формально ломают bytescan-критерий приёмки «0 обоих маркеров» — зарегистрирован Handoff на agent-native-desktop (literal-free guards); после фикса — пересборка + обновление SHA-256 пина в `test/binaryIntegrity.test.ts`.
+- **libsecret для Linux-клиента — решение infra: DEFER** (отложено до пост-альфа). Обоснование: Linux-клиент эксплуатируется преимущественно как headless systemd-демон на серверах/шлюзах (см. SECURITY.md, модель угроз п.3), где Secret Service/libsecret требует графическую сессию и отсутствует; текущая митигация — права `0600 root` (AR-4). Новая зависимость будет пересмотрена при появлении поддерживаемого desktop-Linux-сценария.
+
 ## [v0.9.0-alpha] - 2026-11-11 (Public Alpha)
 
 Первый открытый альфа-выпуск платформы централизованного управления парком прокси и политиками маршрутизации **PEC (Proxy Extension Corp)** для открытого тестирования функционала сообществом. Серверное ядро и веб-синхронизация проверены в эксплуатации, а нативные клиенты (Windows/Linux) и сценарии развертывания Active Directory GPO находятся в фазе активного сбора обратной связи.
