@@ -45,6 +45,11 @@ struct pbp_profile {
     uint32_t default_proxy_id;       // DefaultProxyId (Linux extension); 0 = first proxy
     struct pbp_proxy *proxies; size_t nproxies;
     struct pbp_rule  *rules;   size_t nrules;
+    // THEME-NAT-3: Windows-app extension blocks ("Theme", "PecSync") are re-serialized
+    // verbatim (compact JSON) so a shared profile survives a Linux round-trip — the
+    // serializer used to strip them. NULL when absent; owned, freed by pbp_free.
+    char *theme_json;
+    char *pecsync_json;
 };
 
 // Returns 0 or -1 with a reason in err. On failure *out is empty and need not be freed.

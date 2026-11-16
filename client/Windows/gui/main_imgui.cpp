@@ -3020,8 +3020,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                             !g_profile.theme.hasTheme ||
                             wcscmp(pCandProf->theme.preset, g_profile.theme.preset) != 0 ||
                             wcscmp(pCandProf->theme.mode, g_profile.theme.mode) != 0 ||
+                            wcscmp(pCandProf->theme.layout, g_profile.theme.layout) != 0 ||
                             pCandProf->theme.primary != g_profile.theme.primary ||
-                            pCandProf->theme.background != g_profile.theme.background)) ||
+                            pCandProf->theme.background != g_profile.theme.background ||
+                            pCandProf->theme.card != g_profile.theme.card)) ||
                         (pCandProf->pecSync.serverUrl[0] != 0 && wcscmp(pCandProf->pecSync.serverUrl, g_profile.pecSync.serverUrl) != 0) ||
                         (CompareFileTime(&candAttr.ftLastWriteTime, &appdataAttr.ftLastWriteTime) > 0)) {
                         shouldLoadCand = true;

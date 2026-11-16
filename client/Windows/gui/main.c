@@ -2131,6 +2131,39 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show)
                 if (GetFileAttributesW(cand) != INVALID_FILE_ATTRIBUTES)
                 {
                     BOOL shouldLoad = (g_profile.cfgCount == 0 || g_profile.ruleCount == 0);
+                    if (!shouldLoad)
+                    {
+                        // THEME-NAT-3 (parity with main_imgui.cpp first-run adoption): an
+                        // updated MSI shipping a new theme/server profile must recolor an
+                        // already-configured profile too. Theme/pecSync fields are adopted
+                        // in place — user's proxies/rules are never clobbered here (the
+                        // ImGui flow additionally honors a newer-candidate timestamp).
+                        PBProfile* candProf = (PBProfile*)calloc(1, sizeof(PBProfile));
+                        if (candProf)
+                        {
+                            PB_ProfileLoad(cand, candProf);
+                            if (candProf->theme.hasTheme &&
+                                (!g_profile.theme.hasTheme ||
+                                 wcscmp(candProf->theme.preset, g_profile.theme.preset) != 0 ||
+                                 wcscmp(candProf->theme.mode, g_profile.theme.mode) != 0 ||
+                                 wcscmp(candProf->theme.layout, g_profile.theme.layout) != 0 ||
+                                 candProf->theme.primary != g_profile.theme.primary ||
+                                 candProf->theme.background != g_profile.theme.background ||
+                                 candProf->theme.card != g_profile.theme.card))
+                            {
+                                g_profile.theme = candProf->theme;
+                                PB_ProfileSave(g_activeProfile, &g_profile);
+                            }
+                            if (candProf->pecSync.serverUrl[0] != 0 &&
+                                wcscmp(candProf->pecSync.serverUrl, g_profile.pecSync.serverUrl) != 0)
+                            {
+                                lstrcpynW(g_profile.pecSync.serverUrl, candProf->pecSync.serverUrl, 512);
+                                lstrcpynW(g_profile.pecSync.fleetToken, candProf->pecSync.fleetToken, 256);
+                                PB_ProfileSave(g_activeProfile, &g_profile);
+                            }
+                            free(candProf);
+                        }
+                    }
                     if (shouldLoad)
                     {
                         PB_ProfileLoad(cand, &g_profile);

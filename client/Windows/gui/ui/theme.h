@@ -39,9 +39,17 @@ static void ApplyProfileTheme(const PBTheme* t, HWND hwnd)
     } else if (_wcsicmp(t->mode, L"light") == 0) {
         g_isLightMode = TRUE;
     } else {
-        g_isLightMode = (GetRValue(t->background) > 180 &&
-                         GetGValue(t->background) > 180 &&
-                         GetBValue(t->background) > 180);
+        // THEME-NAT-3: unified light-detection predicate (identical to pec_imgui_theme.h):
+        // background luminance > 175 OR all channels > 180. The old all-channels-only
+        // test classified warm tints like RGB(220,180,140) (luminance 187) as dark while
+        // the ImGui GUI showed them light — the two GUIs disagreed on the same profile.
+        float lum = (GetRValue(t->background) * 0.299f +
+                     GetGValue(t->background) * 0.587f +
+                     GetBValue(t->background) * 0.114f);
+        g_isLightMode = (lum > 175.0f ||
+                         (GetRValue(t->background) > 180 &&
+                          GetGValue(t->background) > 180 &&
+                          GetBValue(t->background) > 180));
     }
 
     g_colAccent = t->primary;
