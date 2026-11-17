@@ -2,16 +2,18 @@
   "manifest_version": 3,
   "name": "PEC - Proxy Extension Corp",
   "short_name": "PEC Corp",
-  "version": "1.0.0",
+  "version": "1.0.8",
   "description": "Корпоративное расширение Chrome для автоматической синхронизации HTTP/SOCKS5 прокси и ротируемой аутентификации.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqvnf3MAIX7sj5yNb4U5xVHwX/9jHh1Ydtn1xDcsYhhCAoQhxQrQj4J67EZAw/Io/oPvGRg1DOuC8CaxCqBIZ4/b78G8xgcQdc5YJFerIocNlaKHFwSodtYcCkgjFaV5vF5UBJOZ/HPtSmn5Q8YaugcXwV4UbkLe1sqYtYO3ih6xCgiJX5ioA4jv8TPiy5KeYgGA9bhr1NZwEYFN3G2/46wvqf5SZxMi90RL2Cdp8XKeT4+xcmFOMnkkFHU3JYSm1h6aXTwPFlqQRB2s1oeuRu+y6Dx8iWKYSStmvjDXSlrN16zIdM9jAVs9fR6WYilL/+9rn/2Dy+kMKy8iE6SqeZwIDAQAB",
+  "update_url": "https://mini-server.ic.local/updates/updates.xml",
   "permissions": [
     "webRequest",
     "webRequestAuthProvider",
     "storage",
     "proxy",
     "alarms",
-    "privacy",
-    "tabs"
+    "tabs",
+    "privacy"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -25,13 +27,13 @@
   },
   "minimum_chrome_version": "108",
   "icons": {
-    "16": "icon.png",
-    "48": "icon.png",
-    "128": "icon.png"
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   },
   "action": {
     "default_title": "PEC - Proxy Extension Corp",
     "default_popup": "popup.html",
-    "default_icon": "icon.png"
+    "default_icon": "icon48.png"
   }
 }
