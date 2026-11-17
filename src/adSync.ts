@@ -140,6 +140,30 @@ export class AdSyncService {
     }
   }
 
+  /**
+   * AD-TLS-OPT-1: build ldapts Client options. tlsOptions must be attached
+   * ONLY for ldaps:// URLs: ldapts 9.2.0 (locked in package-lock) aborts
+   * plain ldap:// connections with ECONNRESET before the LDAP dialogue when
+   * tlsOptions are present — reproduced on production via three-variant
+   * bisection. See observations.md [runtime].
+   */
+  public buildClientOptions(url: string, tlsRejectUnauthorized: boolean, timeoutMs: number) {
+    const options: {
+      url: string;
+      timeout: number;
+      connectTimeout: number;
+      tlsOptions?: { rejectUnauthorized: boolean };
+    } = {
+      url,
+      timeout: timeoutMs,
+      connectTimeout: timeoutMs,
+    };
+    if (String(url || "").trim().toLowerCase().startsWith("ldaps://")) {
+      options.tlsOptions = { rejectUnauthorized: tlsRejectUnauthorized };
+    }
+    return options;
+  }
+
   public async testConnection(testCfg?: Partial<AdSyncConfig>): Promise<{ ok: boolean; message?: string; error?: string }> {
     const targetUrl = testCfg?.ldapUrl || this.config.ldapUrl;
     const targetBindDn = testCfg?.bindDn !== undefined ? testCfg.bindDn : this.config.bindDn;
@@ -148,14 +172,8 @@ export class AdSyncService {
 
     let client: Client | null = null;
     try {
-      client = new Client({
-        url: targetUrl,
-        tlsOptions: {
-          rejectUnauthorized: tlsRejectUnauthorized,
-        },
-        timeout: 5000,
-        connectTimeout: 5000,
-      });
+      // AD-TLS-OPT-1: tlsOptions only for ldaps:// (ldap:// + tlsOptions = ECONNRESET)
+      client = new Client(this.buildClientOptions(targetUrl, tlsRejectUnauthorized, 5000));
 
       if (targetBindDn) {
         await client.bind(targetBindDn, targetBindPassword);
@@ -214,14 +232,8 @@ export class AdSyncService {
     }
     let client: Client | null = null;
     try {
-      client = new Client({
-        url: this.config.ldapUrl,
-        tlsOptions: {
-          rejectUnauthorized: this.config.tlsRejectUnauthorized,
-        },
-        timeout: 10000,
-        connectTimeout: 10000,
-      });
+      // AD-TLS-OPT-1: tlsOptions only for ldaps:// (ldap:// + tlsOptions = ECONNRESET)
+      client = new Client(this.buildClientOptions(this.config.ldapUrl, this.config.tlsRejectUnauthorized, 10000));
 
       await client.bind(this.config.bindDn, this.config.bindPassword);
 

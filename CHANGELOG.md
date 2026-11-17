@@ -2,6 +2,17 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [v0.9.4-alpha] - 2026-11-17 — Patch: Theme Propagation Follow-ups & AD/LDAPS Fix
+
+Патч-релиз к v0.9.3-alpha: два доводка dashboard-as-source (закрывают хвосты пользовательского сценария) и критичный фикс AD-интеграции. Полный сьют — 844/844, lint/build зелёные.
+
+### 🎨 Темы (доводка dashboard-as-source)
+- **Boot reconciliation** (30d764f, THEME-SRC-FIX-1): при загрузке дашборда `reconcileAppearanceWithServer()` единожды за сессию пушит текущее `{palette, mode, syncEnabled}` в `/api/server-theme` (fire-and-forget, идемпотентно) — закрыт класс «стор разошёлся с панелью» (деплой фичи, очистка `data/`, второй админ-браузер). RED-тест: пустой стор + nord/light в localStorage → `/api/sync` отдаёт тему панели без ручных действий.
+- **Запекание темы панели в extension-билд** (360e95c, THEME-SRC-FIX-2): при `syncEnabled=true` и непустом сторе пакетировщик применяет тему панели к артефактам (popup `data-palette`/`--primary`, `getThemeStyles`, иконки; студийный live-preview — тот же контракт); при OFF/пустом сторе — конструкторная конфигурация. Красная нить пользователя: «собрал расширение при синей панели — попап фиолетовый» — теперь ON-билд несёт панельную тему даже до первой синхронизации.
+
+### 🔧 AD / LDAP
+- **AD-TLS-OPT-1** (0439aa9, P1-блокер AD-функциональности): `adSync.ts` передаёт `tlsOptions` только для `ldaps://` (helper `buildClientOptions`, применён в `testConnection` и `sync`; гвард версии ldapts@9.2.0). Причина: ldapts при передаче `tlsOptions` на `ldap://` вызывает ECONNRESET до LDAP-диалога — воспроизведено на проде трёхвариантной бисекцией, observation записана. После обновления: `git pull` + `docker compose build/up` + «Синхронизировать сейчас».
+
 ## [v0.9.3-alpha] - 2026-11-17 — THEME-SRC-2026-11-17: Dashboard-as-Source Theme Propagation
 
 Дашборд «Внешний вид» становится источником тем для клиентов при включённом тумблере синка (устранение пользовательского репорта «у расширения фиолетовый акцент» при синей палитре панели). Нативные клиенты не затронуты (payload `/api/app/sync` и `.pbprofile` неизменны — меняется источник значений на сервере). Независимая верификация — **THEME-SRC-VERIFY-SEC PASS** + **THEME-SRC-QA GREEN** (полный сьют 842/842, lint/build зелёные).
