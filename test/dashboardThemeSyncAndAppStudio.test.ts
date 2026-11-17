@@ -265,16 +265,21 @@ test("THEME-WEB-1: themeSyncEnabled round-trips through both config endpoints an
       const off = await fetch(`${baseUrl}/api/app-builder/config`, {
         method: "POST",
         headers: auth,
-        body: JSON.stringify({ themeSyncEnabled: false }),
+        body: JSON.stringify({ themeSyncEnabled: false, presetStyle: "dark-obsidian", themeColor: "#c084fc" }),
       });
       assert.strictEqual(off.status, 200);
       const offBody = await off.json();
       assert.strictEqual(offBody.themeSyncEnabled, false, "flag must persist as strict boolean false");
+      // THEME-SRC-3 replaced the THEME-WEB-1 neutral semantics: OFF now means
+      // "constructor themes are delivered" - the Theme section stays present
+      // carrying the builder-config values instead of being omitted.
       const offProf: any = buildAppProfile(getAppBuildConfig(), baseUrl);
-      assert.strictEqual(offProf.Theme, undefined, "Theme section must be omitted when sync is disabled");
+      assert.ok(offProf.Theme, "Theme section stays present when sync is disabled (constructor themes)");
+      assert.equal(offProf.Theme.preset, "dark-obsidian", "constructor presetStyle must be delivered while OFF");
+      assert.equal(offProf.Theme.primary, "#c084fc", "constructor themeColor must be delivered while OFF");
       assert.ok(offProf.Icon, "Icon section must remain independent of the theme toggle");
 
-      // 3. /api/app/sync stops pushing the theme block while disabled
+      // 3. /api/app/sync delivers the constructor theme while disabled
       const syncApp = express();
       syncApp.use(express.json());
       syncApp.use(createAppSyncRouter(() => TEST_TOKEN, () => TEST_ADMIN_TOKEN));
@@ -294,7 +299,9 @@ test("THEME-WEB-1: themeSyncEnabled round-trips through both config endpoints an
         assert.strictEqual(syncRes.status, 200);
         const syncBody = await syncRes.json();
         assert.strictEqual(syncBody.ok, true);
-        assert.strictEqual(syncBody.theme, undefined, "disabled sync must omit the theme block from /api/app/sync");
+        assert.ok(syncBody.theme, "disabled sync still delivers the constructor theme (THEME-SRC-3)");
+        assert.equal(syncBody.theme.preset, "dark-obsidian", "constructor theme must be the OFF source");
+        assert.equal(syncBody.theme.primary, "#c084fc", "constructor accent must ride while OFF");
       } finally {
         await new Promise<void>((r) => syncServer.close(() => r()));
       }

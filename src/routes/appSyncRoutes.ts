@@ -22,6 +22,7 @@ import { resolveProfileForInstance, expandRuleDomains, getProfileById } from "..
 import { getBuildConfig as getExtensionBuildConfig } from "../packager.js";
 import { sanitizeSingleLine, logger } from "../logger.js";
 import { DEFAULT_APP_VERSION, getAppBuildConfig, isDarkHexColor, isLightHexColor } from "../appPackager.js";
+import { resolveFleetTheme, resolveThemeSyncEnabled } from "../serverTheme.js";
 import { isNewerVersion } from "../utils/semver.js";
 import { getAppBuildInfoPath } from "../storage.js";
 
@@ -387,11 +388,32 @@ export function createAppSyncRouter(
         }
       }
 
-      const effectivePreset = assignedProfile?.colorPalette || appBldCfg.presetStyle || "cyber-blue";
-      const effectiveMode = assignedProfile?.defaultThemeMode || appBldCfg.defaultThemeMode || "dark";
+      // THEME-SRC-3 (dashboard-as-source, replaces the THEME-WEB-1 gate):
+      // global sync ON -> the PANEL theme is delivered (palette mapped to the
+      // app presetStyle + mode; hex surfaces from the canonical registry);
+      // OFF or a missing global store -> constructor themes (classic chain
+      // below); the legacy per-config themeSyncEnabled flag is the fallback
+      // when no global store exists (migration without breaking installs).
+      const fleetTheme = resolveFleetTheme();
+      const themeSyncOn = resolveThemeSyncEnabled(appBldCfg.themeSyncEnabled);
+      const useDashboardTheme = themeSyncOn && Boolean(fleetTheme);
+
+      const effectivePreset = useDashboardTheme
+        ? fleetTheme!.style
+        : assignedProfile?.colorPalette || appBldCfg.presetStyle || "cyber-blue";
+      const effectiveMode = useDashboardTheme
+        ? fleetTheme!.mode
+        : assignedProfile?.defaultThemeMode || appBldCfg.defaultThemeMode || "dark";
       const isLightMode = effectiveMode === "light";
-      let syncBg = assignedProfile?.themeBackground || appBldCfg.themeBackground || (isLightMode ? "#f1f5f9" : "#0b1120");
-      let syncCard = assignedProfile?.themeCard || appBldCfg.themeCard || (isLightMode ? "#ffffff" : "#131d36");
+      let syncBg = useDashboardTheme
+        ? fleetTheme!.background
+        : assignedProfile?.themeBackground || appBldCfg.themeBackground || (isLightMode ? "#f1f5f9" : "#0b1120");
+      let syncCard = useDashboardTheme
+        ? fleetTheme!.card
+        : assignedProfile?.themeCard || appBldCfg.themeCard || (isLightMode ? "#ffffff" : "#131d36");
+      const syncPrimary = useDashboardTheme
+        ? fleetTheme!.primary
+        : assignedProfile?.themeColor || appBldCfg.themeColor || (isLightMode ? "#2563eb" : "#38bdf8");
       if (isLightMode) {
         // THEME-WEB-3: luminance replaces the leaky ^#2[0-4] prefix regex
         if (isDarkHexColor(syncBg)) {
@@ -413,16 +435,15 @@ export function createAppSyncRouter(
         preset: effectivePreset,
         layout: assignedProfile?.uiLayout || appBldCfg.uiLayout || "console",
         mode: effectiveMode,
-        primary: assignedProfile?.themeColor || appBldCfg.themeColor || (isLightMode ? "#2563eb" : "#38bdf8"),
+        primary: syncPrimary,
         background: syncBg,
         card: syncCard,
       };
 
-      // THEME-WEB-1: when the dashboard "Sync theme" toggle is off
-      // (appBldCfg.themeSyncEnabled === false) the server stops pushing the
-      // corporate theme - the field is omitted and the C client keeps its own
-      // default (pec_sync.h guards `if (thObj && thObj->type == J_OBJ)`).
-      const themeBlock = appBldCfg.themeSyncEnabled === false ? undefined : theme;
+      // Constructor themes are always delivered now: the THEME-WEB-1
+      // neutral semantics (omit while disabled) is replaced by the global
+      // dashboard-as-source switch above.
+      const themeBlock = theme;
 
       res.json({
         ok: true,

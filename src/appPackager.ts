@@ -13,6 +13,7 @@ import { getProxyConfig } from "./instances.js";
 import { getProfileById, expandRuleDomains } from "./routing.js";
 import type { AppBuildConfig, AppBuildInfo, AppProcessRule, ProxyNode, ToolchainDiagnostics } from "./types.js";
 import { signBinary, getCertificateStatus } from "./codeSigner.js";
+import { resolveFleetTheme, resolveThemeSyncEnabled } from "./serverTheme.js";
 
 export function getTemplatesAppDir(): string {
   if (process.env.PEC_TEMPLATES_DIR) {
@@ -454,44 +455,46 @@ export function buildAppProfile(cfg: AppBuildConfig, baseUrl: string): object {
       fleetToken: cfg.defaultToken || process.env.EXT_SHARED_TOKEN || "corp-proxy-secret-token-change-me",
       intervalMinutes: cfg.syncIntervalMinutes || 15,
     },
-    // THEME-WEB-1: corporate theme push is gated by the dashboard "Sync theme"
-    // toggle (themeSyncEnabled). Absent/true keeps legacy behavior; explicit
-    // false omits the Theme section entirely - the C client keeps its own
-    // default theme when the profile has no Theme block (profile.c:747).
-    ...(cfg.themeSyncEnabled === false
-      ? {}
-      : {
-          Theme: (() => {
-            const mode = cfg.defaultThemeMode || "dark";
-            const isLightMode = mode === "light";
-            let bg = cfg.themeBackground || (isLightMode ? "#f1f5f9" : "#0b1120");
-            let card = cfg.themeCard || (isLightMode ? "#ffffff" : "#131d36");
-            if (isLightMode) {
-              // THEME-WEB-3: luminance replaces the leaky ^#2[0-4] prefix regex
-              if (isDarkHexColor(bg)) {
-                bg = cfg.presetStyle === "dark-obsidian" ? "#faf5ff" : (cfg.presetStyle === "emerald-secops" ? "#f0fdf4" : "#f1f5f9");
-              }
-              if (isDarkHexColor(card)) {
-                card = "#ffffff";
-              }
-            } else {
-              if (isLightHexColor(bg)) {
-                bg = "#0b1120";
-              }
-              if (isLightHexColor(card)) {
-                card = "#131d36";
-              }
-            }
-            return {
-              preset: cfg.presetStyle || "cyber-blue",
-              layout: cfg.uiLayout || "console",
-              mode,
-              primary: cfg.themeColor || (isLightMode ? "#2563eb" : "#38bdf8"),
-              background: bg,
-              card,
-            };
-          })(),
-        }),
+    // THEME-SRC-3 (dashboard-as-source, replaces the THEME-WEB-1 gate):
+    // global sync ON -> the Theme section carries the PANEL theme (palette
+    // mapped to the app presetStyle + mode); OFF or a missing global store ->
+    // constructor themes (classic behavior, replacing the omit semantics);
+    // the legacy per-config themeSyncEnabled flag is the fallback when no
+    // global store exists. The Theme section is always present now.
+    Theme: (() => {
+      const fleetTheme = resolveFleetTheme();
+      const useDashboardTheme = resolveThemeSyncEnabled(cfg.themeSyncEnabled) && Boolean(fleetTheme);
+      const mode = useDashboardTheme ? fleetTheme!.mode : (cfg.defaultThemeMode || "dark");
+      const isLightMode = mode === "light";
+      let bg = useDashboardTheme ? fleetTheme!.background : (cfg.themeBackground || (isLightMode ? "#f1f5f9" : "#0b1120"));
+      let card = useDashboardTheme ? fleetTheme!.card : (cfg.themeCard || (isLightMode ? "#ffffff" : "#131d36"));
+      let primary = useDashboardTheme ? fleetTheme!.primary : (cfg.themeColor || (isLightMode ? "#2563eb" : "#38bdf8"));
+      const preset = useDashboardTheme ? fleetTheme!.style : (cfg.presetStyle || "cyber-blue");
+      if (isLightMode) {
+        // THEME-WEB-3: luminance replaces the leaky ^#2[0-4] prefix regex
+        if (isDarkHexColor(bg)) {
+          bg = preset === "dark-obsidian" ? "#faf5ff" : (preset === "emerald-secops" ? "#f0fdf4" : "#f1f5f9");
+        }
+        if (isDarkHexColor(card)) {
+          card = "#ffffff";
+        }
+      } else {
+        if (isLightHexColor(bg)) {
+          bg = "#0b1120";
+        }
+        if (isLightHexColor(card)) {
+          card = "#131d36";
+        }
+      }
+      return {
+        preset,
+        layout: cfg.uiLayout || "console",
+        mode,
+        primary,
+        background: bg,
+        card,
+      };
+    })(),
     Icon: {
       type: cfg.iconType || "shield",
       customDataUrl: cfg.customIconDataUrl || "",

@@ -43,6 +43,109 @@ export const PALETTE_TO_APP_STYLE: Record<ServerThemePalette, string> = {
 };
 
 /**
+ * THEME-SRC-3: canonical dark surfaces per app presetStyle (theme.ts
+ * APP_THEME_PRESETS bg/card + accent; enterprise-light carries its light
+ * surface #f1f5f9/#ffffff — in dark mode the THEME-WEB-3 luminance clamps
+ * flip it to the dark defaults, matching APP_PALETTES.light dark fallback).
+ * Lives here instead of importing EXTENSION_STYLES_MAP to avoid a
+ * serverTheme -> packager -> appPackager -> serverTheme import cycle; hex
+ * parity with EXTENSION_STYLES_MAP is asserted in serverThemeSync.test.ts.
+ */
+export const APP_STYLE_SURFACES: Record<string, { primary: string; background: string; card: string }> = {
+  "cyber-blue": { primary: "#38bdf8", background: "#0b1120", card: "#131d36" },
+  "dark-obsidian": { primary: "#c084fc", background: "#0d1117", card: "#161b22" },
+  "nordic-arctic": { primary: "#88c0d0", background: "#242933", card: "#2e3440" },
+  "emerald-secops": { primary: "#34d399", background: "#06130d", card: "#0b1f16" },
+  "sunset-amber": { primary: "#f59e0b", background: "#1c1307", card: "#261805" },
+  "enterprise-light": { primary: "#2563eb", background: "#f1f5f9", card: "#ffffff" },
+};
+
+export interface FleetTheme {
+  palette: ServerThemePalette;
+  mode: ServerThemeMode;
+  syncEnabled: boolean;
+  style: string;
+  primary: string;
+  background: string;
+  card: string;
+}
+
+/**
+ * THEME-SRC-3: the dashboard theme resolved into fleet-facing values.
+ * Null when the dashboard never pushed (consumers fall back to the
+ * legacy/neutral sources).
+ */
+export function resolveFleetTheme(): FleetTheme | null {
+  const theme = loadServerTheme();
+  if (!theme) return null;
+  const style = PALETTE_TO_APP_STYLE[theme.palette];
+  const surface = APP_STYLE_SURFACES[style];
+  return { ...theme, style, primary: surface.primary, background: surface.background, card: surface.card };
+}
+
+export interface ClientTheme {
+  palette: string;
+  preset: string;
+  mode: string;
+  primary: string;
+  background: string;
+  card: string;
+}
+
+/**
+ * THEME-SRC-3 core: resolve the theme delivered to sync consumers.
+ *   global sync ON            -> the dashboard panel theme (dashboard-as-source)
+ *   global OFF / no store     -> the constructor themes (classic behavior,
+ *                                replacing the THEME-WEB-1 neutral semantics);
+ *                                absent config keys degrade to the neutral
+ *                                cyber-blue defaults
+ *   no global store           -> legacy per-config themeSyncEnabled decides
+ *                                (migration without breaking installations)
+ */
+export function resolveSyncThemeForClients(cfg: {
+  colorPalette?: string;
+  presetStyle?: string;
+  defaultThemeMode?: string;
+  themeColor?: string;
+  themeBackground?: string;
+  themeCard?: string;
+  themeSyncEnabled?: boolean;
+}): { themeSyncOn: boolean; theme: ClientTheme } {
+  const themeSyncOn = resolveThemeSyncEnabled(cfg.themeSyncEnabled);
+  const fleet = resolveFleetTheme();
+  if (themeSyncOn && fleet) {
+    return {
+      themeSyncOn: true,
+      theme: {
+        palette: fleet.palette,
+        preset: fleet.style,
+        mode: fleet.mode,
+        primary: fleet.primary,
+        background: fleet.background,
+        card: fleet.card,
+      },
+    };
+  }
+  const preset = typeof cfg.presetStyle === "string" && cfg.presetStyle ? cfg.presetStyle : "cyber-blue";
+  const styles = APP_STYLE_SURFACES[preset] || APP_STYLE_SURFACES["cyber-blue"];
+  const palette =
+    (typeof cfg.colorPalette === "string" && cfg.colorPalette) ||
+    Object.keys(PALETTE_TO_APP_STYLE).find((id) => PALETTE_TO_APP_STYLE[id as ServerThemePalette] === preset) ||
+    "cyber";
+  return {
+    themeSyncOn: false,
+    theme: {
+      palette,
+      preset,
+      mode: cfg.defaultThemeMode || "dark",
+      primary: cfg.themeColor || styles.primary,
+      background: cfg.themeBackground || styles.background,
+      card: cfg.themeCard || styles.card,
+    },
+  };
+}
+
+/**
  * Returns the stored dashboard theme, or null when no theme was ever pushed
  * (server_theme.json absent/unreadable). Null means "dashboard never spoke":
  * consumers fall back to legacy per-config behavior / neutral defaults.
