@@ -11,7 +11,7 @@
 > The server core, dynamic PAC generation, and browser extension synchronization are battle-tested and running in production. However, native desktop clients (DirectX 11 GUI, WinDivert driver, Linux daemon) and specialized Active Directory GPO deployment scenarios across diverse Windows editions and RDS terminal farms are in public alpha testing. Feedback, issue reports, and contributions are welcome.
 
 [![CI Status](https://github.com/vlv-code/PEC/actions/workflows/ci.yml/badge.svg)](https://github.com/vlv-code/PEC/actions)
-[![Release](https://img.shields.io/badge/release-v0.9.3--alpha-blue.svg)](https://github.com/vlv-code/PEC/releases)
+[![Release](https://img.shields.io/badge/release-v0.9.4--alpha-blue.svg)](https://github.com/vlv-code/PEC/releases)
 [![Status: Public Alpha](https://img.shields.io/badge/status-public--alpha-orange.svg)]()
 [![Node.js](https://img.shields.io/badge/node.js-%3E%3D20-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg)](Dockerfile)
