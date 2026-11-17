@@ -173,11 +173,17 @@ export function isThemeSyncEnabled(): boolean {
 function pushAppearancePatch(patch: { palette?: string; mode?: string; syncEnabled?: boolean }) {
   let palette = patch.palette;
   if (!palette) {
-    palette = document.body.getAttribute('data-theme') || 'cyber';
+    palette =
+      document.body.getAttribute('data-theme') ||
+      (() => { try { return localStorage.getItem('pec_server_theme'); } catch (_) { return null; } })() ||
+      'cyber';
   }
   let mode = patch.mode;
   if (!mode) {
-    mode = document.body.getAttribute('data-theme-mode') || 'dark';
+    mode =
+      document.body.getAttribute('data-theme-mode') ||
+      (() => { try { return localStorage.getItem('pec_server_theme_mode'); } catch (_) { return null; } })() ||
+      'dark';
   }
   const payload = JSON.stringify({
     palette,
@@ -210,6 +216,24 @@ export function setThemeSyncEnabled(enabled: boolean) {
   // theme delivery. Fire-and-forget; a failure must not break the local
   // toggle (the next palette/mode/toggle change re-pushes the full state).
   pushAppearancePatch({ syncEnabled: enabled });
+}
+
+// THEME-SRC-FIX-1: one-shot boot reconciliation flag (per page load).
+let appearanceReconciledThisSession = false;
+
+/**
+ * THEME-SRC-FIX-1: boot reconciliation. On dashboard load the local
+ * appearance is pushed to the server store once per session — closes the
+ * "store drifted from the panel" class (feature deploy, cleared data/,
+ * a second admin browser). Idempotent: pushAppearancePatch always POSTs the
+ * full merged {palette, mode, syncEnabled} state; writeJsonAtomic on the
+ * server makes re-pushes harmless. Failures stay silent-ish (toast only,
+ * never blocking the boot).
+ */
+export function reconcileAppearanceWithServer() {
+  if (appearanceReconciledThisSession) return;
+  appearanceReconciledThisSession = true;
+  pushAppearancePatch({});
 }
 
 export function setGlobalBrandIcon(icon: string) {

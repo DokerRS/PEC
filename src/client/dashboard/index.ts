@@ -211,6 +211,10 @@ export function bootDashboard() {
   initTabsAccessibility();
   notify.initModalBackdropHandlers();
   initHashRouting();
+  // THEME-SRC-FIX-1: reconcile the local appearance with the server store
+  // once per session (fire-and-forget, idempotent) so fleet clients follow
+  // the panel theme without requiring manual actions after deploys/clears.
+  theme.reconcileAppearanceWithServer();
   refreshAll(true);
   startDashboardTimers(() => telemetry.fetchStatus(), () => telemetry.loadInstances());
 }

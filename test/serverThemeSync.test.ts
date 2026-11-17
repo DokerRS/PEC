@@ -11,6 +11,7 @@ import { getServerThemePath } from "../src/storage.js";
 import { EXTENSION_STYLES_MAP, getBuildConfig } from "../src/packager.js";
 import { createAppSyncRouter } from "../src/routes/appSyncRoutes.js";
 import { createCredsRouter } from "../src/routes/credsRoutes.js";
+import { createServerThemeRouter } from "../src/routes/serverThemeRoutes.js";
 import { TEST_TOKEN, TEST_ADMIN_TOKEN } from "./helpers/setup.js";
 
 /**
@@ -211,5 +212,88 @@ test("SRC-3 (f) sync OFF stops panel-theme delivery immediately after palette ch
   } finally {
     clearStore();
     saveAppBuildConfig({ ...prevCfg, themeSyncEnabled: true });
+  }
+});
+
+test("SRC-FIX-1: boot reconciliation pushes the localStorage appearance; /api/sync serves it with no manual actions", async () => {
+  const { JSDOM } = await import("jsdom");
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost:3000/dashboard" });
+  const g = globalThis as any;
+  const prevWindow = g.window;
+  const prevDocument = g.document;
+  const prevLocalStorage = Object.getOwnPropertyDescriptor(g, "localStorage");
+  g.window = dom.window;
+  g.document = dom.window.document;
+  try {
+    Object.defineProperty(g, "localStorage", { configurable: true, value: dom.window.localStorage });
+
+    // The dashboard "Appearance" state lives in localStorage (panel: nord/light, sync ON)
+    dom.window.localStorage.setItem("pec_server_theme", "nord");
+    dom.window.localStorage.setItem("pec_server_theme_mode", "light");
+    dom.window.localStorage.setItem("pec_theme_sync_enabled", "true");
+    // The server store is EMPTY (fresh deploy / cleared data/ - the user report)
+    clearStore();
+    assert.strictEqual(loadServerTheme(), null);
+
+    // Real server: appearance endpoint (auth perimeter covered by SRC-1 tests)
+    const app = express();
+    app.use(express.json());
+    app.use("/api/server-theme", createServerThemeRouter());
+    app.use(createCredsRouter(() => TEST_TOKEN));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    const theme = await import("../src/client/dashboard/core/theme.js");
+    const posts: Array<{ url: string; body: any }> = [];
+    const realFetch = g.fetch;
+    g.fetch = async (url: any, init: any) => {
+      const u = String(url);
+      if (u.includes("/api/server-theme")) {
+        posts.push({ url: u, body: JSON.parse(init.body) });
+        // Forward the boot push into the real server store
+        return realFetch(`${base}/api/server-theme`, { method: "POST", headers: { "content-type": "application/json" }, body: init.body });
+      }
+      return realFetch(u.includes("/api/") ? `${base}${new URL(u).pathname}` : u, init);
+    };
+    try {
+      // Boot reconciliation: one call, no manual actions
+      theme.reconcileAppearanceWithServer();
+      await new Promise((r) => setTimeout(r, 120));
+
+      assert.equal(posts.length, 1, "boot must push exactly once");
+      assert.equal(posts[0].body.palette, "nord", "localStorage palette must ride the boot push");
+      assert.equal(posts[0].body.mode, "light", "localStorage mode must ride the boot push");
+      assert.equal(posts[0].body.syncEnabled, true);
+
+      // The store now holds the panel theme; /api/sync serves it
+      const stored = loadServerTheme();
+      assert.equal(stored!.palette, "nord");
+      const extRes = await fetch(`${base}/api/sync`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-ext-token": TEST_TOKEN, "x-instance-id": "inst_fix1" },
+        body: JSON.stringify({ instanceId: "inst_fix1", version: "1.3.0" }),
+      });
+      assert.strictEqual(extRes.status, 200);
+      const extBody = await extRes.json();
+      assert.equal(extBody.theme.palette, "nord", "/api/sync must serve the panel theme after the boot push");
+      assert.equal(extBody.theme.mode, "light");
+
+      // Second reconcile in the same session: idempotent, no extra POST
+      theme.reconcileAppearanceWithServer();
+      await new Promise((r) => setTimeout(r, 60));
+      assert.equal(posts.length, 1, "reconciliation is once-per-session");
+    } finally {
+      g.fetch = realFetch;
+      if (typeof (server as any).closeAllConnections === "function") (server as any).closeAllConnections();
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  } finally {
+    if (prevLocalStorage) Object.defineProperty(g, "localStorage", prevLocalStorage);
+    else delete g.localStorage;
+    g.document = prevDocument;
+    g.window = prevWindow;
+    dom.window.close();
+    clearStore();
   }
 });
