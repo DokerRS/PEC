@@ -314,3 +314,44 @@ test("SRV-2: syncIntervalSec is clamped to 5..86400 in saveConfig, updateConfig 
 
   fs.unlinkSync(getAdConfigPath());
 });
+
+test("AD-TLS-OPT-1: buildClientOptions attaches tlsOptions ONLY for ldaps:// URLs", () => {
+  const svc = new AdSyncService({ enabled: false, ldapUrl: "ldaps://ad.test:636" });
+
+  // Plain ldap://: NO tlsOptions (ldapts 9.2.0 ECONNRESET quirk — see observations.md [runtime])
+  const plain = svc.buildClientOptions("ldap://dc01.corp.local:389", true, 5000);
+  assert.equal(plain.url, "ldap://dc01.corp.local:389");
+  assert.equal(plain.timeout, 5000);
+  assert.equal(plain.connectTimeout, 5000);
+  assert.equal((plain as any).tlsOptions, undefined, "ldap:// must NOT carry tlsOptions");
+
+  // LDAPS: tlsOptions present with the passed rejectUnauthorized
+  const secureSecure = svc.buildClientOptions("ldaps://dc01.corp.local:636", true, 5000);
+  assert.deepEqual(secureSecure.tlsOptions, { rejectUnauthorized: true });
+  const secureInsecure = svc.buildClientOptions("ldaps://dc01.corp.local:636", false, 10000);
+  assert.deepEqual(secureInsecure.tlsOptions, { rejectUnauthorized: false }, "explicit insecure mode must survive for ldaps://");
+
+  // Scheme matching is case-insensitive and trims whitespace
+  assert.deepEqual(svc.buildClientOptions("  LDAPS://ad.test:636 ", false, 1000).tlsOptions, { rejectUnauthorized: false });
+  assert.equal(svc.buildClientOptions("ldap://ad.test:389 ", true, 1000).tlsOptions, undefined);
+});
+
+test("AD-TLS-OPT-1: ldapts version is pinned in the lock (quirk behavior guard)", async () => {
+  // AD-TLS-OPT-1 quirk: ldapts 9.2.0 sends tlsOptions to the socket layer even
+  // for plain ldap:// and the connection dies with ECONNRESET before the LDAP
+  // dialogue (production, three-variant bisection). buildClientOptions works
+  // around it by attaching tlsOptions only for ldaps://.
+  //
+  // If this test fails after a dependency upgrade, RE-VERIFY THE QUIRK on a
+  // live ldap:// endpoint before touching buildClientOptions: newer ldapts
+  // versions may ignore tlsOptions for ldap:// (fixing the bug) or change the
+  // failure mode.
+  const lock = JSON.parse(fs.readFileSync(path.resolve("package-lock.json"), "utf-8"));
+  const locked = lock.packages?.["node_modules/ldapts"]?.version;
+  assert.equal(locked, "9.2.0", "ldapts version changed — re-verify the ldap:// + tlsOptions ECONNRESET quirk and update buildClientOptions/this comment");
+
+  const installed = JSON.parse(
+    fs.readFileSync(path.resolve("node_modules", "ldapts", "package.json"), "utf-8")
+  ).version as string;
+  assert.equal(installed, locked, "installed ldapts must match the lock entry");
+});
