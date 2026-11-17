@@ -743,7 +743,13 @@ function writeGeneratedFile(
     fs.mkdirSync(EXTENSION_DIR, { recursive: true });
   }
   const extPath = path.join(EXTENSION_DIR, fileName);
-  if (force || process.env.PEC_KEEP_EXTENSION_DIR === "1" || !fs.existsSync(extPath)) {
+  // THEME-SRC-FIX-5: the extension-dir copy must track the generated content
+  // on every build. The legacy "write only when absent" gate froze the
+  // first-build theme in place - rebuilds never refreshed popup.html
+  // overrides/icons ("rebuilding does not change the inserts" user report).
+  // Manual studio edits stay protected by overriddenFiles above, so the
+  // extra existence gate was redundant theme-stickiness: drop it.
+  if (force || process.env.PEC_KEEP_EXTENSION_DIR === "1" || !overridden || !fs.existsSync(extPath)) {
     if (Buffer.isBuffer(content)) {
       fs.writeFileSync(extPath, content);
     } else {
@@ -944,12 +950,17 @@ export function packageExtension(baseUrl: string = ""): ExtensionBuildInfo & { z
   const envSyncInterval = process.env.PEC_SYNC_INTERVAL_MIN || process.env.PEC_SYNC_INTERVAL_MINUTES;
   const syncInterval = envSyncInterval ? Math.max(1, parseInt(envSyncInterval, 10) || 15) : currentBuildConfig.syncIntervalMinutes;
 
-  const buildConfigToPack: ExtensionBuildConfig = {
+  // THEME-SRC-FIX-2/5: the same dashboard-as-source overlay as the studio
+  // build path - without it, packageExtension (Regenerate/Repackage actions)
+  // re-baked the constructor theme into popup.html overrides and the icons
+  // while the global sync toggle was ON ("rebuilding does not change the
+  // inserts" user report).
+  const buildConfigToPack: ExtensionBuildConfig = applyDashboardThemeToClientConfig({
     ...currentBuildConfig,
     defaultServerUrl: effectiveBaseUrl,
     defaultToken: process.env.EXT_SHARED_TOKEN || currentBuildConfig.defaultToken,
     ...(syncInterval ? { syncIntervalMinutes: syncInterval } : {}),
-  };
+  });
 
   // Generate / refresh extension files based on build config to pack
   generateExtensionFiles(buildConfigToPack);

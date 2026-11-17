@@ -192,7 +192,7 @@ test("builder: GET /api/extension/download-zip is rate limited to 10 requests pe
   });
 });
 
-test("builder: generateExtensionFiles and packageExtension do not modify existing files in extension/ without force or PEC_KEEP_EXTENSION_DIR", () => {
+test("builder: generateExtensionFiles and packageExtension refresh generated files in extension/ (theme propagation), manual edits stay overridden-protected (updated by THEME-SRC-FIX-5)", () => {
   const origKeep = process.env.PEC_KEEP_EXTENSION_DIR;
   delete process.env.PEC_KEEP_EXTENSION_DIR;
   try {
@@ -207,13 +207,33 @@ test("builder: generateExtensionFiles and packageExtension do not modify existin
     saveBuildConfig({ name: "Temporary Test Name Change" });
     packageExtension("https://test.example.corp");
 
+    // THEME-SRC-FIX-5: the legacy "never touch extension/" gate froze the
+    // first-build theme in place (popup overrides/icons never refreshed on
+    // rebuild - the "rebuilding does not change the inserts" user report).
+    // Generated files now track the build; manual edits stay protected via
+    // overriddenFiles (asserted below).
     const mtimeAfter = fs.statSync(manifestPath).mtimeMs;
-    assert.strictEqual(mtimeAfter, mtimeBefore, "manifest.json in extension/ must not be touched during packaging");
+    assert.notStrictEqual(
+      mtimeAfter,
+      mtimeBefore,
+      "generated manifest.json in extension/ must be refreshed during packaging (theme propagation)"
+    );
 
     const unpackedManifest = JSON.parse(
       fs.readFileSync(path.join(unpackedDir, "manifest.json"), "utf-8")
     );
     assert.strictEqual(unpackedManifest.name, "Temporary Test Name Change", "unpacked dir must receive the updated name");
+
+    // Operator manual edits are still honored: an overridden file is copied
+    // as-is, not clobbered by regeneration.
+    const manuallyEdited = path.join(extDir, "popup.html");
+    fs.writeFileSync(manuallyEdited, "<!DOCTYPE html><html><body>MANUAL EDIT</body></html>");
+    saveBuildConfig({ overriddenFiles: ["popup.html"] });
+    packageExtension("https://test.example.corp");
+    assert.ok(
+      fs.readFileSync(path.join(unpackedDir, "popup.html"), "utf-8").includes("MANUAL EDIT"),
+      "overridden files must survive packaging untouched"
+    );
   } finally {
     if (origKeep) process.env.PEC_KEEP_EXTENSION_DIR = origKeep;
   }
