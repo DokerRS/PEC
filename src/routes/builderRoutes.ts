@@ -36,6 +36,7 @@ const ALLOWED_BUILD_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "themeColor",
   "themeBackground",
   "themeCard",
+  "themeSyncEnabled",
   "iconEmoji",
   "customIconDataUrl",
   "iconType",
@@ -87,6 +88,10 @@ function filterBuildConfig(input: any): Partial<ExtensionBuildConfig> {
   }
   if (input.showIpGeoCheck !== undefined && filtered.showIpGeoChecker === undefined) {
     filtered.showIpGeoChecker = input.showIpGeoCheck;
+  }
+  // THEME-WEB-1: strict boolean for the theme-sync toggle
+  if (filtered.themeSyncEnabled !== undefined) {
+    filtered.themeSyncEnabled = filtered.themeSyncEnabled === true || filtered.themeSyncEnabled === "true";
   }
   return filtered;
 }

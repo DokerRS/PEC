@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { EXTENSION_STYLES_MAP, getThemeStyles } from "../src/packager.js";
 import { renderPopupHtml } from "../src/templates/popupHtmlTemplate.js";
+import { createDashboardVmEnv } from "./helpers/dashboardVm.js";
 
 test("Style Audit: sunset-amber preset has genuine warm amber tones (P2.2)", () => {
   const amber = EXTENSION_STYLES_MAP["sunset-amber"];
@@ -121,21 +122,25 @@ test("Style Audit: Desktop native client ImGui themes and layout geometry (P1.2,
 });
 
 test("Style Audit: Dashboard App Studio presets and hygiene (P3.1)", () => {
-  const js = fs.readFileSync(path.resolve("public/dashboard.js"), "utf8");
+  // THEME-QA-1: behavioral against the shipped bundle (was source-content on
+  // the orphaned public/dashboard.js monolith, mtime Nov 10 — build:ui only
+  // writes dashboard.min.js now).
+  const js = fs.readFileSync(path.resolve("public/dashboard.min.js"), "utf8");
   assert.ok(
-    js.includes("APP_THEME_PRESETS['amber'] = APP_THEME_PRESETS['sunset-amber'];"),
-    "dashboard.js must provide amber alias for APP_THEME_PRESETS"
-  );
-  assert.ok(
-    js.includes("'sunset-amber': 'amber'"),
-    "dashboard.js must map sunset-amber style preset to amber palette"
-  );
-  assert.ok(
-    js.includes("const bgEl = document.getElementById('bldThemeBg')"),
-    "dashboard.js getEmojiIconDataUrl must read custom/theme background"
+    js.includes("bldThemeBg"),
+    "bundle getEmojiIconDataUrl must read the custom/theme background input (bldThemeBg literal survives minification)"
   );
 
-  // Hygiene in dashboardView.ts
+  const { ctx, getEl } = createDashboardVmEnv();
+
+  // The 'amber' alias must resolve to the genuine warm amber preset at runtime
+  // (APP_THEME_PRESETS['amber'] = APP_THEME_PRESETS['sunset-amber']).
+  ctx.window.setAppPresetTheme("amber");
+  assert.equal(getEl("appThemeColor").value, "#f59e0b", "amber alias must use amber #f59e0b, not a fallback");
+  assert.equal(getEl("appThemeBackground").value, "#1c1307", "amber alias bg must be deep warm #1c1307, not Nord blue");
+  assert.equal(getEl("appThemeCard").value, "#261805", "amber alias card must be warm brown #261805");
+
+  // Hygiene in dashboardView.ts (not a bundle artifact — checked at source)
   const view = fs.readFileSync(path.resolve("src/views/dashboardView.ts"), "utf8");
   assert.ok(
     !view.includes('<div id="loginModal" style="display: none;"></div>'),

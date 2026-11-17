@@ -131,7 +131,10 @@ export let activeStudioThemeMode = 'dark';
     }
 
     export function setStudioPalette(palette, silent = false) {
-      const validPalettes = ['cyber', 'obsidian', 'nord', 'emerald', 'light'];
+      // STUDIO-AMBER-PALETTE-REGRESSION: the whitelist must cover every canon
+      // palette (theme.ts APP_PALETTES) - 'sunset-amber' presets previously
+      // silently clamped to cyber here.
+      const validPalettes = ['cyber', 'obsidian', 'nord', 'emerald', 'amber', 'light'];
       if (!validPalettes.includes(palette)) {
         palette = 'cyber';
       }
@@ -147,6 +150,7 @@ export let activeStudioThemeMode = 'dark';
         obsidian: '#c084fc',
         nord: '#88c0d0',
         emerald: '#34d399',
+        amber: '#f59e0b',
         light: '#2563eb'
       };
       const brandColorInput = document.getElementById('bldThemeColor');
@@ -388,6 +392,9 @@ export let isCustomIconUploaded = false;
           const styleToPalette = {
             'cyber-blue': 'cyber',
             'dark-obsidian': 'obsidian',
+            'nordic-arctic': 'nord',
+            'emerald-secops': 'emerald',
+            'enterprise-light': 'light',
             'emerald-sentinel': 'emerald',
             'sunset-amber': 'amber',
             'minimal-light': 'light'
@@ -460,7 +467,10 @@ export let isCustomIconUploaded = false;
       const styleToPalette = {
         'cyber-blue': 'cyber',
         'dark-obsidian': 'obsidian',
+        'nordic-arctic': 'nord',
         'nord': 'nord',
+        'emerald-secops': 'emerald',
+        'enterprise-light': 'light',
         'emerald-sentinel': 'emerald',
         'sunset-amber': 'amber',
         'minimal-light': 'light'
@@ -473,8 +483,8 @@ export let isCustomIconUploaded = false;
       highlightStyleChip(style);
       const colorMap = {
         'cyber-blue': '#0284c7',
-        'dark-obsidian': '#a855f7',
-        'emerald-sentinel': '#10b981',
+        'dark-obsidian': '#c084fc',
+        'emerald-sentinel': '#34d399',
         'sunset-amber': '#f59e0b',
         'minimal-light': '#2563eb'
       };
@@ -1112,8 +1122,8 @@ export let isAppStudioDirty = false;
 export const APP_THEME_PRESETS: any = {
       'cyber-blue': {
         primary: '#38bdf8',
-        background: '#090e1a',
-        card: '#111a2e',
+        background: '#0b1120',
+        card: '#131d36',
         text: '#f8fafc',
         lightBackground: '#f0f9ff',
         lightCard: '#ffffff'
@@ -1131,15 +1141,15 @@ export const APP_THEME_PRESETS: any = {
         background: '#242933',
         card: '#2e3440',
         text: '#eceff4',
-        lightBackground: '#eceff4',
+        lightBackground: '#f8fafc',
         lightCard: '#ffffff'
       },
       'emerald-secops': {
         primary: '#34d399',
-        background: '#061e14',
-        card: '#0d3322',
+        background: '#06130d',
+        card: '#0b1f16',
         text: '#ecfdf5',
-        lightBackground: '#ecfdf5',
+        lightBackground: '#f0fdf4',
         lightCard: '#ffffff'
       },
       'enterprise-light': {
@@ -1151,11 +1161,13 @@ export const APP_THEME_PRESETS: any = {
         lightCard: '#ffffff'
       },
       'emerald-sentinel': {
+        // THEME-WEB-4: alias of emerald-secops; values kept in parity because
+        // pec_imgui_theme.h aliases this preset name natively (styleAudit contract)
         primary: '#34d399',
-        background: '#061e14',
-        card: '#0d3322',
+        background: '#06130d',
+        card: '#0b1f16',
         text: '#ecfdf5',
-        lightBackground: '#ecfdf5',
+        lightBackground: '#f0fdf4',
         lightCard: '#ffffff'
       },
       'sunset-amber': {

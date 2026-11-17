@@ -21,7 +21,7 @@ import { getActiveRelease } from "../releases.js";
 import { resolveProfileForInstance, expandRuleDomains, getProfileById } from "../routing.js";
 import { getBuildConfig as getExtensionBuildConfig } from "../packager.js";
 import { sanitizeSingleLine, logger } from "../logger.js";
-import { DEFAULT_APP_VERSION, getAppBuildConfig } from "../appPackager.js";
+import { DEFAULT_APP_VERSION, getAppBuildConfig, isDarkHexColor, isLightHexColor } from "../appPackager.js";
 import { isNewerVersion } from "../utils/semver.js";
 import { getAppBuildInfoPath } from "../storage.js";
 
@@ -393,17 +393,18 @@ export function createAppSyncRouter(
       let syncBg = assignedProfile?.themeBackground || appBldCfg.themeBackground || (isLightMode ? "#f1f5f9" : "#0b1120");
       let syncCard = assignedProfile?.themeCard || appBldCfg.themeCard || (isLightMode ? "#ffffff" : "#131d36");
       if (isLightMode) {
-        if (/^#0[0-9a-f]{5}$/i.test(syncBg) || /^#1[0-9a-f]{5}$/i.test(syncBg) || /^#2[0-4][0-9a-f]{4}$/i.test(syncBg)) {
+        // THEME-WEB-3: luminance replaces the leaky ^#2[0-4] prefix regex
+        if (isDarkHexColor(syncBg)) {
           syncBg = effectivePreset === "dark-obsidian" ? "#faf5ff" : (effectivePreset === "emerald-secops" ? "#f0fdf4" : "#f1f5f9");
         }
-        if (/^#0[0-9a-f]{5}$/i.test(syncCard) || /^#1[0-9a-f]{5}$/i.test(syncCard) || /^#2[0-4][0-9a-f]{4}$/i.test(syncCard)) {
+        if (isDarkHexColor(syncCard)) {
           syncCard = "#ffffff";
         }
       } else {
-        if (/^#f[0-9a-f]{5}$/i.test(syncBg) || /^#e[0-9a-f]{5}$/i.test(syncBg)) {
+        if (isLightHexColor(syncBg)) {
           syncBg = "#0b1120";
         }
-        if (/^#f[0-9a-f]{5}$/i.test(syncCard) || /^#e[0-9a-f]{5}$/i.test(syncCard) || syncCard.toLowerCase() === "#ffffff") {
+        if (isLightHexColor(syncCard)) {
           syncCard = "#131d36";
         }
       }
@@ -417,6 +418,12 @@ export function createAppSyncRouter(
         card: syncCard,
       };
 
+      // THEME-WEB-1: when the dashboard "Sync theme" toggle is off
+      // (appBldCfg.themeSyncEnabled === false) the server stops pushing the
+      // corporate theme - the field is omitted and the C client keeps its own
+      // default (pec_sync.h guards `if (thObj && thObj->type == J_OBJ)`).
+      const themeBlock = appBldCfg.themeSyncEnabled === false ? undefined : theme;
+
       res.json({
         ok: true,
         ...(issuedInstanceToken ? { instanceToken: issuedInstanceToken } : {}),
@@ -425,7 +432,7 @@ export function createAppSyncRouter(
         activeProxy: proxyPayload,
         availableProxies,
         serverRules,
-        theme,
+        ...(themeBlock ? { theme: themeBlock } : {}),
         update: {
           hasUpdate,
           latestVersion,

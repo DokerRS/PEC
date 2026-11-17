@@ -112,7 +112,7 @@ export function renderPopupHtml(cfg?: Partial<ExtensionBuildConfig>, colors?: Re
     /* 6 Color Palettes (WCAG AA Compliant High-Contrast) */
     [data-palette="cyber"] { --primary: #38bdf8; --primary-rgb: 56, 189, 248; }
     [data-palette="cyber"]:not([data-theme="light"]), [data-palette="cyber"][data-theme="dark"], [data-theme="dark"] [data-palette="cyber"] {
-      --bg: #090e1a; --card: #111a2e; --card-inner: #16223b; --border: #1e2c4a; --text: #f1f5f9; --text-muted: #94a3b8;
+      --bg: #0b1120; --card: #131d36; --card-inner: #16223b; --border: #1e2c4a; --text: #f1f5f9; --text-muted: #94a3b8;
     }
     :root[data-theme="light"] [data-palette="cyber"], [data-theme="light"] [data-palette="cyber"], [data-theme="light"][data-palette="cyber"], [data-palette="cyber"][data-theme="light"] {
       --bg: #f0f9ff !important; --card: #ffffff !important; --card-inner: #e0f2fe !important; --border: #bae6fd; --text: #0f172a !important; --text-muted: #0369a1; --primary: #0284c7; --primary-rgb: 2, 132, 199;

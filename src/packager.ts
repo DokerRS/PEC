@@ -459,25 +459,31 @@ export function packCrxBuffer(zipBuffer: Buffer, privateKey: crypto.KeyObject): 
   return Buffer.concat([out, header, zipBuffer]);
 }
 
+// THEME-WEB-4: bg/card/accent values converge on the dashboard canon
+// (src/client/dashboard/core/theme.ts APP_PALETTES / APP_THEME_PRESETS).
+// emerald-sentinel / minimal-light are documented aliases: pec_imgui_theme.h
+// maps those preset names natively (styleAudit contract) - keep them in
+// parity with their target palettes instead of deleting.
 export const EXTENSION_STYLES_MAP: Record<string, { primary: string; bg: string; card: string; border: string; text: string }> = {
   "cyber-blue": { primary: "#38bdf8", bg: "#0b1120", card: "#131d36", border: "#22345c", text: "#f8fafc" },
-  "dark-obsidian": { primary: "#c084fc", bg: "#09090b", card: "#18181b", border: "#27272a", text: "#fafafa" },
+  "dark-obsidian": { primary: "#c084fc", bg: "#0d1117", card: "#161b22", border: "#27272a", text: "#fafafa" },
   "nordic-arctic": { primary: "#88c0d0", bg: "#242933", card: "#2e3440", border: "#4c566a", text: "#eceff4" },
-  "emerald-secops": { primary: "#34d399", bg: "#061e14", card: "#0d3322", border: "#1a6344", text: "#ecfdf5" },
-  "enterprise-light": { primary: "#2563eb", bg: "#f8fafc", card: "#ffffff", border: "#cbd5e1", text: "#0f172a" },
-  "emerald-sentinel": { primary: "#34d399", bg: "#061e14", card: "#0d3322", border: "#1a6344", text: "#ecfdf5" },
+  "emerald-secops": { primary: "#34d399", bg: "#06130d", card: "#0b1f16", border: "#1a6344", text: "#ecfdf5" },
+  "enterprise-light": { primary: "#2563eb", bg: "#f1f5f9", card: "#ffffff", border: "#cbd5e1", text: "#0f172a" },
+  "emerald-sentinel": { primary: "#34d399", bg: "#06130d", card: "#0b1f16", border: "#1a6344", text: "#ecfdf5" },
   "sunset-amber": { primary: "#f59e0b", bg: "#1c1307", card: "#261805", border: "#78350f", text: "#fef3c7" },
-  "minimal-light": { primary: "#2563eb", bg: "#f8fafc", card: "#ffffff", border: "#cbd5e1", text: "#0f172a" },
+  "minimal-light": { primary: "#2563eb", bg: "#f1f5f9", card: "#ffffff", border: "#cbd5e1", text: "#0f172a" },
 };
 
 export function getThemeStyles(cfg: Partial<ExtensionBuildConfig>) {
+  // THEME-WEB-4: mirrors theme.ts APP_PALETTES (accent/bg/card canon)
   const paletteColors: Record<string, { primary: string; bg: string; card: string; border: string; text: string }> = {
     cyber: { primary: "#38bdf8", bg: "#0b1120", card: "#131d36", border: "#22345c", text: "#f8fafc" },
-    obsidian: { primary: "#c084fc", bg: "#09090b", card: "#18181b", border: "#27272a", text: "#fafafa" },
+    obsidian: { primary: "#c084fc", bg: "#0d1117", card: "#161b22", border: "#27272a", text: "#fafafa" },
     nord: { primary: "#88c0d0", bg: "#242933", card: "#2e3440", border: "#4c566a", text: "#eceff4" },
-    emerald: { primary: "#34d399", bg: "#061e14", card: "#0d3322", border: "#1a6344", text: "#ecfdf5" },
+    emerald: { primary: "#34d399", bg: "#06130d", card: "#0b1f16", border: "#1a6344", text: "#ecfdf5" },
     amber: { primary: "#f59e0b", bg: "#1c1307", card: "#261805", border: "#78350f", text: "#fef3c7" },
-    light: { primary: "#2563eb", bg: "#f8fafc", card: "#ffffff", border: "#cbd5e1", text: "#0f172a" },
+    light: { primary: "#2563eb", bg: "#f1f5f9", card: "#ffffff", border: "#cbd5e1", text: "#0f172a" },
   };
 
   const stylesMap = EXTENSION_STYLES_MAP;

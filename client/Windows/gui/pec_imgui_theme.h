@@ -128,17 +128,17 @@ inline void ApplyProfileTheme(const PBProfile* prof, ImGuiStyle* dst = nullptr)
         if (preset == "dark-obsidian" || preset == "obsidian") {
             PecTheme::PrimaryAccent = ImVec4(0.576f, 0.200f, 0.918f, 1.0f); // #9333ea Purple
             PecTheme::HoverAccent   = ImVec4(0.659f, 0.333f, 0.969f, 1.0f); // #a855f7
-            PecTheme::ActiveAccent  = ImVec4(0.494f, 0.145f, 0.804f, 1.0f); // #7e22ce
+            PecTheme::ActiveAccent  = ImVec4(0.494f, 0.133f, 0.808f, 1.0f); // #7e22ce
         }
         else if (preset == "emerald-secops" || preset == "emerald" || preset == "emerald-sentinel") {
             PecTheme::PrimaryAccent = ImVec4(0.020f, 0.588f, 0.412f, 1.0f); // #059669 Emerald
             PecTheme::HoverAccent   = ImVec4(0.063f, 0.725f, 0.506f, 1.0f); // #10b981
-            PecTheme::ActiveAccent  = ImVec4(0.016f, 0.471f, 0.329f, 1.0f); // #047857
+            PecTheme::ActiveAccent  = ImVec4(0.016f, 0.471f, 0.341f, 1.0f); // #047857
         }
         else if (preset == "sunset-amber" || preset == "amber") {
             PecTheme::PrimaryAccent = ImVec4(0.851f, 0.467f, 0.024f, 1.0f); // #d97706 Amber
             PecTheme::HoverAccent   = ImVec4(0.961f, 0.620f, 0.043f, 1.0f); // #f59e0b
-            PecTheme::ActiveAccent  = ImVec4(0.706f, 0.353f, 0.016f, 1.0f); // #b45309
+            PecTheme::ActiveAccent  = ImVec4(0.706f, 0.325f, 0.035f, 1.0f); // #b45309
         }
         else if (preset == "nordic-arctic" || preset == "nord") {
             PecTheme::PrimaryAccent = ImVec4(0.369f, 0.506f, 0.675f, 1.0f); // #5e81ac Nordic Blue
@@ -166,13 +166,13 @@ inline void ApplyProfileTheme(const PBProfile* prof, ImGuiStyle* dst = nullptr)
             PecTheme::CardBg        = ImVec4(0.180f, 0.204f, 0.251f, 1.0f); // #2e3440
             PecTheme::CardBgHover   = ImVec4(0.231f, 0.259f, 0.322f, 1.0f); // #3b4252
             PecTheme::FrameBg       = ImVec4(0.231f, 0.259f, 0.322f, 1.0f); // #3b4252
-            PecTheme::FrameBgHover  = ImVec4(0.263f, 0.302f, 0.373f, 1.0f); // #434c5e
-            PecTheme::FrameBgActive = ImVec4(0.298f, 0.341f, 0.416f, 1.0f); // #4c566a
+            PecTheme::FrameBgHover  = ImVec4(0.263f, 0.298f, 0.369f, 1.0f); // #434c5e
+            PecTheme::FrameBgActive = ImVec4(0.298f, 0.337f, 0.416f, 1.0f); // #4c566a
             PecTheme::PrimaryAccent = ImVec4(0.533f, 0.753f, 0.816f, 1.0f); // #88c0d0 Ice Blue
             PecTheme::HoverAccent   = ImVec4(0.506f, 0.631f, 0.757f, 1.0f); // #81a1c1
             PecTheme::ActiveAccent  = ImVec4(0.369f, 0.506f, 0.675f, 1.0f); // #5e81ac
-            PecTheme::BorderColor   = ImVec4(0.298f, 0.341f, 0.416f, 1.0f); // #4c566a
-            PecTheme::BorderLight   = ImVec4(0.298f, 0.341f, 0.416f, 0.6f);
+            PecTheme::BorderColor   = ImVec4(0.298f, 0.337f, 0.416f, 1.0f); // #4c566a
+            PecTheme::BorderLight   = ImVec4(0.298f, 0.337f, 0.416f, 0.6f);
             PecTheme::TextPrimary   = ImVec4(0.925f, 0.937f, 0.957f, 1.0f); // #eceff4
             PecTheme::TextSecondary = ImVec4(0.847f, 0.871f, 0.914f, 1.0f); // #d8dee9
             PecTheme::TextMuted     = PecTheme::TextSecondary;
@@ -265,7 +265,20 @@ inline void ApplyProfileTheme(const PBProfile* prof, ImGuiStyle* dst = nullptr)
             );
         }
         if (prof->theme.background) PecTheme::CanvasBg      = ColorrefToImVec4(prof->theme.background);
-        if (prof->theme.card)       PecTheme::CardBg        = ColorrefToImVec4(prof->theme.card);
+        if (prof->theme.card)
+        {
+            PecTheme::CardBg = ColorrefToImVec4(prof->theme.card);
+            // THEME-NAT-2: unified ImGui<->GDI light-mode contract — same guard as
+            // ui/theme.h ApplyProfileTheme (and the server-side THEME-WEB-3 sanitization):
+            // a dark custom card must never leak into a light profile.
+            if (PecTheme::IsLightMode &&
+                (GetRValue(prof->theme.card) < 160 ||
+                 GetGValue(prof->theme.card) < 160 ||
+                 GetBValue(prof->theme.card) < 160))
+            {
+                PecTheme::CardBg = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+            }
+        }
     }
 
     // Apply colors to Dear ImGui

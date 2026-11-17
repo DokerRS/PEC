@@ -149,7 +149,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
 
               <label for="chkSyncThemeWithApps" style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 11px; color: var(--text); user-select: none;">
                 <input type="checkbox" id="chkSyncThemeWithApps" checked onchange="toggleSyncThemeWithApps(this.checked)" style="margin-top: 2px;" />
-                <span data-i18n="lblSyncThemeWithApps">Синхронизировать тему и значок с расширениями и приложениями</span>
+                <span data-i18n="lblSyncThemeWithApps">Синхронизировать тему с расширениями и приложениями</span>
               </label>
             </div>
 
@@ -752,6 +752,10 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                 <button type="button" class="preset-chip" id="chip-palette-emerald" onclick="setStudioPalette('emerald')">
                   <span class="color-swatch" style="background: #34d399;"></span>
                   <span>Emerald SecOps</span>
+                </button>
+                <button type="button" class="preset-chip" id="chip-palette-amber" onclick="setStudioPalette('amber')">
+                  <span class="color-swatch" style="background: #f59e0b;"></span>
+                  <span>Sunset Amber</span>
                 </button>
                 <button type="button" class="preset-chip" id="chip-palette-light" onclick="setStudioPalette('light')">
                   <span class="color-swatch" style="background: #2563eb; border: 1px solid #cbd5e1;"></span>

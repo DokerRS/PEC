@@ -245,3 +245,103 @@ test("Theme synchronization and profile builder: handles all preset and mode com
     assert.equal(lightProf.Theme.card.toLowerCase(), "#ffffff", `Preset ${preset} in light mode must have light card`);
   }
 });
+
+test("THEME-WEB-1: themeSyncEnabled round-trips through both config endpoints and gates corporate theme push", async () => {
+  const { saveAppBuildConfig } = await import("../src/appPackager.js");
+  const { createBuilderRouter } = await import("../src/routes/builderRoutes.js");
+  const { createAppSyncRouter } = await import("../src/routes/appSyncRoutes.js");
+  const { getBuildConfig } = await import("../src/packager.js");
+
+  const prevAppCfg = getAppBuildConfig();
+  try {
+    // 1. Default behavior: Theme present when the flag is absent
+    const profBefore: any = buildAppProfile(prevAppCfg, "http://127.0.0.1:3000");
+    assert.ok(profBefore.Theme, "Theme section must be present when themeSyncEnabled is not set (default true)");
+
+    await withTestServer(async (baseUrl) => {
+      const auth = { "x-admin-token": TEST_ADMIN_TOKEN, "content-type": "application/json" };
+
+      // 2. Toggle off via POST /api/app-builder/config
+      const off = await fetch(`${baseUrl}/api/app-builder/config`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ themeSyncEnabled: false }),
+      });
+      assert.strictEqual(off.status, 200);
+      const offBody = await off.json();
+      assert.strictEqual(offBody.themeSyncEnabled, false, "flag must persist as strict boolean false");
+      const offProf: any = buildAppProfile(getAppBuildConfig(), baseUrl);
+      assert.strictEqual(offProf.Theme, undefined, "Theme section must be omitted when sync is disabled");
+      assert.ok(offProf.Icon, "Icon section must remain independent of the theme toggle");
+
+      // 3. /api/app/sync stops pushing the theme block while disabled
+      const syncApp = express();
+      syncApp.use(express.json());
+      syncApp.use(createAppSyncRouter(() => TEST_TOKEN, () => TEST_ADMIN_TOKEN));
+      const syncServer = http.createServer(syncApp);
+      await new Promise<void>((r) => syncServer.listen(0, r));
+      try {
+        const syncRes = await fetch(`http://127.0.0.1:${(syncServer.address() as any).port}/api/app/sync`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-fleet-token": TEST_TOKEN },
+          body: JSON.stringify({
+            appInstanceId: "app_theme_gate",
+            hostname: "HOST-THEME-GATE",
+            username: "CORP\theme_gate",
+            version: "2.2.0",
+          }),
+        });
+        assert.strictEqual(syncRes.status, 200);
+        const syncBody = await syncRes.json();
+        assert.strictEqual(syncBody.ok, true);
+        assert.strictEqual(syncBody.theme, undefined, "disabled sync must omit the theme block from /api/app/sync");
+      } finally {
+        await new Promise<void>((r) => syncServer.close(() => r()));
+      }
+
+      // 4. Toggle back on + string normalization ("false"/"true" from HTML forms)
+      const strRes = await fetch(`${baseUrl}/api/app-builder/config`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ themeSyncEnabled: "false" }),
+      });
+      assert.strictEqual(strRes.status, 200);
+      assert.strictEqual(getAppBuildConfig().themeSyncEnabled, false, 'string "false" must normalize to boolean false');
+      const on = await fetch(`${baseUrl}/api/app-builder/config`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ themeSyncEnabled: true }),
+      });
+      assert.strictEqual(on.status, 200);
+      const onProf: any = buildAppProfile(getAppBuildConfig(), baseUrl);
+      assert.ok(onProf.Theme, "Theme section must return after re-enabling sync");
+    });
+
+    // 5. Extension builder router: the key passes the whitelist, strict boolean
+    const bApp = express();
+    bApp.use(express.json());
+    bApp.use(createBuilderRouter(() => TEST_TOKEN, () => TEST_ADMIN_TOKEN));
+    const bServer = http.createServer(bApp);
+    await new Promise<void>((r) => bServer.listen(0, r));
+    try {
+      const post = await fetch(`http://127.0.0.1:${(bServer.address() as any).port}/api/builder/config`, {
+        method: "POST",
+        headers: { "x-admin-token": TEST_ADMIN_TOKEN, "content-type": "application/json" },
+        body: JSON.stringify({ themeSyncEnabled: "true" }),
+      });
+      assert.strictEqual(post.status, 200);
+      assert.strictEqual(getBuildConfig().themeSyncEnabled, true, 'extension config must accept themeSyncEnabled and normalize "true"');
+      const garbage = await fetch(`http://127.0.0.1:${(bServer.address() as any).port}/api/builder/config`, {
+        method: "POST",
+        headers: { "x-admin-token": TEST_ADMIN_TOKEN, "content-type": "application/json" },
+        body: JSON.stringify({ themeSyncEnabled: "banana" }),
+      });
+      assert.strictEqual(garbage.status, 200);
+      assert.strictEqual(getBuildConfig().themeSyncEnabled, false, "non-boolean input must normalize to strict false, not pass through");
+    } finally {
+      await new Promise<void>((r) => bServer.close(() => r()));
+    }
+  } finally {
+    saveAppBuildConfig({ ...prevAppCfg, themeSyncEnabled: true });
+  }
+});

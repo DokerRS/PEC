@@ -344,6 +344,8 @@ void pbp_free(struct pbp_profile *p)
     free(p->proxies);
     free(p->rules);
     free(p->name);
+    free(p->theme_json);
+    free(p->pecsync_json);
     memset(p, 0, sizeof *p);
 }
 
@@ -455,6 +457,10 @@ static int read_rule(struct pbp_profile *p, const struct jv *o, size_t idx, char
     return 0;
 }
 
+// THEME-NAT-3: defined below (after the sb string builder); dumps a parsed JSON
+// subtree back to compact text so unknown-to-Linux blocks can be preserved verbatim.
+static char *jv_dump_to_string(const struct jv *v);
+
 int pbp_parse(const char *json, size_t len, struct pbp_profile *out, char *err, size_t errlen)
 {
     memset(out, 0, sizeof *out);
@@ -514,6 +520,15 @@ int pbp_parse(const char *json, size_t len, struct pbp_profile *out, char *err, 
         snprintf(err, errlen, "DefaultProxyId %u does not match any proxy", out->default_proxy_id);
         rc = -1;
     }
+    if (rc == 0) {
+        // THEME-NAT-3: capture Windows-app extension blocks so pbp_serialize re-emits
+        // them — a shared profile must survive a Linux round-trip without losing its
+        // theme or fleet-sync configuration.
+        const struct jv *ex = jget(&root, "Theme");
+        if (ex && ex->t == J_OBJ) out->theme_json = jv_dump_to_string(ex);
+        ex = jget(&root, "PecSync");
+        if (ex && ex->t == J_OBJ) out->pecsync_json = jv_dump_to_string(ex);
+    }
     jfree(&root);
     free(copy);
     if (rc) pbp_free(out);
@@ -571,6 +586,50 @@ static void sb_str(struct sb *b, const char *s)
     sb_add(b, "\"", 1);
 }
 
+// THEME-NAT-3: compact re-serialization of a parsed jv subtree (Theme/PecSync blocks).
+static void jv_dump(const struct jv *v, struct sb *b)
+{
+    if (b->oom || !v) return;
+    switch (v->t) {
+        case J_NULL: sb_puts(b, "null"); break;
+        case J_BOOL: sb_puts(b, v->b ? "true" : "false"); break;
+        case J_NUM: {
+            char tmp[40];
+            if (v->n == (double)(long long)v->n) snprintf(tmp, sizeof tmp, "%lld", (long long)v->n);
+            else snprintf(tmp, sizeof tmp, "%g", v->n);
+            sb_puts(b, tmp);
+            break;
+        }
+        case J_STR: sb_str(b, v->s); break;
+        case J_ARR:
+            sb_puts(b, "[");
+            for (size_t i = 0; i < v->nk; i++) {
+                if (i) sb_puts(b, ",");
+                jv_dump(&v->kid[i], b);
+            }
+            sb_puts(b, "]");
+            break;
+        case J_OBJ:
+            sb_puts(b, "{");
+            for (size_t i = 0; i < v->nk; i++) {
+                if (i) sb_puts(b, ",");
+                sb_str(b, v->key[i]);
+                sb_puts(b, ":");
+                jv_dump(&v->kid[i], b);
+            }
+            sb_puts(b, "}");
+            break;
+    }
+}
+
+static char *jv_dump_to_string(const struct jv *v)
+{
+    struct sb b = {0};
+    jv_dump(v, &b);
+    if (b.oom) { free(b.p); return NULL; }
+    return b.p;
+}
+
 static void sb_kv(struct sb *b, const char *indent, const char *key, const char *val, const char *tail)
 {
     sb_puts(b, indent);
@@ -625,7 +684,12 @@ char *pbp_serialize(const struct pbp_profile *p)
         free(ips);
         free(doms);
     }
-    sb_puts(&b, p->nrules ? "\n  ]\n}\n" : "]\n}\n");
+    sb_puts(&b, p->nrules ? "\n  ]" : "]");
+    // THEME-NAT-3: re-emit the Windows-app extension blocks captured at parse time so
+    // a shared profile survives a Linux round-trip (they used to be stripped here).
+    if (p->theme_json)   { sb_puts(&b, ",\n  \"Theme\": ");   sb_puts(&b, p->theme_json); }
+    if (p->pecsync_json) { sb_puts(&b, ",\n  \"PecSync\": "); sb_puts(&b, p->pecsync_json); }
+    sb_puts(&b, "\n}\n");
     if (b.oom) { free(b.p); return NULL; }
     return b.p;
 }

@@ -7,7 +7,9 @@ import { JSDOM } from "jsdom";
 import { renderDashboardHtml } from "../src/views/dashboardView.js";
 
 const CSS_PATH = path.resolve("./public/dashboard.css");
-const JS_PATH = path.resolve("./public/dashboard.js");
+// THEME-QA-1: the orphaned public/dashboard.js (mtime Nov 10) is dead — the
+// dashboard ships public/dashboard.min.js (build:ui output).
+const JS_PATH = path.resolve("./public/dashboard.min.js");
 
 test("D-THEME-01: public/dashboard.css gives obsidian purple primary color", () => {
   const css = fs.readFileSync(CSS_PATH, "utf-8");
@@ -29,7 +31,16 @@ test("D-THEME-02: public/dashboard.css styles terminal layout cleanly in light m
   assert.ok(css.includes(':not(.popover-layout-btn)'), "Must exclude popover-layout-btn from global white text");
 });
 
-test("D-POPOVER-01: public/dashboard.js closes version popover on outside click and Escape", () => {
+test("THEME-QA-1 REGRESSION HANDOFF (-> agent-general-worker): shipped bundle closes version popover on outside click and Escape", () => {
+  // Migrated from the orphaned public/dashboard.js to the shipped
+  // dashboard.min.js (THEME-QA-1). Found during migration: the UI-MODULAR-1
+  // port lost the orphan's global document listeners (dashboard.js:1128-1151)
+  // — outside-click close for popoverCustomization/popoverVersionRelease and
+  // Escape -> closeAnyOpenModal(). In the shipped bundle closeAnyOpenModal()
+  // is only reached via modal backdrop clicks, so popovers can no longer be
+  // dismissed by clicking elsewhere or pressing Escape. This test stays RED
+  // until the two document listeners are ported (see Delegated Subtasks in
+  // .agents/project_knowledge/tasks.md, POPOVER-CLOSE-REGRESSION).
   const js = fs.readFileSync(JS_PATH, "utf-8");
   const html = renderDashboardHtml({});
 
@@ -46,6 +57,7 @@ test("D-POPOVER-01: public/dashboard.js closes version popover on outside click 
   const badge = window.document.getElementById("versionReleaseBadge");
   assert.ok(popover, "popoverVersionRelease must exist");
   assert.ok(badge, "versionReleaseBadge must exist");
+  assert.equal(typeof window.toggleVersionPopover, "function", "toggleVersionPopover must be exposed on window");
 
   // Initial state is hidden
   assert.equal(popover.style.display, "none");

@@ -147,6 +147,15 @@ static UINT      g_wmTaskbarCreated = 0;   // shell broadcast when the taskbar r
 static BOOL      g_reallyExit = FALSE;
 static BOOL      g_started = FALSE;
 
+// THEME-NAT-1: guards g_profile against the fleet-sync worker thread (see ui/pec_sync.h
+// PecProfileLock). Must be initialized before PecSyncStart and before any UI-thread
+// profile mutation; PecProfileLock is a real lock in both GUI builds.
+static CRITICAL_SECTION g_profileCs;
+// Defined (static inline) in ui/pec_sync.h; forward-declared here so UI-thread code
+// above that include gets prototypes instead of C implicit-int declarations.
+static void PecProfileLock(void);
+static void PecProfileUnlock(void);
+
 static PBProfile g_profile;
 static wchar_t   g_activeProfile[PB_NAME_MAX] = L"Default";
 static BOOL      g_trafficLog = TRUE, g_closeToTray = TRUE;
@@ -366,6 +375,9 @@ static void UnapplyProfile(void)
 
 static void SwitchToProfile(const wchar_t* name)
 {
+    // THEME-NAT-1: the fleet-sync thread RMWs g_profile (theme/configs/rules, ui/pec_sync.h)
+    // under PecProfileLock — every UI-thread profile swap must hold the same lock.
+    PecProfileLock();
     UnapplyProfile();
     PB_SetActiveProfile(name);
     lstrcpynW(g_activeProfile, name, PB_NAME_MAX);
@@ -388,6 +400,7 @@ static void SwitchToProfile(const wchar_t* name)
     if (g_hRulesList) RefreshRulesList(g_hRulesList);
     if (g_hSrvList)   RefreshServerList(g_hSrvList);
     if (g_hBanner) InvalidateRect(g_hBanner, NULL, TRUE);
+    PecProfileUnlock();
 }
 
 static void UpdateTitle(void)
@@ -963,7 +976,9 @@ static void MainServerSetActive(void)
     PB_WriteAppLog("User switched primary proxy to [%ls] %ls:%ls",
         g_profile.cfg[0].name, g_profile.cfg[0].host, g_profile.cfg[0].port);
 
+    PecProfileLock();   // THEME-NAT-1: same guard as the sync thread's cfg RMW
     PB_ProfileSave(g_activeProfile, &g_profile);
+    PecProfileUnlock();
     SwitchToProfile(g_activeProfile);
     RefreshServerList(g_hSrvList);
     ListView_SetItemState(g_hSrvList, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
@@ -2037,6 +2052,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show)
 {
     (void)hPrev;
     g_hInst = hInst;
+    InitializeCriticalSection(&g_profileCs);   // THEME-NAT-1: before any thread touches g_profile
 
     PB_WriteAppLog("=== PEC-App Classic GUI starting (PID: %lu, Elevated: %s, CmdLine: %ls) ===",
         GetCurrentProcessId(), IsElevated() ? "YES" : "NO", GetCommandLineW());
@@ -2115,6 +2131,39 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show)
                 if (GetFileAttributesW(cand) != INVALID_FILE_ATTRIBUTES)
                 {
                     BOOL shouldLoad = (g_profile.cfgCount == 0 || g_profile.ruleCount == 0);
+                    if (!shouldLoad)
+                    {
+                        // THEME-NAT-3 (parity with main_imgui.cpp first-run adoption): an
+                        // updated MSI shipping a new theme/server profile must recolor an
+                        // already-configured profile too. Theme/pecSync fields are adopted
+                        // in place — user's proxies/rules are never clobbered here (the
+                        // ImGui flow additionally honors a newer-candidate timestamp).
+                        PBProfile* candProf = (PBProfile*)calloc(1, sizeof(PBProfile));
+                        if (candProf)
+                        {
+                            PB_ProfileLoad(cand, candProf);
+                            if (candProf->theme.hasTheme &&
+                                (!g_profile.theme.hasTheme ||
+                                 wcscmp(candProf->theme.preset, g_profile.theme.preset) != 0 ||
+                                 wcscmp(candProf->theme.mode, g_profile.theme.mode) != 0 ||
+                                 wcscmp(candProf->theme.layout, g_profile.theme.layout) != 0 ||
+                                 candProf->theme.primary != g_profile.theme.primary ||
+                                 candProf->theme.background != g_profile.theme.background ||
+                                 candProf->theme.card != g_profile.theme.card))
+                            {
+                                g_profile.theme = candProf->theme;
+                                PB_ProfileSave(g_activeProfile, &g_profile);
+                            }
+                            if (candProf->pecSync.serverUrl[0] != 0 &&
+                                wcscmp(candProf->pecSync.serverUrl, g_profile.pecSync.serverUrl) != 0)
+                            {
+                                lstrcpynW(g_profile.pecSync.serverUrl, candProf->pecSync.serverUrl, 512);
+                                lstrcpynW(g_profile.pecSync.fleetToken, candProf->pecSync.fleetToken, 256);
+                                PB_ProfileSave(g_activeProfile, &g_profile);
+                            }
+                            free(candProf);
+                        }
+                    }
                     if (shouldLoad)
                     {
                         PB_ProfileLoad(cand, &g_profile);
@@ -2256,6 +2305,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show)
         DispatchMessageW(&msg);
     }
     PecSyncStop();
+    DeleteCriticalSection(&g_profileCs);
     return (int)msg.wParam;
 }
 

@@ -275,6 +275,29 @@ export function saveAppBuildConfig(updates: Partial<AppBuildConfig>): AppBuildCo
   return { ...currentAppBuildConfig };
 }
 
+// THEME-WEB-3: perceptual luminance per the ImGui theme reference
+// (pec_imgui_theme.h:99, weighted 0.299/0.587/0.114). The previous
+// "^#0../^#1../^#2[0-4].." prefix heuristics let dark cards in the #25-#FF
+// range (e.g. #2e3440 nord, #261805 amber) leak onto light builds.
+// Dark = lum < 100, light = lum > 175 (the C reference threshold).
+export function computeHexLuminance(hex: string | undefined | null): number | null {
+  if (typeof hex !== "string" || !/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return r * 0.299 + g * 0.587 + b * 0.114;
+}
+
+export function isDarkHexColor(hex: string | undefined | null): boolean {
+  const lum = computeHexLuminance(hex);
+  return lum !== null && lum < 100;
+}
+
+export function isLightHexColor(hex: string | undefined | null): boolean {
+  const lum = computeHexLuminance(hex);
+  return lum !== null && lum > 175;
+}
+
 export function buildAppProfile(cfg: AppBuildConfig, baseUrl: string): object {
   let proxy: ProxyNode | undefined;
   if (cfg.defaultProxyId) {
@@ -431,35 +454,44 @@ export function buildAppProfile(cfg: AppBuildConfig, baseUrl: string): object {
       fleetToken: cfg.defaultToken || process.env.EXT_SHARED_TOKEN || "corp-proxy-secret-token-change-me",
       intervalMinutes: cfg.syncIntervalMinutes || 15,
     },
-    Theme: (() => {
-      const mode = cfg.defaultThemeMode || "dark";
-      const isLightMode = mode === "light";
-      let bg = cfg.themeBackground || (isLightMode ? "#f1f5f9" : "#0b1120");
-      let card = cfg.themeCard || (isLightMode ? "#ffffff" : "#131d36");
-      if (isLightMode) {
-        if (/^#0[0-9a-f]{5}$/i.test(bg) || /^#1[0-9a-f]{5}$/i.test(bg) || /^#2[0-4][0-9a-f]{4}$/i.test(bg)) {
-          bg = cfg.presetStyle === "dark-obsidian" ? "#faf5ff" : (cfg.presetStyle === "emerald-secops" ? "#f0fdf4" : "#f1f5f9");
-        }
-        if (/^#0[0-9a-f]{5}$/i.test(card) || /^#1[0-9a-f]{5}$/i.test(card) || /^#2[0-4][0-9a-f]{4}$/i.test(card)) {
-          card = "#ffffff";
-        }
-      } else {
-        if (/^#f[0-9a-f]{5}$/i.test(bg) || /^#e[0-9a-f]{5}$/i.test(bg)) {
-          bg = "#0b1120";
-        }
-        if (/^#f[0-9a-f]{5}$/i.test(card) || /^#e[0-9a-f]{5}$/i.test(card) || card.toLowerCase() === "#ffffff") {
-          card = "#131d36";
-        }
-      }
-      return {
-        preset: cfg.presetStyle || "cyber-blue",
-        layout: cfg.uiLayout || "console",
-        mode,
-        primary: cfg.themeColor || (isLightMode ? "#2563eb" : "#38bdf8"),
-        background: bg,
-        card,
-      };
-    })(),
+    // THEME-WEB-1: corporate theme push is gated by the dashboard "Sync theme"
+    // toggle (themeSyncEnabled). Absent/true keeps legacy behavior; explicit
+    // false omits the Theme section entirely - the C client keeps its own
+    // default theme when the profile has no Theme block (profile.c:747).
+    ...(cfg.themeSyncEnabled === false
+      ? {}
+      : {
+          Theme: (() => {
+            const mode = cfg.defaultThemeMode || "dark";
+            const isLightMode = mode === "light";
+            let bg = cfg.themeBackground || (isLightMode ? "#f1f5f9" : "#0b1120");
+            let card = cfg.themeCard || (isLightMode ? "#ffffff" : "#131d36");
+            if (isLightMode) {
+              // THEME-WEB-3: luminance replaces the leaky ^#2[0-4] prefix regex
+              if (isDarkHexColor(bg)) {
+                bg = cfg.presetStyle === "dark-obsidian" ? "#faf5ff" : (cfg.presetStyle === "emerald-secops" ? "#f0fdf4" : "#f1f5f9");
+              }
+              if (isDarkHexColor(card)) {
+                card = "#ffffff";
+              }
+            } else {
+              if (isLightHexColor(bg)) {
+                bg = "#0b1120";
+              }
+              if (isLightHexColor(card)) {
+                card = "#131d36";
+              }
+            }
+            return {
+              preset: cfg.presetStyle || "cyber-blue",
+              layout: cfg.uiLayout || "console",
+              mode,
+              primary: cfg.themeColor || (isLightMode ? "#2563eb" : "#38bdf8"),
+              background: bg,
+              card,
+            };
+          })(),
+        }),
     Icon: {
       type: cfg.iconType || "shield",
       customDataUrl: cfg.customIconDataUrl || "",

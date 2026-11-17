@@ -426,3 +426,79 @@ test("appBuilderRoutes: POST /api/app-builder/build-binaries returns 200 with ho
 
 
 
+
+test("THEME-WEB-2: app-builder config/build POSTs enforce key whitelist and theme hex validation", async () => {
+  const { getAppBuildConfig } = await import("../src/appPackager.js");
+  await withTestServer(async (baseUrl) => {
+    const auth = { "x-admin-token": TEST_ADMIN_TOKEN, "content-type": "application/json" };
+
+    // 1. Unknown/injected keys must be dropped, whitelisted keys applied
+    const inject = await fetch(`${baseUrl}/api/app-builder/config`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({
+        name: "Whitelist Probe",
+        adminBackdoor: { privileged: true },
+        updatedAt: "2000-01-01T00:00:00.000Z",
+      }),
+    });
+    assert.strictEqual(inject.status, 200);
+    const cfgAfterInject = getAppBuildConfig() as any;
+    assert.strictEqual(cfgAfterInject.name, "Whitelist Probe", "whitelisted key must be applied");
+    assert.strictEqual(cfgAfterInject.adminBackdoor, undefined, "unknown key must not reach the store");
+    assert.notStrictEqual(cfgAfterInject.updatedAt, "2000-01-01T00:00:00.000Z", "updatedAt must stay server-owned");
+
+    // 1b. processRules type-probe is still rejected by its own validator
+    const probe = await fetch(`${baseUrl}/api/app-builder/config`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ processRules: "not-an-array-probe" }),
+    });
+    assert.strictEqual(probe.status, 400, "processRules type-probe must be rejected by its own validator");
+
+    // 2. Hex validation for theme colors on the config endpoint
+    for (const [payload, expectOk] of [
+      [{ themeColor: "#34d399" }, true],
+      [{ themeColor: "#34D399" }, true],
+      [{ themeCard: "" }, true],
+      [{ themeColor: "red" }, false],
+      [{ themeBackground: "#12345" }, false],
+      [{ themeCard: "#GGGGGG" }, false],
+      [{ themeColor: "rgb(1,2,3)" }, false],
+    ] as Array<[Record<string, unknown>, boolean]>) {
+      const res = await fetch(`${baseUrl}/api/app-builder/config`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      assert.strictEqual(
+        res.ok,
+        expectOk,
+        `payload ${JSON.stringify(payload)} must ${expectOk ? "pass" : "fail"} hex validation, got ${res.status} ${JSON.stringify(body)}`
+      );
+      if (!expectOk) {
+        assert.match(body.error, /#RRGGBB/, "rejection must name the hex format");
+      }
+    }
+
+    // 3. The build endpoint applies the same whitelist: no key injection
+    const buildInject = await fetch(`${baseUrl}/api/app-builder/build`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ version: "2.2.0", adminBackdoor: { privileged: true }, themeColor: "#abcdef" }),
+    });
+    assert.strictEqual(buildInject.status, 200);
+    const cfgAfterBuild = getAppBuildConfig() as any;
+    assert.strictEqual(cfgAfterBuild.adminBackdoor, undefined, "build endpoint must drop unknown keys");
+    assert.strictEqual(cfgAfterBuild.themeColor, "#abcdef", "build endpoint must apply whitelisted theme colors");
+
+    // 4. build endpoint rejects invalid hex too
+    const buildBad = await fetch(`${baseUrl}/api/app-builder/build`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ themeBackground: "blue" }),
+    });
+    assert.strictEqual(buildBad.status, 400);
+  });
+});
