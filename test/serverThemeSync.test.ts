@@ -297,3 +297,54 @@ test("SRC-FIX-1: boot reconciliation pushes the localStorage appearance; /api/sy
     clearStore();
   }
 });
+
+test("SRC-FIX-2: extension build pipeline bakes the panel theme while sync is ON (user red thread: no more purple popup)", async () => {
+  const { buildExtensionFiles } = await import("../src/packager.js");
+  const prevCfg = getAppBuildConfig();
+  const builderDarkObsidian: any = {
+    ...prevCfg,
+    presetStyle: "dark-obsidian",
+    colorPalette: "obsidian",
+    defaultThemeMode: "dark",
+    themeColor: "#c084fc",
+    themeBackground: "#0d1117",
+    themeCard: "#161b22",
+  };
+  clearStore();
+  try {
+    // The user case: panel is CYBER-BLUE blue, constructor form says Dark Obsidian
+    saveServerTheme({ palette: "cyber", mode: "dark", syncEnabled: true });
+    const on = await buildExtensionFiles(builderDarkObsidian);
+    const popupOn = on["popup.html"];
+    assert.ok(popupOn, "popup.html must be generated");
+    assert.match(popupOn, /data-palette="cyber"/, "ON: popup data-palette must follow the dashboard palette, not the constructor");
+    assert.match(popupOn, /--primary: #38bdf8/, "ON: popup base --primary must be the dashboard accent (#38bdf8), not #c084fc");
+    // Static per-palette CSS blocks always exist; the ACTIVE palette attribute
+    // plus the base/root accent are the delivery surface.
+    assert.ok(!popupOn.includes('<body data-palette="obsidian"'), "ON: body must not activate the constructor obsidian palette");
+    const customOverride = popupOn.match(/Custom User Theme Overrides[sS]{0,400}/);
+    if (customOverride) {
+      assert.ok(!customOverride[0].includes("#c084fc"), "constructor accent must not leak through the custom-override block while ON");
+    }
+
+    // Same shape on the app path for symmetry (already THEME-SRC-3)
+    const prof: any = buildAppProfile(builderDarkObsidian, "http://127.0.0.1:3000");
+    assert.equal(prof.Theme.preset, "cyber-blue", "app profile follows the panel too (symmetry)");
+    assert.equal(prof.Theme.primary, "#38bdf8");
+
+    // OFF: constructor theme is baked (legacy behavior, no breakage)
+    saveServerTheme({ palette: "cyber", mode: "dark", syncEnabled: false });
+    const off = await buildExtensionFiles(builderDarkObsidian);
+    assert.match(off["popup.html"], /data-palette="obsidian"/, "OFF: constructor palette is baked");
+    assert.match(off["popup.html"], /--primary: #c084fc/, "OFF: constructor accent is baked");
+
+    // No store at all: constructor theme is baked (neutral legacy)
+    clearStore();
+    const absent = await buildExtensionFiles(builderDarkObsidian);
+    assert.match(absent["popup.html"], /data-palette="obsidian"/, "no store: constructor palette is baked");
+    assert.match(absent["popup.html"], /--primary: #c084fc/, "no store: constructor accent is baked");
+  } finally {
+    clearStore();
+    saveAppBuildConfig({ ...prevCfg, themeSyncEnabled: true });
+  }
+});

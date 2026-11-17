@@ -19,6 +19,7 @@ import {
   renderGppRegistryXml,
 } from "./templates/gpoTemplates.js";
 import { writeJsonAtomic, writeFileAtomic, readJsonStore } from "./jsonStore.js";
+import { applyDashboardThemeToClientConfig } from "./serverTheme.js";
 import { getBuilderConfigPath, getReleasesDir } from "./storage.js";
 import { recordRelease } from "./releases.js";
 import type { ExtensionBuildConfig, ExtensionBuildInfo } from "./types.js";
@@ -816,10 +817,15 @@ export function generateExtensionFiles(
     fs.mkdirSync(EXTENSION_DIR, { recursive: true });
   }
 
-  const mergedCfg: ExtensionBuildConfig = {
+  // THEME-SRC-FIX-2: dashboard-as-source for the extension build channel —
+  // while the global sync toggle is ON with a non-empty store, the panel
+  // theme is baked into the artifacts (popup palette/accent, styles, icons)
+  // instead of the constructor theme; OFF/empty store keeps the legacy
+  // constructor configuration.
+  const mergedCfg: ExtensionBuildConfig = applyDashboardThemeToClientConfig({
     ...DEFAULT_BUILD_CONFIG,
     ...cfg,
-  };
+  });
 
   const force = Boolean(opts?.force);
   const shouldResetOverrides = Boolean(opts?.forceResetOverrides || opts?.resetOverrides);
@@ -892,12 +898,12 @@ export async function buildExtensionFiles(cfg: ExtensionBuildConfig): Promise<Re
   ).trim().replace(/\/+$/, "");
   const effectiveToken = cfg.token || cfg.defaultToken || currentBuildConfig.defaultToken;
 
-  const mergedCfg: ExtensionBuildConfig = {
+  const mergedCfg: ExtensionBuildConfig = applyDashboardThemeToClientConfig({
     ...DEFAULT_BUILD_CONFIG,
     ...cfg,
     defaultServerUrl: effectiveBaseUrl,
     defaultToken: effectiveToken,
-  };
+  });
 
   generateExtensionFiles(mergedCfg);
 

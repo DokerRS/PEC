@@ -2,7 +2,7 @@
 import { state } from '../core/state.js';
 import { adminFetch, esc, escapeHtml, extractError } from '../core/api.js';
 import { toast, pecConfirm, pecPrompt, registerModalCloser } from '../core/notify.js';
-import { t, applyThemeSyncToConstructors, closeCustomizationPopover } from '../core/theme.js';
+import { t, applyThemeSyncToConstructors, closeCustomizationPopover, isThemeSyncEnabled } from '../core/theme.js';
 import { fetchExtensionInfo, loadReleases } from './telemetry.js';
 
 let currentProxiesList: any[] = [];
@@ -184,11 +184,20 @@ export let activeStudioThemeMode = 'dark';
       if (iframe && iframe.contentWindow) {
         try {
           const currentVersionVal = (document.getElementById('bldVersion') && document.getElementById('bldVersion').value.trim()) || '1.0.0';
+          // THEME-SRC-FIX-2: the live preview follows the build contract -
+          // while the sync toggle is ON the artifacts carry the dashboard
+          // theme, so the preview shows the panel palette/mode too.
+          const previewPalette = isThemeSyncEnabled()
+            ? (document.body.getAttribute('data-theme') || activeStudioPalette)
+            : activeStudioPalette;
+          const previewThemeMode = isThemeSyncEnabled()
+            ? (document.body.getAttribute('data-theme-mode') || activeStudioThemeMode)
+            : activeStudioThemeMode;
           iframe.contentWindow.postMessage({
             type: 'UPDATE_STUDIO_THEME',
-            palette: activeStudioPalette,
+            palette: previewPalette,
             layout: activeStudioLayout,
-            themeMode: activeStudioThemeMode
+            themeMode: previewThemeMode
           }, '*');
           iframe.contentWindow.postMessage({
             type: 'UPDATE_STUDIO_VERSION',

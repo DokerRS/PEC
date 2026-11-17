@@ -146,6 +146,39 @@ export function resolveSyncThemeForClients(cfg: {
 }
 
 /**
+ * THEME-SRC-FIX-2: overlay the dashboard theme onto an extension build
+ * configuration while the global sync toggle is ON and the store is
+ * non-empty (read-only via resolveFleetTheme - raw localStorage-style
+ * strings never reach the build). OFF or an empty store returns the
+ * constructor configuration untouched (legacy behavior, no breakage).
+ * Shared by the packager build pipeline and the studio live preview so
+ * both follow the same contract as the app path (buildAppProfile).
+ */
+export function applyDashboardThemeToClientConfig<T extends {
+  colorPalette?: string;
+  presetStyle?: string;
+  defaultThemeMode?: string;
+  themeColor?: string;
+  themeBackground?: string;
+  themeCard?: string;
+  themeSyncEnabled?: boolean;
+}>(cfg: T): T {
+  const fleet = resolveFleetTheme();
+  if (!resolveThemeSyncEnabled((cfg as any).themeSyncEnabled) || !fleet) {
+    return cfg;
+  }
+  return {
+    ...cfg,
+    colorPalette: fleet.palette,
+    presetStyle: fleet.style,
+    defaultThemeMode: fleet.mode,
+    themeColor: fleet.primary,
+    themeBackground: fleet.background,
+    themeCard: fleet.card,
+  };
+}
+
+/**
  * Returns the stored dashboard theme, or null when no theme was ever pushed
  * (server_theme.json absent/unreadable). Null means "dashboard never spoke":
  * consumers fall back to legacy per-config behavior / neutral defaults.
