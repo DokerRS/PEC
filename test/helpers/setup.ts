@@ -28,6 +28,7 @@ process.env.ROUTING_PROFILES_PATH = path.join(tmp, "routing_profiles.json");
 process.env.INSTANCES_META_PATH = path.join(tmp, "instances_meta.json");
 process.env.ROTATION_CONFIG_PATH = path.join(tmp, "rotation_config.json");
 process.env.ROTATION_HISTORY_PATH = path.join(tmp, "rotation_history.json");
+process.env.SERVER_THEME_PATH = path.join(tmp, "server_theme.json");
 process.env.BUILDER_CONFIG = path.join(tmp, "extension_build_config.json");
 process.env.APP_BUILD_CONFIG = path.join(tmp, "app_build_config.json");
 process.env.APP_BUILD_INFO = path.join(tmp, "app_build_info.json");
