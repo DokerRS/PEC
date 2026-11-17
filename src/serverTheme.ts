@@ -90,6 +90,10 @@ export interface ClientTheme {
   primary: string;
   background: string;
   card: string;
+  /** THEME-SRC-FIX-3: "dashboard" while the global sync toggle is ON —
+   * popup clients apply this mode server-first; "constructor" keeps the
+   * local theme toggle in charge. */
+  source: "dashboard" | "constructor";
 }
 
 /**
@@ -123,6 +127,7 @@ export function resolveSyncThemeForClients(cfg: {
         primary: fleet.primary,
         background: fleet.background,
         card: fleet.card,
+        source: "dashboard",
       },
     };
   }
@@ -141,6 +146,7 @@ export function resolveSyncThemeForClients(cfg: {
       primary: cfg.themeColor || styles.primary,
       background: cfg.themeBackground || styles.background,
       card: cfg.themeCard || styles.card,
+      source: "constructor",
     },
   };
 }
