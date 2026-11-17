@@ -14,7 +14,10 @@ export function createServerThemeRouter(adminAuthMiddleware?: RequestHandler): R
     router.use(adminAuthMiddleware);
   }
 
-  router.get(["/", "/api/server-theme"], (_req: Request, res: Response) => {
+  // This router must be mounted WITH the /api/server-theme prefix
+  // (app.use("/api/server-theme", ...)): the adminAuth below is router-wide,
+  // so a prefix-less mount would intercept every application request.
+  router.get(["/", "/server-theme"], (_req: Request, res: Response) => {
     const theme = loadServerTheme();
     if (!theme) {
       // Dashboard never pushed a theme: report defaults + absence flag
@@ -23,7 +26,7 @@ export function createServerThemeRouter(adminAuthMiddleware?: RequestHandler): R
     res.json({ ok: true, exists: true, ...theme });
   });
 
-  router.post(["/", "/api/server-theme"], (req: Request, res: Response) => {
+  router.post(["/", "/server-theme"], (req: Request, res: Response) => {
     try {
       const body = req.body || {};
       const saved = saveServerTheme({

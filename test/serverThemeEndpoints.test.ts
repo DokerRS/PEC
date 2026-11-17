@@ -19,7 +19,9 @@ import { TEST_TOKEN, TEST_ADMIN_TOKEN } from "./helpers/setup.js";
 function buildApp() {
   const app = express();
   app.use(express.json());
-  app.use(createServerThemeRouter((req: any, res: any, next: any) => {
+  // Mounted with the same prefix as production (adminAuth is router-wide,
+  // a prefix-less mount would intercept unrelated application routes).
+  app.use("/api/server-theme", createServerThemeRouter((req: any, res: any, next: any) => {
     const token = req.headers["x-admin-token"];
     if (token && token === TEST_ADMIN_TOKEN) return next();
     return res.status(401).json({ ok: false, error: "Unauthorized" });
