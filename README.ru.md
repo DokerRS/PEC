@@ -14,7 +14,7 @@
 [![Node.js](https://img.shields.io/badge/node.js-%3E%3D20-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg)](Dockerfile)
 [![Chrome Extension](https://img.shields.io/badge/chrome%20extension-MV3-brightgreen.svg)](https://developer.chrome.com/docs/extensions/mv3/)
-[![Release](https://img.shields.io/badge/release-v0.9.0--alpha-blue.svg)](https://github.com/vlv-code/PEC/releases)
+[![Release](https://img.shields.io/badge/release-v0.9.2--alpha-blue.svg)](https://github.com/vlv-code/PEC/releases)
 [![Status: Public Alpha](https://img.shields.io/badge/status-public--alpha-orange.svg)]()
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Boosty](https://img.shields.io/badge/Donate-Boosty-F15F2C.svg)](https://boosty.to/oovlvoo)

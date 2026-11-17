@@ -2,6 +2,30 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [v0.9.2-alpha] - 2026-11-17 — THEME-2026-11-16: Theme Contract Deep Audit Remediation
+
+Устранение находок аудита темового контракта (3 параллельных flash-аудита: web/server, натив+артефакты, расширение+Linux; 1×P1, 8×P2, ~10×P3). Инвариант Contract Duplication Guard (5 файлов темовой логики) удержан; независимая верификация — **VERIFY-SEC PASS** + **VERIFY-QA GREEN** (полный сьют 823/823, lint/build зелёные).
+
+### 🔴 P1 — E2E тумблер синка тем
+- **THEME-WEB-1** (d7e3743): `themeSyncEnabled` пробрасывается в `POST /api/builder/config` и `POST /api/app-builder/config` (strict-boolean, whitelist), гейтит Theme-секцию в `buildAppProfile` и `/api/app/sync` (sync=false → клиенты не получают тему, Icon/PecSync не затронуты; kill-switch/anti-spoofing выполняются раньше и безусловно). Дефолт `true` — поведение существующих инсталляций не меняется. Честная формулировка метки (без «и значок»), UI-локи студий сохранены.
+
+### 🟠 P2
+- **THEME-WEB-2** (2dfeefe): app-builder config/build — whitelist `ALLOWED_APP_CONFIG_KEYS` (26 ключей) + hex-валидация `^#[0-9a-fA-F]{6}$` для themeColor/themeBackground/themeCard на обоих эндпоинтах; `updatedAt` server-owned (зеркало builderRoutes).
+- **THEME-WEB-3** (b1e452e): leaky-регекс `^#2[0-4]` заменён перцептивными luminance-клампами (0.299/0.587/0.114, dark<100, light>175, референс pec_imgui_theme.h) в appPackager и appSyncRoutes — «тёмные карточки на light-сборках» (#2e3440 nord, #261805 amber, #2a2a3a) устранены.
+- **THEME-WEB-4** (affcc58): конвергенция копий палитр к канону theme.ts (studio, packager EXTENSION_STYLES_MAP, popupTemplate, colorMap #c084fc, styleToPalette; мёртвая sunset удалена; setServerTheme whitelist 5 тем). Дрейф-защита — test/themePaletteParity.test.ts.
+- **THEME-NAT-1** (3f53c63): PecProfileLock — реальный CRITICAL_SECTION в C-сборке (no-op удалён); UI-свапы профиля (SwitchToProfile, PB_ProfileSave) держат лок — гонка theme-RMW × sync-поток закрыта.
+- **THEME-NAT-2** (567df96): ImGui light-гвард custom card (IsLightMode + канал <160 → белый, паритет с ui/theme.h) — единый контракт ImGui↔GDI на одном профиле.
+- **THEME-NAT-3** (690310f, P3-пакет): единый предикат light-детекции в обоих GUI (lum>175 OR all>180); first-run theme-adoption в ImGui (card/layout) и GDI (content-diff); float↔hex дрифт 6 ImVec4 приведён к канону (79 цветов сверены, 0 дрифта); Linux pb_profile — Theme/PecSync больше не теряются в round-trip (jv_dump re-emit).
+- **THEME-QA-1/2** (f3a58ee): миграция сьютов с мёртвого public/dashboard.js на dashboard.min.js; новый test/themeHexParity.test.ts — hex-parity канон↔ImVec4↔GDI↔студия, drift-guard всех ~50 float-комментариев, юнит-тесты theme-sync (дефолт true, coercion, persist+push).
+
+### 🛡️ Верификационные регрессии (пойманы новыми тестами до релиза)
+- **POPOVER-CLOSE** (31742ec): восстановлены document-listeners — закрытие popoverCustomization/popoverVersionRelease кликом мимо и Escape (третья потеря порта UI-MODULAR-1).
+- **STUDIO-AMBER** (4f84046): палитра amber в whitelist валидных + собственный чип (highlightStyleChip('sunset-amber') больше не падает молча на cyber).
+- **STUDIO-EMERALD** (be0cdd9): lightBackground emerald сходится к канону #f0fdf4 (серверный clamp и packager синхронны).
+
+### ⚙️ Инфраструктура
+- README-бейджи релиза ×2 (README.md, README.ru.md) актуализированы до v0.9.2-alpha.
+
 ## [v0.9.1-alpha] - 2026-11-16 — AUDIT-2026-11-16: Deep Audit Remediation
 
 Устранение находок глубокого аудита репозитория (6 доменных flash-аудитов, 0×P0 / 3×P1 / 19×P2 / ~50×P3), скоординированных диспетчером в три волны; независимая верификация — **вердикт PASS** (agent-security-auditor, strict_independent, полный сьют 795/795).
