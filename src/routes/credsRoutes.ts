@@ -11,6 +11,7 @@ import { recordAudit, getClientIp, getBaseUrl } from "../audit.js";
 import { createRateLimiter, timingSafeEqualString } from "../middleware/security.js";
 import { signPacUrlParams, verifyPacUrlParams } from "../pacSigner.js";
 import { sanitizeSingleLine, logger } from "../logger.js";
+import { resolveSyncThemeForClients } from "../serverTheme.js";
 
 function authenticateExtRequest(
   tokenProvided: string | undefined,
@@ -512,6 +513,12 @@ export function createCredsRouter(getSharedToken: () => string): Router {
             }))
         : [];
 
+      // THEME-SRC-3: dashboard-as-source. While the global sync toggle is ON
+      // the panel theme is delivered (palette id / accent / surfaces); OFF or
+      // a missing global store falls back to the constructor theme (legacy
+      // per-config flag included), absent keys degrade to neutral defaults.
+      const srcTheme = resolveSyncThemeForClients(bldCfg as any);
+
       return res.json({
         ok: true,
         serverTime: new Date().toISOString(),
@@ -526,12 +533,13 @@ export function createCredsRouter(getSharedToken: () => string): Router {
         profileRules,
         proxyReachable,
         uiLayout: bldCfg.uiLayout || "console",
-        colorPalette: bldCfg.colorPalette || "cyber",
+        colorPalette: srcTheme.theme.palette,
+        theme: srcTheme.theme,
         config: {
           ...effectiveConfig,
           pacUrl,
           uiLayout: bldCfg.uiLayout || "console",
-          colorPalette: bldCfg.colorPalette || "cyber",
+          colorPalette: srcTheme.theme.palette,
         },
       });
     } catch (err) {

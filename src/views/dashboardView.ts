@@ -149,8 +149,9 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
 
               <label for="chkSyncThemeWithApps" style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 11px; color: var(--text); user-select: none;">
                 <input type="checkbox" id="chkSyncThemeWithApps" checked onchange="toggleSyncThemeWithApps(this.checked)" style="margin-top: 2px;" />
-                <span data-i18n="lblSyncThemeWithApps">Синхронизировать тему с расширениями и приложениями</span>
+                <span data-i18n="lblSyncThemeWithApps">Клиенты следуют теме панели</span>
               </label>
+              <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;" data-i18n="hintSyncThemeWithApps">Включено — расширения и десктоп-приложения получают тему панели. Выключено — применяются темы из конструкторов расширения и приложения.</div>
             </div>
 
             <!-- 5. Account (dashboard login credentials) -->

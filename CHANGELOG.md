@@ -2,6 +2,26 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [v0.9.3-alpha] - 2026-11-17 — THEME-SRC-2026-11-17: Dashboard-as-Source Theme Propagation
+
+Дашборд «Внешний вид» становится источником тем для клиентов при включённом тумблере синка (устранение пользовательского репорта «у расширения фиолетовый акцент» при синей палитре панели). Нативные клиенты не затронуты (payload `/api/app/sync` и `.pbprofile` неизменны — меняется источник значений на сервере). Независимая верификация — **THEME-SRC-VERIFY-SEC PASS** + **THEME-SRC-QA GREEN** (полный сьют 842/842, lint/build зелёные).
+
+### ✨ Новая функциональность
+- **Серверный стор темы панели** (030ce62, THEME-SRC-1): `data/server_theme.json` (`{palette, mode, syncEnabled}`) через `writeJsonAtomic`; `GET/POST /api/server-theme` строго за adminAuth (fleet-токен — 401 на запись и чтение); whitelist palette (6) / mode (2) + strict-boolean coercion **на чтении и записи**; `SERVER_THEME_PATH` для тест-изоляции; регистры `PALETTE_TO_APP_STYLE` + `APP_STYLE_SURFACES` (hex-parity с EXTENSION_STYLES_MAP закреплена тестом); `resolveThemeSyncEnabled` (глобальный wins → legacy per-config → дефолт true).
+- **Пуш темы из дашборда** (fdd6888, THEME-SRC-2): `setServerTheme` / `setServerThemeMode` / `setThemeSyncEnabled` пушат appearance-патч в `/api/server-theme` (fire-and-forget, toast при неудаче); localStorage остаётся мгновенным UI-состоянием дашборда; legacy per-config пуш THEME-WEB-1 заменён глобальным.
+- **Dashboard-as-source на всех каналах** (0afd199, THEME-SRC-3): тумблер ON → тема панели доставляется в `/api/sync` (extension: additive theme-block `{palette, preset, mode, primary, background, card}` + `colorPalette`), `/api/app/sync` (app-пресет с THEME-WEB-3 клампами) и `buildAppProfile` (.pbprofile) — **без пересборки артефактов**; OFF / отсутствует стор → темы конструкторов (классическое поведение); legacy `themeSyncEnabled` в builder-конфигах — fallback без обрыва инсталляций, глобальный флаг приоритетен.
+
+### 🛠️ Уточнения и регрессии
+- **Честная семантика тумблера** (d7fc65d, THEME-SRC-4): i18n метки и hint (ru/en) — «клиенты следуют теме панели; при выключении применяются темы конструкторов».
+- **S-06** (407549b): закрыта регрессия prefix-less маунта appearance-роута — прод-маунт `/api/server-theme` (server.ts), перехват всех запросов исключён, закреплено serverHygiene S-06 и тест-харнессом с прод-префиксом.
+
+### 🧪 Верификация
+- **THEME-SRC-QA** (79b5e05): независимая матрица `serverThemeQaMatrix` 7/7 через реальный `POST /api/server-theme` за adminAuth — RED→GREEN кейс пользователя (obsidian #c084fc при OFF → панель light/#2563eb на всех трёх каналах без пересборки), OFF/absent/legacy/global-wins, 6 палитр × 3 канала vs канон, auth-матрица (fleet/anon/wrong-token 401, отклонённая запись не мутирует стор), whitelist-инъекции без 500; полный прогон **842/842**.
+- **THEME-SRC-VERIFY-SEC: PASS** — запись admin-only (двойной auth-контур), инжект-поверхностей нет (выход только из фиксированных регистров), привилегии fleet-токена не расширены, в theme-payload нет токенов/кредов/admin-полей.
+
+### ⚙️ Инфраструктура
+- README-бейджи релиза ×2 актуализированы до v0.9.3-alpha.
+
 ## [v0.9.2-alpha] - 2026-11-17 — THEME-2026-11-16: Theme Contract Deep Audit Remediation
 
 Устранение находок аудита темового контракта (3 параллельных flash-аудита: web/server, натив+артефакты, расширение+Linux; 1×P1, 8×P2, ~10×P3). Инвариант Contract Duplication Guard (5 файлов темовой логики) удержан; независимая верификация — **VERIFY-SEC PASS** + **VERIFY-QA GREEN** (полный сьют 823/823, lint/build зелёные).

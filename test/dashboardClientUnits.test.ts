@@ -193,7 +193,7 @@ test("dashboardClientUnits: isThemeSyncEnabled falls back to true when localStor
   }
 });
 
-test("dashboardClientUnits: setThemeSyncEnabled persists locally and pushes the flag to both config endpoints", async () => {
+test("dashboardClientUnits: setThemeSyncEnabled persists locally and pushes the appearance to the server-theme store", async () => {
   const { dom, requests } = installDomWithFetch();
   try {
     setThemeSyncEnabled(false);
@@ -201,13 +201,44 @@ test("dashboardClientUnits: setThemeSyncEnabled persists locally and pushes the 
     assert.equal(localStorage.getItem("pec_theme_sync_enabled"), "false", "the flag must persist as 'false'");
     assert.equal(isThemeSyncEnabled(), false);
 
+    // THEME-SRC-2 (replaces the per-config push of THEME-WEB-1): the toggle is
+    // global - it flips the server-side appearance store.
     const pushes = requests.filter((r) => r.init?.method === "POST");
     const urls = pushes.map((r) => r.url);
-    assert.ok(urls.some((u) => u.includes("/api/builder/config")), "must POST /api/builder/config (THEME-WEB-1)");
-    assert.ok(urls.some((u) => u.includes("/api/app-builder/config")), "must POST /api/app-builder/config (THEME-WEB-1)");
+    assert.ok(urls.some((u) => u.includes("/api/server-theme")), "must POST /api/server-theme (THEME-SRC-2)");
+    assert.ok(
+      !urls.some((u) => u.includes("/api/builder/config") || u.includes("/api/app-builder/config")),
+      "legacy per-config push must be gone (global semantics replace THEME-WEB-1)"
+    );
     for (const p of pushes) {
-      assert.deepEqual(JSON.parse(p.init.body), { themeSyncEnabled: false });
+      const body = JSON.parse(p.init.body);
+      assert.equal(body.syncEnabled, false, "the toggled state must be carried");
+      assert.ok(typeof body.palette === "string" && body.palette.length > 0, "palette must ride along");
+      assert.ok(body.mode === "dark" || body.mode === "light", "mode must ride along");
     }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("dashboardClientUnits: setServerTheme / setServerThemeMode push palette and mode to the server store", async () => {
+  const { dom, requests } = installDomWithFetch();
+  try {
+    setServerTheme("nord");
+    setServerThemeMode("light");
+
+    const pushes = requests.filter((r) => r.init?.method === "POST" && r.url.includes("/api/server-theme"));
+    assert.ok(pushes.length >= 2, "both changes must push");
+    const first = JSON.parse(pushes[0].init.body);
+    assert.equal(first.palette, "nord", "palette change must be pushed");
+    const last = JSON.parse(pushes[pushes.length - 1].init.body);
+    assert.equal(last.mode, "light", "mode change must be pushed");
+    // Unknown values are whitelisted client-side before pushing
+    setServerTheme("bogus");
+    const garbage = JSON.parse(
+      requests.filter((r) => r.init?.method === "POST").slice(-1)[0].init.body
+    );
+    assert.equal(garbage.palette, "cyber", "unknown palette must fall back to cyber before pushing");
   } finally {
     dom.window.close();
   }
