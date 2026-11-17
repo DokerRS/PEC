@@ -3,6 +3,7 @@
 import { state } from './state.js';
 import { I18N } from './i18n.js';
 import { adminFetch } from './api.js';
+import { toast } from './notify.js';
 
 export { I18N };
 
@@ -59,12 +60,17 @@ export function setServerTheme(theme: string) {
   if (isThemeSyncEnabled()) {
     applyThemeSyncToConstructors();
   }
+  // THEME-SRC-2: the dashboard appearance is the fleet theme source —
+  // propagate palette changes to the server store.
+  pushAppearancePatch({ palette: theme });
 }
 
 export function setServerThemeMode(mode: string) {
   if (mode !== 'light' && mode !== 'dark') mode = 'dark';
   document.body.setAttribute('data-theme-mode', mode);
   try { localStorage.setItem('pec_server_theme_mode', mode); } catch (_) {}
+  // THEME-SRC-2: mode changes propagate to the fleet theme source as well.
+  pushAppearancePatch({ mode });
   updateModalActiveState();
   if (isThemeSyncEnabled()) {
     applyThemeSyncToConstructors();
@@ -158,25 +164,52 @@ export function isThemeSyncEnabled(): boolean {
   }
 }
 
+/**
+ * THEME-SRC-2: the dashboard appearance (palette/mode/syncEnabled) is the
+ * fleet theme source. Merged patch POSTed to /api/server-theme (admin
+ * endpoint), fire-and-forget: localStorage stays the instant UI state and a
+ * failure only surfaces a toast - it never breaks the local toggle.
+ */
+function pushAppearancePatch(patch: { palette?: string; mode?: string; syncEnabled?: boolean }) {
+  let palette = patch.palette;
+  if (!palette) {
+    palette = document.body.getAttribute('data-theme') || 'cyber';
+  }
+  let mode = patch.mode;
+  if (!mode) {
+    mode = document.body.getAttribute('data-theme-mode') || 'dark';
+  }
+  const payload = JSON.stringify({
+    palette,
+    mode,
+    syncEnabled: patch.syncEnabled !== undefined ? patch.syncEnabled : isThemeSyncEnabled(),
+  });
+  adminFetch('/api/server-theme', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: payload,
+  })
+    .then((res) => {
+      if (!res.ok && res.status !== 401) {
+        // 401 is handled by adminFetch (login step) - no extra toast there.
+        toast(t('msgThemePushFailed') || 'Failed to save the appearance on the server', 'error');
+      }
+    })
+    .catch(() => {
+      toast(t('msgThemePushFailed') || 'Failed to save the appearance on the server', 'error');
+    });
+}
+
 export function setThemeSyncEnabled(enabled: boolean) {
   try {
     localStorage.setItem('pec_theme_sync_enabled', enabled ? 'true' : 'false');
   } catch (_) {}
   applyThemeSyncToConstructors();
-  // THEME-WEB-1: complete the E2E loop - the flag must leave the browser and
-  // gate corporate theme push server-side (app-build artifacts + /api/app/sync
-  // theme block). Fire-and-forget into both config endpoints; a failure must
-  // not break the local toggle (the next save of either config re-carries it).
-  const payload = JSON.stringify({ themeSyncEnabled: enabled });
-  const push = (url: string) => {
-    adminFetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
-    }).catch(() => {});
-  };
-  push('/api/builder/config');
-  push('/api/app-builder/config');
+  // THEME-SRC-2 (replaces the per-config push of THEME-WEB-1): the toggle is
+  // global now - it flips the server-side appearance store that gates fleet
+  // theme delivery. Fire-and-forget; a failure must not break the local
+  // toggle (the next palette/mode/toggle change re-pushes the full state).
+  pushAppearancePatch({ syncEnabled: enabled });
 }
 
 export function setGlobalBrandIcon(icon: string) {
