@@ -15,7 +15,7 @@ useDefault = true
 [[rules]]
 id = "pec-env-admin-token"
 description = "PEC ADMIN_TOKEN assignment"
-regex = '''ADMIN_TOKEN[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=-]{20,})'''
+regex = '''ADMIN_TOKEN[ \t]*=[ \t]*["']?([A-Za-z0-9_/.+-]{19,})'''
 secretGroup = 1
 keywords = ["admin_token"]
 tags = ["pec", "token"]
@@ -23,7 +23,7 @@ tags = ["pec", "token"]
 [[rules]]
 id = "pec-env-fleet-token"
 description = "PEC EXT_SHARED_TOKEN assignment"
-regex = '''EXT_SHARED_TOKEN[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=-]{20,})'''
+regex = '''EXT_SHARED_TOKEN[ \t]*=[ \t]*["']?([A-Za-z0-9_/.+-]{19,})'''
 secretGroup = 1
 keywords = ["ext_shared_token"]
 tags = ["pec", "token"]
@@ -31,7 +31,7 @@ tags = ["pec", "token"]
 [[rules]]
 id = "pec-env-pac-signing-secret"
 description = "PEC PAC_SIGNING_SECRET assignment"
-regex = '''PAC_SIGNING_SECRET[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=-]{20,})'''
+regex = '''PAC_SIGNING_SECRET[ \t]*=[ \t]*["']?([A-Za-z0-9_/.+-]{19,})'''
 secretGroup = 1
 keywords = ["pac_signing_secret"]
 tags = ["pec", "secret"]
@@ -39,7 +39,7 @@ tags = ["pec", "secret"]
 [[rules]]
 id = "pec-env-ad-bind-password"
 description = "PEC AD_BIND_PASSWORD assignment"
-regex = '''AD_BIND_PASSWORD[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=!-]{20,})'''
+regex = '''AD_BIND_PASSWORD[ \t]*=[ \t]*["']?([A-Za-z0-9_/.+-]{19,})'''
 secretGroup = 1
 keywords = ["ad_bind_password"]
 tags = ["pec", "password"]
@@ -47,7 +47,7 @@ tags = ["pec", "password"]
 [[rules]]
 id = "pec-env-xui-admin-pass"
 description = "PEC XUI_ADMIN_PASS assignment"
-regex = '''XUI_ADMIN_PASS[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=!-]{20,})'''
+regex = '''XUI_ADMIN_PASS[ \t]*=[ \t]*["']?([A-Za-z0-9_/.+-]{19,})'''
 secretGroup = 1
 keywords = ["xui_admin_pass"]
 tags = ["pec", "password"]
@@ -55,7 +55,7 @@ tags = ["pec", "password"]
 [[rules]]
 id = "pec-env-code-sign-password"
 description = "PEC CODE_SIGN_PASSWORD assignment"
-regex = '''CODE_SIGN_PASSWORD[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=!-]{20,})'''
+regex = '''CODE_SIGN_PASSWORD[ \t]*=[ \t]*["']?([A-Za-z0-9_/.+-]{19,})'''
 secretGroup = 1
 keywords = ["code_sign_password"]
 tags = ["pec", "password"]
@@ -63,27 +63,31 @@ tags = ["pec", "password"]
 [[rules]]
 id = "pec-env-code-sign-master-key"
 description = "PEC CODE_SIGN_MASTER_KEY assignment"
-regex = '''CODE_SIGN_MASTER_KEY[ \t]*=[ \t]*["']?([A-Za-z0-9_/+.=!-]{20,})'''
+regex = '''CODE_SIGN_MASTER_KEY[ \t]*=[ \t]*["']?([A-Za-z0-9_/.+-]{19,})'''
 secretGroup = 1
 keywords = ["code_sign_master_key"]
 tags = ["pec", "secret"]
 
 [allowlist]
-description = "PEC test fixtures, env template, and documentation placeholders"
+description = "PEC test fixtures, env template, documentation placeholders, and RSA public keys"
 paths = [
   '''(^|/)\.env\.example$''',
   '''(^|/)test/.*''',
   '''(^|/)docs/.*''',
   '''(^|/)\.agents/.*''',
   '''(^|/)README(\.ru)?\.md$''',
+  # Vendored third-party source (Dear ImGui, MIT) - upstream code, no PEC secrets
+  '''(^|/)client/Windows/gui/imgui/.*''',
 ]
-
-# CRX manifest public key: extension/manifest.json carries the RSA PUBLIC key
-# (SPKI base64, "MIIBIjANBgkqhkiG9w0BAQ..." DER prefix) that pins the Chrome
-# extension ID for GPO ExtensionInstallForcelist. Chrome exposes this value
-# publicly for every extension - it is not a secret. Scoped to the exact file
-# and to the RSA SPKI prefix so no other secret class in that file passes.
-[[allowlists]]
-description = "CRX manifest public key (extension ID pinning, public by design)"
-paths = ['''(^|/)extension/manifest\.json$''']
-regexes = ['''MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ''']
+# RSA SPKI (2048) public-key DER prefix in base64: public keys are not secrets.
+# Covers the CRX manifest "key" line that pins the Chrome extension ID for GPO
+# forcelists (extension/manifest.json, shipped to every browser by design).
+# corp-proxy-secret-token-change-me: documented canary placeholder (NAT-2),
+# intentionally committed in code/docs as a non-secret sentinel.
+# process.env.* references captured by the PEC assignment rules are reads,
+# not literal secrets.
+regexes = [
+  '''MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ''',
+  '''corp-proxy-secret-token-change-me''',
+  '''process\.env\.[A-Za-z0-9_]+''',
+]

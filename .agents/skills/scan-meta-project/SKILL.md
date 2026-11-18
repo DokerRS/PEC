@@ -1,5 +1,7 @@
 ---
 name: scan-meta-project
+license: MIT
+compatibility: "Requires Python 3.10+ and Git"
 description: >-
   Inspect repository meta-knowledge integrity, verify 100% boundary coverage,
   detect architectural drift, and opportunistically backfill missing facts without re-initialization.
@@ -45,7 +47,7 @@ The skill operates in two modes:
 1. **Passport Integrity:**
    - Verify presence of root `AGENTS.md`.
    - Ensure Section 1 contains North Stars and invariants (`Circuit Breaker`, `Default Deny`).
-   - Ensure Section 2, 3, 4, 5 are populated without placeholder tags (`{{...}}`).
+   - Ensure Sections 2-5 (`Repository Meta-Map`, `Directive Meta-Knowledge Protocol`, `Procedural Skills Registry`, `Local Verification Tooling & Autonomous Fallback`) are populated without placeholder tags (`{{...}}`).
 2. **Knowledge Slices Audit:**
    - Verify the 5 canonical slices in `.agents/project_knowledge/`:
      * `architecture.md` (components and data flows).
