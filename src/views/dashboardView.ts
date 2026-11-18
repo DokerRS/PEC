@@ -1406,7 +1406,10 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
         </p>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
-          <div style="font-size: 14px; font-weight: 600;" data-i18n="titleRegisteredDevices">Зарегистрированный флот</div>
+          <div>
+            <div style="font-size: 14px; font-weight: 600;" data-i18n="titleFleetExtensions">Расширения</div>
+            <div style="font-size: 12px; color: var(--text-muted);" data-i18n="hintFleetExtensions">Зарегистрированные браузерные расширения (флот корпоративной сети)</div>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center;">
             <input type="text" id="fleetSearchInput" class="form-input form-input-sm" style="margin-bottom: 0; min-width: 240px; font-size: 12px; padding: 4px 8px;" placeholder="Поиск по ID, IP, пользователю или AD..." data-i18n-ph="placeholderFleetSearch" oninput="filterFleetTable()" />
           </div>
@@ -1435,8 +1438,8 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           </div>
         </div>
 
-        <div class="table-container">
-          <table id="instancesTable">
+        <div class="fleet-table-container">
+          <table id="instancesTable" class="fleet-table">
             <thead>
               <tr>
                 <th style="width: 38px; text-align: center;"><input type="checkbox" id="fleetSelectAll" title="Выбрать все"></th>
@@ -1465,11 +1468,11 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             <div>
               <h3 style="margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px;">
                 <span>🖥️</span>
-                <span data-i18n="titleDesktopClients">Десктопные клиенты PEC-App</span>
+                <span data-i18n="titleFleetApplications">Приложения</span>
                 <span id="badgeDesktopOnline" class="badge badge-online">0 online</span>
               </h3>
-              <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 0;" data-i18n="subDesktopClients">
-                Централизованное управление клиентами Windows, мониторинг версий и назначение прокси-нод
+              <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 0;" data-i18n="hintFleetApplications">
+                Десктопные клиенты PEC-App, подключённые к этому серверу
               </p>
             </div>
             <button type="button" id="btnRefreshDesktopFleet" class="btn btn-sm btn-secondary" style="font-size: 12px;">
@@ -1477,8 +1480,8 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             </button>
           </div>
 
-          <div class="table-container">
-            <table id="desktopInstancesTable">
+          <div class="fleet-table-container">
+            <table id="desktopInstancesTable" class="fleet-table">
               <thead>
                 <tr>
                   <th style="width: 100px;">Статус</th>
