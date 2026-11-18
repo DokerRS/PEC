@@ -32,7 +32,12 @@ test("syncIntervalConfig: packageExtension respects PEC_SYNC_INTERVAL_MIN env va
     const res = packageExtension("http://127.0.0.1:3999");
     assert.ok(res.extensionId, "packageExtension should return build result with extensionId");
 
-    const bgJs = fs.readFileSync(path.join(process.cwd(), "dist/unpacked/background.js"), "utf-8");
+    // Mirror packager.ts UNPACKED_DIR derivation exactly (setup.ts redirects
+    // PEC_UPDATES_DIR into the per-run temp dir, so a hard-coded ./dist/unpacked
+    // would read a stale or non-existent tree outside the sandbox).
+    const updatesDir = path.resolve(process.env.PEC_UPDATES_DIR || path.join(process.cwd(), "dist", "updates"));
+    const unpackedDir = path.resolve(process.env.PEC_UNPACKED_DIR || path.join(path.dirname(updatesDir), "unpacked"));
+    const bgJs = fs.readFileSync(path.join(unpackedDir, "background.js"), "utf-8");
     assert.ok(bgJs.includes("const SYNC_INTERVAL_MIN = 3;"), "unpacked background.js must have SYNC_INTERVAL_MIN = 3");
   } finally {
     if (origEnv !== undefined) process.env.PEC_SYNC_INTERVAL_MIN = origEnv;
