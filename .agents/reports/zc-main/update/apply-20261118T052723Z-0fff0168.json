@@ -1,0 +1,231 @@
+{
+  "schema_version": "1.0.0",
+  "report_type": "update",
+  "project_id": "vlv-code/PEC",
+  "installation_id": "zc-main",
+  "harness_id": "zcode",
+  "actor_id": "vlv-code/PEC::zcode::zc-main::agent-meta-guardian",
+  "run_id": "apply-20261118T052723Z-0fff0168",
+  "created_at": "2026-11-18T05:27:23Z",
+  "status": "completed",
+  "git_state": {
+    "commit_sha": "6ccf934c5e731fa46f04035a9f4eeea81a36f026",
+    "branch": "dev/ad-security-integration",
+    "is_clean": false,
+    "modified_files": [
+      ".agents/project_knowledge/tasks.md",
+      ".agents/skills/decommission-meta-project/SKILL.md",
+      ".agents/skills/ground-meta-project/SKILL.md",
+      ".agents/skills/init-meta-project/SKILL.md",
+      ".agents/skills/manage-meta-project/SKILL.md",
+      ".agents/skills/record-observation/SKILL.md",
+      ".agents/skills/scan-meta-project/SKILL.md",
+      ".agents/skills/sync-architecture/SKILL.md",
+      ".agents/skills/tune-meta-project/SKILL.md",
+      ".agents/skills/update-meta-project/SKILL.md",
+      ".agents/team/agent-devops-infra/profile.md",
+      ".agents/team/agent-general-worker/profile.md",
+      ".gitleaks.toml",
+      "scripts/check_boundaries.py",
+      "scripts/compact_memory.py",
+      "scripts/inspect_meta_project.py",
+      "scripts/manage_reports.py",
+      "scripts/record_obs.py",
+      "scripts/sync_templates.py",
+      "scripts/update_meta_project.py",
+      "scripts/verify_identity.py",
+      ".agents/framework-lock.json",
+      ".agents/skills/init-meta-project/resources/",
+      ".agents/skills/manage-meta-project/resources/",
+      ".agents/update-engine.lock",
+      ".agents/update-journal.json",
+      "scripts/_common.py"
+    ],
+    "git_state_error": null
+  },
+  "input_fingerprints": [
+    {
+      "path": ".agents/meta-project.json",
+      "sha256": "90bbadcbd6577f86a758947310084677810144f8b757ead6287032d87b3c1802"
+    },
+    {
+      "path": ".agents/project_knowledge/boundaries.md",
+      "sha256": "44660a36037e18eb693c32dcdfaa4a1d1c7657ca9c40a433cae8ba2afa03dde5"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "07c8eb15412a1c5a22bafa94a76aea39805015c9e2893448fc3aef68eeb5c83b"
+    },
+    {
+      "path": ".agents/framework-lock.json",
+      "sha256": "7f67ae382f63298a78b6007686c6b2e3dea49c7d87fc54980a627595a08ef2ec"
+    }
+  ],
+  "versions": {
+    "before": "unknown",
+    "after": {
+      "framework_version": "1.0.0-alpha.7",
+      "commit_sha": "c39b8e2979004c72abf233f217fc1b4c01fc77b6"
+    }
+  },
+  "source": {
+    "ref": "main",
+    "commit_sha": "c39b8e2979004c72abf233f217fc1b4c01fc77b6",
+    "origin": "upstream"
+  },
+  "affected_components": [
+    {
+      "path": "scripts/_common.py",
+      "kind": "script",
+      "action": "adopt"
+    },
+    {
+      "path": "scripts/verify_identity.py",
+      "kind": "script",
+      "action": "adopt"
+    },
+    {
+      "path": "scripts/inspect_meta_project.py",
+      "kind": "script",
+      "action": "adopt"
+    },
+    {
+      "path": "scripts/manage_reports.py",
+      "kind": "script",
+      "action": "adopt"
+    },
+    {
+      "path": "scripts/record_obs.py",
+      "kind": "script",
+      "action": "adopt"
+    },
+    {
+      "path": "scripts/compact_memory.py",
+      "kind": "script",
+      "action": "adopt"
+    },
+    {
+      "path": "scripts/sync_templates.py",
+      "kind": "script",
+      "action": "adopt"
+    },
+    {
+      "path": "scripts/update_meta_project.py",
+      "kind": "script",
+      "action": "adopt"
+    },
+    {
+      "path": "skills/init-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "adopt"
+    },
+    {
+      "path": "skills/init-meta-project/resources/observations.md",
+      "kind": "resource",
+      "action": "create"
+    },
+    {
+      "path": "skills/init-meta-project/resources/weak_spots.md",
+      "kind": "resource",
+      "action": "create"
+    },
+    {
+      "path": "skills/init-meta-project/resources/architecture.md",
+      "kind": "resource",
+      "action": "create"
+    },
+    {
+      "path": "skills/init-meta-project/resources/tasks.md",
+      "kind": "resource",
+      "action": "create"
+    },
+    {
+      "path": "skills/init-meta-project/resources/AGENTS.md",
+      "kind": "resource",
+      "action": "create"
+    },
+    {
+      "path": "skills/init-meta-project/resources/record-observation-SKILL.md",
+      "kind": "resource",
+      "action": "create"
+    },
+    {
+      "path": "skills/init-meta-project/resources/sync-architecture-SKILL.md",
+      "kind": "resource",
+      "action": "create"
+    },
+    {
+      "path": "skills/init-meta-project/resources/ground-meta-project-SKILL.md",
+      "kind": "resource",
+      "action": "create"
+    },
+    {
+      "path": "skills/manage-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "adopt"
+    },
+    {
+      "path": "skills/manage-meta-project/resources/profile.md",
+      "kind": "resource",
+      "action": "create"
+    },
+    {
+      "path": "skills/manage-meta-project/resources/notes.md",
+      "kind": "resource",
+      "action": "create"
+    },
+    {
+      "path": "skills/manage-meta-project/resources/system_prompt.md",
+      "kind": "resource",
+      "action": "create"
+    },
+    {
+      "path": "skills/record-observation/SKILL.md",
+      "kind": "skill",
+      "action": "adopt"
+    },
+    {
+      "path": "skills/sync-architecture/SKILL.md",
+      "kind": "skill",
+      "action": "adopt"
+    },
+    {
+      "path": "skills/ground-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "adopt"
+    },
+    {
+      "path": "skills/update-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "adopt"
+    },
+    {
+      "path": "skills/decommission-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "adopt"
+    },
+    {
+      "path": "skills/scan-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "adopt"
+    },
+    {
+      "path": "skills/tune-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "adopt"
+    }
+  ],
+  "approved_plan_file": null,
+  "executed_migrations": [],
+  "preserved_adaptations": [],
+  "conflicts": [],
+  "checks": [
+    {
+      "name": "update_apply",
+      "command": "python scripts/update_meta_project.py apply",
+      "status": "pass",
+      "output_summary": "28 components affected, 0 conflicts, 0 needs-base, 0 protected-refused, journal written to .agents/update-journal.json"
+    }
+  ],
+  "remaining_manual_actions": []
+}

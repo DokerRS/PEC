@@ -2,6 +2,7 @@ import "./helpers/setup.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import express from "express";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -346,5 +347,85 @@ test("SRC-FIX-2: extension build pipeline bakes the panel theme while sync is ON
   } finally {
     clearStore();
     saveAppBuildConfig({ ...prevCfg, themeSyncEnabled: true });
+  }
+});
+
+test("SRC-FIX-5 (d): popup templates keep colors on CSS vars — inline hex outside the whitelist is forbidden", async () => {
+  const { renderPopupHtml } = await import("../src/templates/popupHtmlTemplate.js");
+  const { renderPopupJs } = await import("../src/templates/popupJsTemplate.js");
+  const html = renderPopupHtml();
+  const js = renderPopupJs();
+
+  // (a) inventory guard: no inline style="...hex" in the HTML template at all
+  const htmlInlineHex = html.match(/style="[^"]*#[0-9a-fA-F]{3,8}/g) || [];
+  assert.deepEqual(htmlInlineHex, [], `popup.html must not carry inline hex styles, found: ${htmlInlineHex.slice(0, 5)}`);
+
+  // JS-inserted styles: only whitelisted values (contrast text on --primary
+  // buttons and CSS var references — raw hex is forbidden)
+  const jsColorAssignments = js.match(/\.style\.color\s*=\s*"[^"]*"/g) || [];
+  const COLOR_ASSIGNMENT_WHITELIST = [/^\.style\.color = ""$/, /"#ffffff"/, /var\(--[a-z-]+\)/];
+  for (const assignment of jsColorAssignments) {
+    assert.ok(
+      COLOR_ASSIGNMENT_WHITELIST.some((re) => re.test(assignment)),
+      `JS color assignments must stay whitelisted (#ffffff contrast text or CSS vars), got: ${assignment}`
+    );
+  }
+
+  // Background/badge/button surfaces ride CSS vars, not baked hex classes
+  assert.match(js, /var\(--primary\)/, "popup JS must reference the primary variable for dynamic surfaces");
+  for (const selector of [".tab-btn.active", ".btn-primary-sm {", ".badge-action-proxy", ".btn-quick-add {"]) {
+    const anchor = html.indexOf(selector);
+    assert.ok(anchor !== -1, `template must define ${selector.trim()}`);
+    const cssSegment = html.slice(anchor);
+    const braces = cssSegment.indexOf("}");
+    const body = cssSegment.slice(0, braces);
+    assert.ok(
+      !/background:\s*#[0-9a-fA-F]{3,8}/i.test(body) || /var\(/.test(body),
+      `${selector.trim()} background must ride CSS vars, got: ${body.slice(0, 120)}`
+    );
+  }
+});
+
+test("SRC-FIX-5 (c,e): packageExtension re-bake follows the panel theme (icons + popup inserts), OFF keeps constructor", async () => {
+  const { packageExtension, getBuildConfig, saveBuildConfig } = await import("../src/packager.js");
+  const unpackedDir = () => path.resolve(process.env.PEC_UPDATES_DIR || "./dist/updates", "..", "unpacked");
+  const prevCfg = getBuildConfig();
+  try {
+    saveBuildConfig({
+      presetStyle: "dark-obsidian",
+      colorPalette: "obsidian",
+      themeColor: "#c084fc",
+      themeBackground: "#0d1117",
+      themeCard: "#161b22",
+      iconType: "shield",
+      version: "1.0.20",
+    });
+
+    // ON: dashboard panel = emerald while the constructor says Dark Obsidian
+    saveServerTheme({ palette: "emerald", mode: "dark", syncEnabled: true });
+    packageExtension("http://127.0.0.1:3000");
+    const popupHtml = fs.readFileSync(path.join(unpackedDir(), "popup.html"), "utf-8");
+    assert.match(popupHtml, /data-palette="emerald"/, "re-baked popup must carry the panel palette (inserts follow the panel)");
+    const iconSvgPath = path.resolve(process.env.PEC_EXTENSION_DIR || "./extension", "icon.svg");
+    const iconSvg = fs.readFileSync(iconSvgPath, "utf-8");
+    assert.ok(iconSvg.includes("#34d399"), "shield icon must be colored by the panel accent while sync is ON; got: " + iconSvg.slice(0, 700));
+    assert.ok(!iconSvg.includes("#c084fc"), "constructor purple must not leak into the icon while ON");
+
+    // (e) rebuild without touching the constructor form: inserts stay panel-themed
+    saveBuildConfig({ version: "1.0.21" });
+    packageExtension("http://127.0.0.1:3000");
+    const repopup = fs.readFileSync(path.join(unpackedDir(), "popup.html"), "utf-8");
+    assert.match(repopup, /data-palette="emerald"/, "rebuild must keep following the panel theme");
+
+    // OFF: constructor theme is baked again (legacy, no breakage)
+    saveServerTheme({ palette: "cyber", mode: "dark", syncEnabled: false });
+    packageExtension("http://127.0.0.1:3000");
+    const offHtml = fs.readFileSync(path.join(unpackedDir(), "popup.html"), "utf-8");
+    assert.match(offHtml, /data-palette="obsidian"/, "OFF: constructor palette is baked");
+    const offIcon = fs.readFileSync(iconSvgPath, "utf-8");
+    assert.ok(offIcon.includes("#c084fc"), "OFF: icon colored by the constructor accent");
+  } finally {
+    clearStore();
+    saveBuildConfig({ ...prevCfg, themeSyncEnabled: true });
   }
 });

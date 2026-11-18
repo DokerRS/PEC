@@ -68,6 +68,7 @@ let currentProxyState = {
   activeProxyId: (DEFAULT_PROXY_ID && !DEFAULT_PROXY_ID.startsWith("__" + "PEC_")) ? DEFAULT_PROXY_ID : "",
   availableProxies: [],
   allowUserProxySwitch: typeof ALLOW_USER_PROXY_SWITCH === "boolean" ? ALLOW_USER_PROXY_SWITCH : true,
+  serverTheme: null,
 };
 
 // Diagnostics ring-buffer log (last 100 events) persisted to local storage
@@ -1273,6 +1274,15 @@ async function executeSync(forceRefresh = false, applyConfig = true, selectedPro
             // Server accepted this instance again: lift the kill-switch gate
             // so SET_ENABLED(true) stops being refused (AUDIT-EXT-1).
             currentProxyState.serverDisabled = false;
+          }
+          if (payload.theme && typeof payload.theme === "object") {
+            // THEME-SRC-FIX-3: remember the server theme (palette + mode +
+            // source marker) so the popup can apply it server-first.
+            currentProxyState.serverTheme = {
+              palette: typeof payload.theme.palette === "string" ? payload.theme.palette : "",
+              mode: payload.theme.mode === "light" ? "light" : "dark",
+              source: payload.theme.source === "dashboard" ? "dashboard" : "constructor",
+            };
           }
           if (payload.allowUserProxySwitch !== undefined) {
             currentProxyState.allowUserProxySwitch = payload.allowUserProxySwitch;

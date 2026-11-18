@@ -438,6 +438,9 @@ export function createAppSyncRouter(
         primary: syncPrimary,
         background: syncBg,
         card: syncCard,
+        // THEME-SRC-FIX-3: the source marker drives popup theme priority —
+        // "dashboard" wins over the local toggle, "constructor" does not.
+        source: useDashboardTheme ? ("dashboard" as const) : ("constructor" as const),
       };
 
       // Constructor themes are always delivered now: the THEME-WEB-1
