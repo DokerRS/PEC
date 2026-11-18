@@ -111,6 +111,9 @@ test("FIX-3: background template persists payload.theme into currentProxyState.s
     "the local toggle title must document the server-override contract"
   );
   // The synced extension copy matches the template
-  const synced = fs.readFileSync(path.resolve("extension/popup.js"), "utf-8");
-  assert.equal(synced, popupSrc, "extension/popup.js must be the synced template copy (sync:templates)");
+  // (EOL-tolerant: autocrlf checkouts on windows runners materialize CRLF on
+  // disk while the canonical template ships LF - content equality is the
+  // contract, same normalization as the popupTheme.js sync assert)
+  const synced = fs.readFileSync(path.resolve("extension/popup.js"), "utf-8").replace(/\r\n/g, "\n");
+  assert.equal(synced, popupSrc.replace(/\r\n/g, "\n"), "extension/popup.js must be the synced template copy (sync:templates)");
 });
