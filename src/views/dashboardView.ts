@@ -1639,8 +1639,10 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
               <strong id="lblAdLastSync" style="font-family: var(--mono); margin-left: 4px;">—</strong>
             </div>
             <div>
-              <span style="color: var(--text-muted);" data-i18n="lblAdUsersCount">Пользователей в кэше:</span>
-              <span id="lblAdUsersCount" class="badge badge-primary" style="margin-left: 4px;">0</span>
+              <span style="color: var(--text-muted);" data-i18n="lblAdUniqueUsers" title="Уникальные sAMAccountName, отобранные фильтром группы AD">Пользователей:</span>
+              <span id="lblAdUniqueUsers" class="badge badge-primary" style="margin-left: 4px;">0</span>
+              <span style="color: var(--text-muted); margin-left: 12px;" data-i18n="lblAdIdentifiers" title="Идентификаторы = логин + UPN + почта для матчинга входа">Идентификаторов:</span>
+              <span id="lblAdUsersCount" class="badge" style="margin-left: 4px;" title="Идентификаторы = логин + UPN + почта для матчинга входа">0</span>
             </div>
           </div>
         </div>

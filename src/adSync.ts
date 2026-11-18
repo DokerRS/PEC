@@ -409,6 +409,21 @@ export class AdSyncService {
     return this.allowedUsersSet.size;
   }
 
+  /**
+   * AD-UX-2: count UNIQUE sAMAccountName users. The allowedUsersSet holds
+   * every identity form (sam, UPN, mail) for login matching — 28 users in
+   * the group surface as 64 identifiers (28 sam + 28 upn + 8 mail-filled).
+   * The dashboard shows both honest counters side by side.
+   */
+  public countUniqueUsers(): number {
+    let unique = 0;
+    for (const id of this.allowedUsersSet) {
+      // An identifier is a sAMAccountName when no "@" or "\" separator exists.
+      if (!id.includes("@") && !id.includes("\\")) unique++;
+    }
+    return unique;
+  }
+
   public getLastSyncInfo() {
     return {
       lastSyncAt: this.lastSyncAt,

@@ -355,3 +355,22 @@ test("AD-TLS-OPT-1: ldapts version is pinned in the lock (quirk behavior guard)"
   ).version as string;
   assert.equal(installed, locked, "installed ldapts must match the lock entry");
 });
+
+test("AD-UX-2: countUniqueUsers counts unique sAMAccountName (user case 28+28+8=64 identifiers)", () => {
+  const svc = new AdSyncService({ enabled: false, ldapUrl: "ldaps://ad.test:636" });
+  // The user report: 28 users, all with UPN, 8 with mail filled -> 64 identifiers
+  svc.setMockAllowedUsers([
+    // 28 sAMAccountName + 28 UPN
+    ...Array.from({ length: 28 }, (_, i) => `user${i + 1}`),
+    ...Array.from({ length: 28 }, (_, i) => `user${i + 1}@corp.local`),
+    // 8 mail-filled users
+    ...Array.from({ length: 8 }, (_, i) => `user${i + 1}@corp.com`),
+  ]);
+  assert.equal(svc.getAllowedUsersCount(), 64, "identifier count must be the full Set size (sam+UPN+mail)");
+  assert.equal(svc.countUniqueUsers(), 28, "unique sAMAccountName count must be the honest user count");
+
+  // DOMAIN\username form is also an identity form, not a separate user
+  svc.setMockAllowedUsers(["CORP\\alice", "alice", "alice@corp.local"]);
+  assert.equal(svc.getAllowedUsersCount(), 3);
+  assert.equal(svc.countUniqueUsers(), 1, "sam-only entries count as users; the DOMAIN-backslash form is an identity form");
+});

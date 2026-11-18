@@ -95,6 +95,9 @@ test("adConfigRoutes: GET /api/ad/status returns configuration and never exposes
     assert.equal(typeof data.rejectUnknownUsers, "boolean", "rejectUnknownUsers must be a boolean");
     assert.equal(typeof data.tlsRejectUnauthorized, "boolean", "tlsRejectUnauthorized must be a boolean");
     assert.equal(typeof data.usersCount, "number", "usersCount must be a number");
+    // AD-UX-2: honest counters — unique sAMAccountName users vs identifiers
+    assert.equal(typeof data.uniqueUsersCount, "number", "uniqueUsersCount must be a number");
+    assert.ok(data.uniqueUsersCount <= data.usersCount, "uniqueUsersCount must never exceed the identifier count");
     assert.equal(typeof data.hasPassword, "boolean", "hasPassword flag must be returned");
 
     // Critical invariant: plaintext password must NEVER be exposed
@@ -198,6 +201,7 @@ test("adConfigRoutes: POST /api/ad/sync-now triggers immediate synchronization",
     const data = (await res.json()) as any;
     assert.equal(data.ok, true, "sync-now must report ok: true");
     assert.equal(typeof data.usersCount, "number", "Must return usersCount");
+    assert.equal(typeof data.uniqueUsersCount, "number", "Must return uniqueUsersCount (AD-UX-2)");
     assert.ok(data.syncedAt, "Must return syncedAt timestamp");
   });
 });

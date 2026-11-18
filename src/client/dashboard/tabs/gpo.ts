@@ -77,7 +77,12 @@ export async function loadAdStatus() {
 
     const usersCountEl = document.getElementById('lblAdUsersCount');
     if (usersCountEl) {
+      // AD-UX-2: identifiers = sam + UPN + mail entries used for login matching
       usersCountEl.textContent = String(data.usersCount || 0);
+    }
+    const uniqueUsersEl = document.getElementById('lblAdUniqueUsers');
+    if (uniqueUsersEl) {
+      uniqueUsersEl.textContent = String(data.uniqueUsersCount || 0);
     }
 
     toggleAdFieldsState();
