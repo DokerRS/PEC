@@ -59,12 +59,22 @@ jobs:
           npm audit --json > npm-audit.json || true
           node -e "
             const a = JSON.parse(require('fs').readFileSync('npm-audit.json', 'utf8'));
-            const WAIVED = new Set(['picomatch']);
-            const bad = Object.values(a.vulnerabilities || {})
-              .filter((v) => !WAIVED.has(v.name) && (v.severity === 'high' || v.severity === 'critical'));
+            const WAIVED_GHSA = new Set(['GHSA-fc5q-39xc-vjpf']);
+            const WAIVED_MODULES = new Set(['picomatch']);
+            const ghsaId = (x) => { const s = typeof x === 'string' ? x : String(x?.url || ''); const m = /GHSA-[A-Za-z0-9-]+/.exec(s); return m ? m[0] : null; };
+            function entryBad(v) {
+              if (v.severity !== 'high' && v.severity !== 'critical') return false;
+              const via = v.via || [];
+              const directBad = via.some((x) => { const id = ghsaId(x); return id && !WAIVED_GHSA.has(id); });
+              if (directBad) return true;
+              const propagated = via.filter((x) => typeof x === 'string' && !ghsaId(x));
+              if (propagated.length) return propagated.some((m) => !WAIVED_MODULES.has(m));
+              return false;
+            }
+            const bad = Object.values(a.vulnerabilities || {}).filter(entryBad);
             if (bad.length) {
               for (const v of bad) console.error('HIGH/CRITICAL:', v.name, v.severity, (v.via || []).map(String).join(','));
               process.exit(1);
             }
-            console.log('npm audit gate: clean (waived: picomatch GHSA-fc5q-39xc-vjpf, no upstream fix)');
+            console.log('npm audit gate: clean (waived: picomatch GHSA-fc5q-39xc-vjpf + its propagators, no upstream fix)');
           "
