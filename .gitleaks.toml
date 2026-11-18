@@ -77,3 +77,13 @@ paths = [
   '''(^|/)\.agents/.*''',
   '''(^|/)README(\.ru)?\.md$''',
 ]
+
+# CRX manifest public key: extension/manifest.json carries the RSA PUBLIC key
+# (SPKI base64, "MIIBIjANBgkqhkiG9w0BAQ..." DER prefix) that pins the Chrome
+# extension ID for GPO ExtensionInstallForcelist. Chrome exposes this value
+# publicly for every extension - it is not a secret. Scoped to the exact file
+# and to the RSA SPKI prefix so no other secret class in that file passes.
+[[allowlists]]
+description = "CRX manifest public key (extension ID pinning, public by design)"
+paths = ['''(^|/)extension/manifest\.json$''']
+regexes = ['''MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ''']
