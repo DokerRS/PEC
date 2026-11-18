@@ -2,6 +2,18 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [v0.9.6-alpha] - 2026-11-18 — Patch: Managed Schema JSON Escape (Update-Channel Blocker)
+
+**P1-блокер всего update-канала расширения**: `managed_schema.json` нёс невалидный JSON-escape (одиночный backslash вместо удвоенного в `DOMAIN+\\username` подстановке domainUser) — браузеры скачивали обновление и падали на парсе схемы (воспроизведено на живом проде: Edge загрузил пакет и отклонил установку).
+
+### 🔧 Исправления
+- **EXT-SCHEMA-ESCAPE-1** (a3b1282): `managedSchemaTemplate.ts` — учверённое экранирование в TS-литерале так, чтобы в артефакте было валидное `\\` (DOMAIN + 2 backslash + username); `extension/managed_schema.json` перегенерирован через `sync:templates` (strict JSON.parse OK).
+- **Новый гарант** (`extensionArtifactJson.test.ts`): strict `JSON.parse` шиппимого `managed_schema.json` + всех генерируемых build-output `.json` + всех `.json`-entries упакованного CRX-зипа (AdmZip) — RED 0/4 на битом артефакте, GREEN 4/4 после фикса.
+- **Аудит** остальных генерируемых `.json`/`.xml`: GPP Registry.xml/updates.xml не содержат unicode-escape класса (амперсанды экранированы, path-бэкслеши — легитимные XML-данные); backslash-u литералов в gpoTemplates/translations нет.
+
+### 📌 После обновления
+`git pull` → деплой → **пересборка расширения в студии** → публикация → управляемые машины обновятся автоматически (механизм подтверждён логом Edge).
+
 ## [v0.9.5-alpha] - 2026-11-18 — Patch: Popup Theme Priority & Stale-Bake Root Cause
 
 Патч-релиз к v0.9.4-alpha: закрывает красную нить пользовательской диагностики попапа («значок и часть вставок остаются фиолетовыми ни от смены тем, ни от пересборки»). Полный сьют 851 тестов, lint/build зелёные.
