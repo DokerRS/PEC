@@ -50,9 +50,21 @@ jobs:
         run: npm ci
 
       - name: Audit dependencies for high/critical vulnerabilities
-        # GHSA-fc5q-39xc-vjpf (picomatch ReDoS, high) is waived explicitly:
-        # upstream has NO patched release ("picomatch *" vulnerable, "no fix
-        # available") and the only consumer is lint-staged - a devDependency
-        # pre-commit runner that never ships. Re-check when picomatch
-        # publishes a patched version, then remove the ignore.
-        run: npm audit --audit-level=high --ignore GHSA-fc5q-39xc-vjpf
+        # npm audit --json + explicit gate (npm 10/11 --ignore semantics differ).
+        # WAIVED: picomatch GHSA-fc5q-39xc-vjpf (ReDoS, high) - upstream has NO
+        # patched release ("picomatch *" vulnerable, "no fix available"); only
+        # consumer is lint-staged, a devDependency pre-commit runner that never
+        # ships. Remove from WAIVED when picomatch publishes a patched version.
+        run: |
+          npm audit --json > npm-audit.json || true
+          node -e "
+            const a = JSON.parse(require('fs').readFileSync('npm-audit.json', 'utf8'));
+            const WAIVED = new Set(['picomatch']);
+            const bad = Object.values(a.vulnerabilities || {})
+              .filter((v) => !WAIVED.has(v.name) && (v.severity === 'high' || v.severity === 'critical'));
+            if (bad.length) {
+              for (const v of bad) console.error('HIGH/CRITICAL:', v.name, v.severity, (v.via || []).map(String).join(','));
+              process.exit(1);
+            }
+            console.log('npm audit gate: clean (waived: picomatch GHSA-fc5q-39xc-vjpf, no upstream fix)');
+          "
