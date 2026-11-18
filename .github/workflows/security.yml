@@ -50,4 +50,9 @@ jobs:
         run: npm ci
 
       - name: Audit dependencies for high/critical vulnerabilities
-        run: npm audit --audit-level=high
+        # GHSA-fc5q-39xc-vjpf (picomatch ReDoS, high) is waived explicitly:
+        # upstream has NO patched release ("picomatch *" vulnerable, "no fix
+        # available") and the only consumer is lint-staged - a devDependency
+        # pre-commit runner that never ships. Re-check when picomatch
+        # publishes a patched version, then remove the ignore.
+        run: npm audit --audit-level=high --ignore GHSA-fc5q-39xc-vjpf
