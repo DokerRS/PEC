@@ -2,6 +2,13 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [0.9.7-alpha] - 2026-11-19
+### Added
+- **EXT-DOMAINUSER-1**: Automatic `domainUser` propagation in `deploy-pec-gpo.ps1` with fallback to `$env:USERDOMAIN\$env:USERNAME`, enabling seamless enterprise domain identity in fleet telemetry via Managed Storage.
+- **AD-UX-2**: Honest AD metrics — distinct counts for unique AD user accounts vs. multi-attribute identifiers (`sAMAccountName`, `userPrincipalName`, `mail`) in the GPO tab and status API.
+### Changed
+- **FLEET-UI-1**: Fleet telemetry tables unified to fixed 420px height with sticky headers and distinct `Extensions` / `Applications` section titles.
+
 ## [v0.9.6-alpha] - 2026-11-18 — Patch: Managed Schema JSON Escape (Update-Channel Blocker)
 
 **P1-блокер всего update-канала расширения**: `managed_schema.json` нёс невалидный JSON-escape (одиночный backslash вместо удвоенного в `DOMAIN+\\username` подстановке domainUser) — браузеры скачивали обновление и падали на парсе схемы (воспроизведено на живом проде: Edge загрузил пакет и отклонил установку).
