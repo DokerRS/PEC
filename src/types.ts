@@ -83,6 +83,7 @@ export interface ExtensionInstance {
   version: string;
   extensionId?: string;
   userAgent?: string;
+  browser?: string;
   lastSync: string;
   syncCount: number;
   status: "ONLINE" | "STALE" | "OFFLINE";

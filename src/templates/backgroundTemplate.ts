@@ -242,6 +242,19 @@ function logEvent(level, message, data) {
 // of idle time and re-executes this script on wake, so a module-level random
 // ID would change on every wake and flood the server's instance registry.
 // Generate once and persist in chrome.storage.local instead.
+function getBrowserTag() {
+  try {
+    const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+    if (ua.includes("Edg/") || ua.includes("Edge/")) return "edge";
+    if (ua.includes("YaBrowser")) return "yandex";
+    if (ua.includes("OPR/") || ua.includes("Opera/")) return "opera";
+    if (ua.includes("Vivaldi")) return "vivaldi";
+    if (typeof navigator !== "undefined" && navigator.brave) return "brave";
+    if (ua.includes("Chrome/")) return "chrome";
+  } catch (e) {}
+  return "chrome";
+}
+
 let cachedInstanceId = null;
 async function getInstanceId() {
   if (cachedInstanceId) return cachedInstanceId;
@@ -252,7 +265,8 @@ async function getInstanceId() {
       return cachedInstanceId;
     }
   } catch (e) {}
-  const newId = "inst_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 10);
+  const bTag = getBrowserTag();
+  const newId = "inst_" + bTag + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 10);
   cachedInstanceId = newId;
   try { await chrome.storage.local.set({ pecInstanceId: newId }); } catch (e) {}
   return newId;
@@ -1256,6 +1270,7 @@ async function executeSync(forceRefresh = false, applyConfig = true, selectedPro
             instanceId: instId,
             version: manifest.version,
             extensionId: chrome.runtime.id,
+            browser: getBrowserTag(),
             activeProxyMode: currentProxyState.protocol,
             group: targetGroup,
             selectedProxyId: effectiveSelectedProxyId,

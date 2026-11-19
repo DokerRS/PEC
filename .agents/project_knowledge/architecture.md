@@ -61,13 +61,13 @@ Architectural map, subsystem interaction, and data flows.
 
 ### 2.5 Packaging & Builder Studio
 - **Modules:** `src/packager.ts`, `src/appPackager.ts`, `src/codeSigner.ts`, `src/routes/builderRoutes.ts`, `src/routes/appBuilderRoutes.ts`.
-- **Function:** Compiles and signs `.CRX` extension packages with 2048-bit RSA keys (`extension/key.pem`), generates GPO deployment files (`.reg`, PowerShell scripts), and builds cross-platform desktop installers.
+- **Function:** Compiles and signs `.CRX` extension packages with 2048-bit RSA keys (`extension/key.pem`), generates GPO deployment files (`.reg`, PowerShell scripts, direct GPP `Registry.xml` via `GET /api/builder/registry-xml`), and builds cross-platform desktop installers.
 - **MV3 CSP-Safe Popup Theme Bootstrap (AUDIT-EXT-2):** `extension/popupTheme.js` — external pre-paint theme script loaded in `popup.html` `<head>` (replaces the former inline FOUC bootstrap rejected by MV3 CSP `script-src 'self'`); generated from `src/templates/popupThemeTemplate.ts` and kept in sync via `npm run sync:templates`.
 - **Test Sandbox Contract (AUDIT-NAT-2-TS):** `writeVersionGenHeaders` sanitizes placeholder fleet tokens into an empty `PEC_DEFAULT_FLEET_TOKEN`, and `test/helpers/setup.ts` redirects header regeneration into a sandbox replica via `PEC_CLIENT_WIN_DIR` — `npm test` can never rewrite the committed `client/Windows/**/version_gen.h` copies.
 
 ### 2.6 Fleet Telemetry & Sync
 - **Modules:** `src/instances.ts`, `src/routes/instancesRoutes.ts`, `src/routes/appSyncRoutes.ts`.
-- **Function:** Ingests heartbeats (`POST /api/sync`) from extensions and desktop clients, manages instance state with LRU capacity protection, and provides global kill-switch capability.
+- **Function:** Ingests heartbeats (`POST /api/sync`) from extensions and desktop clients, manages instance state with LRU capacity protection, browser detection (`Chrome`, `Edge`, `Yandex`, `Opera`, `Brave`, `Vivaldi`), and provides global kill-switch capability.
 - **Enrollment rate limiting:** `EnrollmentTracker` (`src/routes/credsRoutes.ts`) throttles credential-enrollment bursts with an injectable clock (`nowFn`, default `Date.now`) enabling deterministic virtual-time tests (AUDIT-QA-2).
 
 ### 2.7 Logging, Observability & Prometheus Metrics

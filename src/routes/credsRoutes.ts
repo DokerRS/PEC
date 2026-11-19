@@ -311,7 +311,7 @@ export function createCredsRouter(getSharedToken: () => string): Router {
       const xExtToken = Array.isArray(xExtTokenHeader) ? xExtTokenHeader[0] : xExtTokenHeader;
       const token = getSharedToken();
 
-      const { instanceId: bodyInstanceId, version, extensionId, activeProxyMode, group, selectedProxyId, domainUser } = req.body || {};
+      const { instanceId: bodyInstanceId, version, extensionId, activeProxyMode, group, selectedProxyId, domainUser, browser } = req.body || {};
       const headerInstanceId = req.headers["x-instance-id"];
       const rawInstanceId = bodyInstanceId !== undefined && bodyInstanceId !== null
         ? bodyInstanceId
@@ -456,6 +456,7 @@ export function createCredsRouter(getSharedToken: () => string): Router {
             version: String(version || "1.0.0"),
             extensionId: extensionId ? String(extensionId) : undefined,
             userAgent: req.headers["user-agent"],
+            browser: typeof browser === "string" ? browser.slice(0, 32) : undefined,
             activeProxyMode: activeProxyMode ? String(activeProxyMode) : undefined,
             group: group ? String(group) : undefined,
             domainUser: domainUser ? String(domainUser).trim() : undefined,

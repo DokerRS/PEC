@@ -215,6 +215,42 @@ function saveInstancesMeta() {
   }
 }
 
+export function detectBrowser(userAgent?: string, clientBrowser?: string, instanceId?: string): string {
+  if (clientBrowser && typeof clientBrowser === "string" && clientBrowser.trim()) {
+    const b = clientBrowser.trim();
+    const bl = b.toLowerCase();
+    if (bl.includes("edge") || bl === "edg") return "Edge";
+    if (bl.includes("yandex")) return "Yandex";
+    if (bl.includes("opera") || bl === "opr") return "Opera";
+    if (bl.includes("vivaldi")) return "Vivaldi";
+    if (bl.includes("brave")) return "Brave";
+    if (bl.includes("chrome")) return "Chrome";
+    return b.slice(0, 32);
+  }
+  if (instanceId && typeof instanceId === "string") {
+    const m = instanceId.match(/^inst_([a-zA-Z0-9]+)_/);
+    if (m && m[1]) {
+      const tag = m[1].toLowerCase();
+      if (tag === "edge" || tag === "edg") return "Edge";
+      if (tag === "chrome") return "Chrome";
+      if (tag === "yandex") return "Yandex";
+      if (tag === "opera" || tag === "opr") return "Opera";
+      if (tag === "brave") return "Brave";
+      if (tag === "vivaldi") return "Vivaldi";
+    }
+  }
+  if (userAgent && typeof userAgent === "string") {
+    if (/Edg\//i.test(userAgent)) return "Edge";
+    if (/YaBrowser/i.test(userAgent)) return "Yandex";
+    if (/OPR\//i.test(userAgent)) return "Opera";
+    if (/Vivaldi/i.test(userAgent)) return "Vivaldi";
+    if (/Brave/i.test(userAgent)) return "Brave";
+    if (/Chrome\//i.test(userAgent)) return "Chrome";
+    if (/Firefox\//i.test(userAgent)) return "Firefox";
+  }
+  return "Chrome";
+}
+
 export function registerHeartbeat(
   dataOrId: string | {
     instanceId: string;
@@ -222,6 +258,7 @@ export function registerHeartbeat(
     version: string;
     extensionId?: string;
     userAgent?: string;
+    browser?: string;
     activeProxyMode?: string;
     group?: string;
     domainUser?: string;
@@ -231,6 +268,7 @@ export function registerHeartbeat(
     version: string;
     extensionId?: string;
     userAgent?: string;
+    browser?: string;
     activeProxyMode?: string;
     group?: string;
     domainUser?: string;
@@ -308,6 +346,7 @@ export function registerHeartbeat(
     version: String(data.version || "").slice(0, 32),
     extensionId: (data.extensionId || existing?.extensionId || "").slice(0, 64),
     userAgent: (data.userAgent || existing?.userAgent || "").slice(0, 256),
+    browser: detectBrowser(data.userAgent || existing?.userAgent, (data as any).browser || existing?.browser, cleanId),
     lastSync: now,
     syncCount: (existing?.syncCount || 0) + 1,
     status: "ONLINE",

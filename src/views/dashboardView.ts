@@ -1559,6 +1559,9 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             <button onclick="downloadScriptFile('verify')" class="btn-secondary" style="font-size: 12px;" data-i18n="btnDownloadVerifyPs">
               <img src="/icons/check.png" class="icon-inline" alt="chk"> verify-pec-gpo.ps1
             </button>
+            <button onclick="downloadRegistryXml()" class="btn-secondary" style="font-size: 12px;" title="Скачать готовый XML-манифест Group Policy Preferences для импорта в GPMC">
+              <img src="/icons/download.png" class="icon-inline" alt="dl"> Registry.xml (GPP)
+            </button>
           </div>
         </div>
 
@@ -1578,14 +1581,35 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             <button id="gpoBrowserOpera" type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 10px; opacity: 0.7;" onclick="setGpoBrowser('opera')">Opera</button>
           </div>
 
-          <div style="background: rgba(43, 114, 226, 0.08); border-left: 3px solid var(--primary); padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; font-size: 11px; line-height: 1.45;">
-            <strong>Конфигурация по умолчанию (проверено в боевой среде):</strong><br>
-            <code>Конфигурация пользователя → Настройка → Конфигурация Windows → Реестр</code><br>
-            <span style="color: var(--text-muted);">
-              • GPO применяется к <strong>OU с целевыми ПК</strong> (с включенным Loopback Processing)<br>
-              • Управление через <strong>Группу AD в фильтрах безопасности</strong><br>
-              • В делегировании <strong>ОБЯЗАТЕЛЬНО</strong> указать <strong>Authenticated Users</strong> («Прошедшие проверку») на Чтение (MS16-072 / KB3163622).
-            </span>
+          <div style="background: rgba(43, 114, 226, 0.08); border-left: 3px solid var(--primary); padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 11px; line-height: 1.5;">
+            <div style="font-weight: 700; margin-bottom: 6px; color: var(--text);">📋 Инструкция по развертыванию через GPO / Active Directory:</div>
+            <div style="margin-bottom: 6px;">
+              <strong>1. Рекомендуемый способ (Tier-1 — GPP Registry.xml):</strong><br>
+              <span style="color: var(--text-muted);">
+                Скопируйте <code>Registry.xml</code> из пакета в каталог политики: <code>\\\\домен\\sysvol\\домен\\Policies\\{GUID}\\User\\Preferences\\Registry\\</code>.<br>
+                Настраивает все 4 браузера, установку и сквозной <code>domainUser</code> нативно через Windows Preferences без запуска скриптов.
+              </span>
+            </div>
+            <div style="margin-bottom: 6px;">
+              <strong>2. Через PowerShell Logon-скрипт:</strong><br>
+              <span style="color: var(--text-muted);">
+                Укажите <code>deploy-pec-gpo.ps1</code> в <code>Конфигурация пользователя → Сценарии → Вход в систему</code>.
+              </span>
+            </div>
+            <div style="margin-bottom: 6px;">
+              <strong>3. Ручная настройка реестра в GPMC:</strong><br>
+              <span style="color: var(--text-muted);">
+                Задайте параметры ниже: <strong>1. Forcelist</strong> (установка), <strong>2. ExtensionSettings</strong> (источник обновления) и <strong>3. domainUser</strong> (обязательно для привязки к AD).
+              </span>
+            </div>
+            <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
+              <strong>Критические требования безопасности GPO:</strong><br>
+              <span style="color: var(--text-muted);">
+                • Привязка к <strong>OU с ПК</strong>: включите Loopback Processing (Замыкание) в режиме <code>Merge (Объединение)</code>.<br>
+                • Вкладка <strong>Delegation (Делегирование)</strong>: обязательно добавьте <strong>Authenticated Users</strong> («Прошедшие проверку») на Чтение (MS16-072 / KB3163622).<br>
+                • Фильтры безопасности: укажите вашу целевую группу AD.
+              </span>
+            </div>
           </div>
 
           <div id="gpoYandexAlert" style="display: none; background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.4); padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 11px; color: #facc15; line-height: 1.4;">
@@ -1593,7 +1617,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           </div>
 
           <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
-            <span data-i18n="lblGpoActivePath">Ветка реестра:</span>
+            <span data-i18n="lblGpoActivePath">Ветка реестра (установка):</span>
             <code id="gpoActiveRegKey" style="color: var(--primary); font-size: 11px; word-break: break-all;">HKEY_CURRENT_USER\Software\Policies\Google\Chrome</code>
           </div>
 
@@ -1609,6 +1633,24 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             <div style="display: flex; flex-direction: column; gap: 4px;">
               <button class="btn-secondary" style="font-size: 11px; padding: 0 10px; flex: 1;" onclick="copyGpoSettings()" title="Копировать отформатированный JSON" data-i18n="btnCopy">Copy JSON</button>
               <button class="btn-secondary" style="font-size: 10px; padding: 0 8px; flex: 1;" onclick="copyGpoRegSz()" title="Копировать строку для вставки в GPMC REG_SZ">Copy REG_SZ</button>
+            </div>
+          </div>
+
+          <label for="gpoDomainUser">3. Managed Policy: domainUser (Идентификация в AD)</label>
+          <div id="gpoDomainUser" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 10px; margin-bottom: 14px;">
+            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">
+              Ветка реестра: <code id="gpoActiveManagedKey" style="color: var(--primary); font-size: 11px; word-break: break-all;">HKEY_CURRENT_USER\\Software\\Policies\\Google\\Chrome\\3rdparty\\extensions\\[ID]\\policy</code>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="font-size: 11px;">
+                <span style="font-weight: 600;">Имя:</span> <code>domainUser</code> &nbsp;|&nbsp;
+                <span style="font-weight: 600;">Тип:</span> <code>REG_SZ</code> &nbsp;|&nbsp;
+                <span style="font-weight: 600;">Значение:</span> <code>%USERDOMAIN%\\%USERNAME%</code>
+              </div>
+              <button type="button" class="btn-secondary" style="font-size: 10px; padding: 3px 8px;" onclick="copyGpoDomainUser()">Copy %USERDOMAIN%\\%USERNAME%</button>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.4;">
+              ⚠️ <em>Обязательно для привязки к AD: Windows раскрывает переменные при входе пользователя. Без этого параметра устройства работают в режиме Legacy (без AD). В GPP Registry.xml и deploy-pec-gpo.ps1 параметр уже включен.</em>
             </div>
           </div>
 
@@ -1645,6 +1687,13 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
               <span id="lblAdUsersCount" class="badge" style="margin-left: 4px;" title="Идентификаторы = логин + UPN + почта для матчинга входа">0</span>
             </div>
           </div>
+        </div>
+
+        <div style="background: rgba(16, 185, 129, 0.08); border-left: 3px solid #10b981; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 11px; line-height: 1.5;">
+          <strong>Связка Active Directory с браузерным расширением:</strong><br>
+          <span style="color: var(--text-muted);">
+            Сервер проверяет членство пользователей в доменной группе по протоколу Zero-Trust. Чтобы расширение отправляло доменный логин сотрудника (<code>DOMAIN\\username</code>), на рабочих станциях через GPO должен быть задан параметр <code>domainUser = %USERDOMAIN%\\%USERNAME%</code> (настраивается в блоке GPO выше через готовый <code>Registry.xml</code> или deploy-скрипт). Устройства с применённой политикой сразу отображаются во «Флоте» с бейджем <span class="badge badge-ad-user">🏢 ДОМЕН\\пользователь</span> и мгновенно блокируются сервером при исключении из группы AD.
+          </span>
         </div>
 
         <form id="adConfigForm" onsubmit="event.preventDefault(); saveAdConfigAction();">

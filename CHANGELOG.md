@@ -2,6 +2,16 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [0.9.8-alpha] - 2026-11-19
+### Added
+- **FLEET-BROWSER-1**: Multi-browser telemetry detection (`Chrome`, `Edge`, `Yandex`, `Opera`, `Brave`, `Vivaldi`) in client extension, heartbeat recording, and dashboard fleet table tags.
+- **GPO-REGXML-DL**: Direct `/api/builder/registry-xml` endpoint and button in GPO tab for downloading ready-to-import Group Policy Preferences `Registry.xml`.
+- **GPO-UI-GUIDE**: Detailed in-dashboard step-by-step guidance for Tier-1 GPP deployment, PowerShell logon scripts, and manual GPMC registry configuration.
+### Fixed
+- **EXT-UA-TAG**: Fixed browser detection regex parsing issue in extension background service worker.
+- **GPO-A11Y-1**: Resolved accessibility label target id for `domainUser` managed policy section.
+- **FLEET-UI-PAIRING**: Restored paired desktop client badge in fleet user display column and included pairing in table signature dirty-diff.
+
 ## [0.9.7-alpha] - 2026-11-19
 ### Added
 - **EXT-DOMAINUSER-1**: Automatic `domainUser` propagation in `deploy-pec-gpo.ps1` with fallback to `$env:USERDOMAIN\$env:USERNAME`, enabling seamless enterprise domain identity in fleet telemetry via Managed Storage.

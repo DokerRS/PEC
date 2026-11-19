@@ -247,6 +247,25 @@ export function createBuilderRouter(getFleetToken: () => string, getAdminToken?:
     }
   });
 
+  router.get("/api/builder/registry-xml", (req: Request, res: Response) => {
+    try {
+      const baseUrl = getBaseUrl(req);
+      const info = getBuildInfo(baseUrl);
+      const token = getFleetToken();
+      const cfg = getBuildConfig();
+      const gpo = generateGpoConfig(info.extensionId, baseUrl, token, {
+        targetGroup: cfg.targetGroup,
+        autoConfigureProxy: cfg.autoConfigureProxy,
+      });
+      res.setHeader("Content-Type", "application/xml; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="Registry.xml"');
+      res.send(gpo.registryXml);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
   router.get("/api/builder/script/:name", (req: Request, res: Response) => {
     try {
       const name = (req.params.name || "").toLowerCase();

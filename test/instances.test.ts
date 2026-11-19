@@ -1,7 +1,7 @@
 import "./helpers/setup.js";
 import test from "node:test";
 import assert from "node:assert";
-import { registerHeartbeat, assignInstanceProfile, deleteInstance, getActiveInstances } from "../src/instances.js";
+import { registerHeartbeat, assignInstanceProfile, deleteInstance, getActiveInstances, detectBrowser } from "../src/instances.js";
 
 test("instance IDs cannot pollute the prototype chain or traverse paths", () => {
   assert.throws(() => registerHeartbeat({ instanceId: "__proto__", ip: "1.2.3.4", version: "1.0.0" }), /Forbidden|Invalid instanceId/);
@@ -113,4 +113,49 @@ test("registerHeartbeat stores domainUser and populates username when empty with
   });
   assert.strictEqual(inst2Next.domainUser, "CORP\\john.doe");
   assert.strictEqual(inst2Next.username, "CORP\\john.doe");
+});
+
+test("detectBrowser correctly identifies browser from explicit value, instanceId prefix, and userAgent", () => {
+  // Explicit client browser
+  assert.strictEqual(detectBrowser(undefined, "edge"), "Edge");
+  assert.strictEqual(detectBrowser(undefined, "chrome"), "Chrome");
+  assert.strictEqual(detectBrowser(undefined, "yandex"), "Yandex");
+  assert.strictEqual(detectBrowser(undefined, "opera"), "Opera");
+  assert.strictEqual(detectBrowser(undefined, "brave"), "Brave");
+  assert.strictEqual(detectBrowser(undefined, "vivaldi"), "Vivaldi");
+
+  // Instance ID prefix
+  assert.strictEqual(detectBrowser(undefined, undefined, "inst_edge_123456_abcdef"), "Edge");
+  assert.strictEqual(detectBrowser(undefined, undefined, "inst_chrome_123456_abcdef"), "Chrome");
+  assert.strictEqual(detectBrowser(undefined, undefined, "inst_yandex_123456_abcdef"), "Yandex");
+  assert.strictEqual(detectBrowser(undefined, undefined, "inst_opera_123456_abcdef"), "Opera");
+
+  // User-Agent string detection
+  const edgeUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.2849.56";
+  assert.strictEqual(detectBrowser(edgeUa), "Edge");
+
+  const chromeUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+  assert.strictEqual(detectBrowser(chromeUa), "Chrome");
+
+  const yaUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 YaBrowser/24.10.0.0 Safari/537.36";
+  assert.strictEqual(detectBrowser(yaUa), "Yandex");
+
+  const oprUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 OPR/114.0.0.0";
+  assert.strictEqual(detectBrowser(oprUa), "Opera");
+
+  // registerHeartbeat sets browser property on ExtensionInstance
+  const instEdge = registerHeartbeat({
+    instanceId: "inst_edge_auto_detect",
+    ip: "10.0.0.12",
+    version: "1.0.2",
+    userAgent: edgeUa,
+  });
+  assert.strictEqual(instEdge.browser, "Edge");
+
+  const instGeneric = registerHeartbeat({
+    instanceId: "inst_generic_fallback",
+    ip: "10.0.0.13",
+    version: "1.0.2",
+  });
+  assert.strictEqual(instGeneric.browser, "Chrome");
 });

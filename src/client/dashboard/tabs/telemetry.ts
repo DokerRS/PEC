@@ -129,12 +129,13 @@ export function filterFleetTable() {
           const grp = (inst.group || '').toLowerCase();
           const app = (inst.pairedAppId || '').toLowerCase();
           const host = (inst.pairedHostname || '').toLowerCase();
-          return id.includes(fleetSearchQuery) || ip.includes(fleetSearchQuery) || u.includes(fleetSearchQuery) || du.includes(fleetSearchQuery) || grp.includes(fleetSearchQuery) || app.includes(fleetSearchQuery) || host.includes(fleetSearchQuery);
+          const b = (inst.browser || '').toLowerCase();
+          return id.includes(fleetSearchQuery) || ip.includes(fleetSearchQuery) || u.includes(fleetSearchQuery) || du.includes(fleetSearchQuery) || grp.includes(fleetSearchQuery) || app.includes(fleetSearchQuery) || host.includes(fleetSearchQuery) || b.includes(fleetSearchQuery);
         });
       }
 
       // Dirty-diff check using serialized signature
-      const currentSig = list.map(i => `${i.instanceId}:${i.status}:${i.assignedProfileId || ''}:${i.assignedProxyId || ''}:${i.syncCount || 0}:${i.lastHeartbeat || ''}:${i.tokenHash ? 1 : 0}:${i.revoked ? 1 : 0}:${i.username || ''}:${i.domainUser || ''}:${i.pairedAppId || ''}`).join(';') + `;sort:${fleetSortCol}:${fleetSortAsc};q:${fleetSearchQuery}`;
+      const currentSig = list.map(i => `${i.instanceId}:${i.status}:${i.assignedProfileId || ''}:${i.assignedProxyId || ''}:${i.syncCount || 0}:${i.lastHeartbeat || ''}:${i.tokenHash ? 1 : 0}:${i.revoked ? 1 : 0}:${i.username || ''}:${i.domainUser || ''}:${i.browser || ''}:${i.pairedAppId || ''}`).join(';') + `;sort:${fleetSortCol}:${fleetSortAsc};q:${fleetSearchQuery}`;
       if (tbody.getAttribute('data-rendered-sig') === currentSig) {
         return;
       }
@@ -225,17 +226,42 @@ export function filterFleetTable() {
           return `<option value="${esc(p.id)}"${sel}>${esc(p.label)}</option>`;
         }).join('');
 
+        const browserName = inst.browser || (function(ua: string, id: string) {
+          if (id && /^inst_edge_/i.test(id)) return 'Edge';
+          if (id && /^inst_chrome_/i.test(id)) return 'Chrome';
+          if (id && /^inst_yandex_/i.test(id)) return 'Yandex';
+          if (id && /^inst_opera_/i.test(id)) return 'Opera';
+          if (id && /^inst_brave_/i.test(id)) return 'Brave';
+          if (id && /^inst_vivaldi_/i.test(id)) return 'Vivaldi';
+          if (ua) {
+            if (/Edg\//i.test(ua)) return 'Edge';
+            if (/YaBrowser/i.test(ua)) return 'Yandex';
+            if (/OPR\//i.test(ua)) return 'Opera';
+            if (/Vivaldi/i.test(ua)) return 'Vivaldi';
+            if (/Brave/i.test(ua)) return 'Brave';
+            if (/Chrome\//i.test(ua)) return 'Chrome';
+            if (/Firefox\//i.test(ua)) return 'Firefox';
+          }
+          return 'Chrome';
+        })(inst.userAgent || '', inst.instanceId || '');
+
+        const browserBadge = `<span class="badge badge-info" style="font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">${esc(browserName)}</span>`;
+
         const pairedBadge = inst.pairedAppId
           ? `<span class="badge badge-success" title="${isRu ? 'Связано с десктоп-агентом (' + esc(inst.pairedHostname || '') + ')' : 'Paired with desktop app (' + esc(inst.pairedHostname || '') + ')'}">🔗 ${isRu ? 'Десктоп' : 'Desktop'}</span>`
           : '';
 
-        const adBadge = inst.domainUser
-          ? `<div style="margin-top: 3px;"><span class="badge badge-ad-user">🏢 ${esc(inst.domainUser)}</span></div>`
-          : `<div style="margin-top: 3px;"><span class="badge badge-warning" title="${isRu ? 'Старая версия расширения без поддержки AD. Работает в режиме мягкой миграции.' : 'Legacy extension without AD support. Operating in soft migration mode.'}">⚠️ Legacy (без AD)</span></div>`;
-
-        const userDisplay = inst.username
-          ? `<div style="font-weight: 600; font-family: var(--mono); font-size: 12px;">${esc(inst.username)}</div>${adBadge}${pairedBadge ? '<div style="margin-top: 3px;">' + pairedBadge + '</div>' : ''}`
-          : `${adBadge}${pairedBadge ? '<div style="margin-top: 3px;">' + pairedBadge + '</div>' : ''}`;
+        let userDisplay = '';
+        if (inst.domainUser) {
+          userDisplay = `<span class="badge badge-ad-user">🏢 ${esc(inst.domainUser)}</span>`;
+        } else if (inst.username) {
+          userDisplay = `<span style="font-weight: 600; font-family: var(--mono); font-size: 12px;">👤 ${esc(inst.username)}</span> <span class="badge badge-warning" style="margin-left: 4px;" title="${isRu ? 'Старая версия расширения без поддержки AD. Работает в режиме мягкой миграции.' : 'Legacy extension without AD support. Operating in soft migration mode.'}">⚠️ Legacy (без AD)</span>`;
+        } else {
+          userDisplay = `<span class="badge badge-warning" title="${isRu ? 'Старая версия расширения без поддержки AD. Работает в режиме мягкой миграции.' : 'Legacy extension without AD support. Operating in soft migration mode.'}">⚠️ Legacy (без AD)</span>`;
+        }
+        if (pairedBadge) {
+          userDisplay += `<div style="margin-top: 3px;">${pairedBadge}</div>`;
+        }
 
         return `<tr>
           <td style="text-align: center;">
@@ -243,7 +269,10 @@ export function filterFleetTable() {
           </td>
           <td>
             <code>${esc(inst.instanceId)}</code>
-            <div style="margin-top: 4px;">${tokenBadge}</div>
+            <div style="margin-top: 4px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+              ${browserBadge}
+              ${tokenBadge}
+            </div>
           </td>
           <td>${userDisplay}</td>
           <td style="font-family: var(--mono);">${esc(inst.ip)}</td>
@@ -911,9 +940,16 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
       };
 
       const root = currentGpoScope === 'machine' ? 'HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies' : 'HKEY_CURRENT_USER\\Software\\Policies';
+      const browserPath = browserKeys[currentGpoBrowser] || 'Google\\Chrome';
       const activePathEl = document.getElementById('gpoActiveRegKey');
       if (activePathEl) {
-        activePathEl.textContent = root + '\\' + (browserKeys[currentGpoBrowser] || 'Google\\Chrome');
+        activePathEl.textContent = root + '\\' + browserPath;
+      }
+
+      const activeManagedKeyEl = document.getElementById('gpoActiveManagedKey');
+      if (activeManagedKeyEl) {
+        const extId = (globalGpo.extensionId || '...').trim();
+        activeManagedKeyEl.textContent = root + '\\' + browserPath + '\\3rdparty\\extensions\\' + extId + '\\policy';
       }
 
       const forcelistEntry = (globalGpo.forcelistEntries && globalGpo.forcelistEntries[currentGpoBrowser]) || globalGpo.forcelistEntry || '';
@@ -1085,14 +1121,40 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
       }
     }
 
+    export function copyGpoDomainUser() {
+      navigator.clipboard.writeText('%USERDOMAIN%\\%USERNAME%').then(() => {
+        toast(currentLang === 'ru' ? 'Параметр %USERDOMAIN%\\%USERNAME% скопирован!' : 'Copied %USERDOMAIN%\\%USERNAME%!', 'success');
+      });
+    }
+
+    export async function downloadRegistryXml() {
+      try {
+        const res = await adminFetch('/api/builder/registry-xml');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'Registry.xml';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        toast('Failed to download Registry.xml: ' + extractError(e), 'error');
+      }
+    }
+
     window.setGpoScope = setGpoScope;
     window.setGpoBrowser = setGpoBrowser;
     window.downloadGpoPack = downloadGpoPack;
     window.downloadRegFile = downloadRegFile;
     window.downloadScriptFile = downloadScriptFile;
+    window.downloadRegistryXml = downloadRegistryXml;
     window.copyGpoForcelist = copyGpoForcelist;
     window.copyGpoSettings = copyGpoSettings;
     window.copyGpoRegSz = copyGpoRegSz;
+    window.copyGpoDomainUser = copyGpoDomainUser;
 
     // ----------------- System Status & Kill-Switch -----------------
     export async function fetchStatus() {
