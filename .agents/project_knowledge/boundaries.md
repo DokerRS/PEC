@@ -40,7 +40,7 @@ This document defines agent freedom levels when modifying the repository using e
 - `.env*` — configuration with production tokens and credentials.
 - `Dockerfile*`, `docker-compose*.yml`, `docker-compose.prod.yml`, `.dockerignore` — container build definitions and orchestration.
 - `.github/**` — CI/CD automation pipelines, issue templates, and bot workflows (`.github/workflows/**`, `.github/dependabot.yml`, `.github/ISSUE_TEMPLATE/**`).
-- `LICENSE`, `.gitignore` — project licensing, copyright terms, and version control exclusion rules.
+- `LICENSE`, `.gitignore`, `.gitleaks.toml` — project licensing, copyright terms, version control exclusion, and secret scanner rules.
 
 ---
 

@@ -7,7 +7,8 @@ export function renderDeployGpoScript(
   extensionId: string,
   serverUrl: string,
   token: string,
-  targetGroup: string = ""
+  targetGroup: string = "",
+  domainUserOverride: string = ""
 ): string {
   const safeExtId = extensionId.replace(/["`$]/g, "");
   const safeServerUrl = serverUrl.replace(/["`$]/g, "").replace(/\/+$/, "");
@@ -33,6 +34,9 @@ param(
 
     [Parameter(Mandatory=$false)]
     [string]$TargetGroup = "${safeTargetGroup}",
+
+    [Parameter(Mandatory=$false)]
+    [string]$DomainUserName = "",
 
     [Parameter(Mandatory=$false)]
     [ValidateSet("User", "Machine")]
@@ -116,6 +120,9 @@ $browsers = @(
 )
 
 # --- 3. Process Each Browser ---
+$script:hasDomainUser = $false
+$script:missingDomainUser = $false
+
 foreach ($b in $browsers) {
     $browserBase = Join-Path $regRoot $b.Key
     $forcelistPath = Join-Path $browserBase "ExtensionInstallForcelist"
@@ -284,7 +291,11 @@ foreach ($b in $browsers) {
     Set-ItemProperty -Path $policyPath -Name "extToken" -Value $Token -Type String
     Set-ItemProperty -Path $policyPath -Name "syncUrl" -Value $SyncUrl -Type String
     Set-ItemProperty -Path $policyPath -Name "credsUrl" -Value $CredsUrl -Type String
-    Set-ItemProperty -Path $policyPath -Name "domainUser" -Value "$env:USERDOMAIN\$env:USERNAME" -Type String
+    # EXT-DOMAINUSER-1: -DomainUserName overrides the automatic %USERDOMAIN%\\%USERNAME%.
+    # Without this policy key the whole fleet stays Legacy (no AD identity).
+    $domainUserVal = if ($DomainUserName) { $DomainUserName } else { $env:USERDOMAIN + '\\' + $env:USERNAME }
+    if (-not $domainUserVal) { $domainUserVal = "%USERDOMAIN%\\%USERNAME%" }
+    Set-ItemProperty -Path $policyPath -Name "domainUser" -Value $domainUserVal -Type String
     Set-ItemProperty -Path $policyPath -Name "autoConfigureProxy" -Value 1 -Type DWord
     if (-not [string]::IsNullOrWhiteSpace($TargetGroup)) {
         Set-ItemProperty -Path $policyPath -Name "targetGroup" -Value $TargetGroup -Type String
@@ -451,6 +462,10 @@ foreach ($b in $browsers) {
         if (Test-Path $polPath) {
             $val = (Get-ItemProperty -Path $polPath -ErrorAction SilentlyContinue).extToken
             if ($val) { $hasToken = $true }
+            # EXT-DOMAINUSER-1: without the domainUser policy key the whole fleet
+            # stays Legacy (no AD identity) — surface it as an explicit warning.
+            $domainUserVal = (Get-ItemProperty -Path $polPath -ErrorAction SilentlyContinue).domainUser
+            if ($domainUserVal) { $script:hasDomainUser = $true } else { $script:missingDomainUser = $true }
         }
 
         $rawSettings = (Get-ItemProperty -Path $base -ErrorAction SilentlyContinue).ExtensionSettings
@@ -474,6 +489,13 @@ foreach ($b in $browsers) {
         Write-CheckResult "$($b.Name) Enterprise Policies" "WARN" "No policies found in HKCU or HKLM"
     }
 }
+
+    # EXT-DOMAINUSER-1: fleet-wide AD identity readiness summary
+    if ($script:missingDomainUser) {
+        Write-CheckResult "domainUser (Managed Storage identity)" "WARN" "domainUser policy missing on one or more browsers - the fleet stays Legacy (no AD identity/kill-switch). Re-run deploy-pec-gpo.ps1 or apply the GPP Registry.xml."
+    } elseif ($script:hasDomainUser) {
+        Write-CheckResult "domainUser (Managed Storage identity)" "PASS" "domainUser policy present - AD identity propagation active"
+    }
 
 Write-Host ""
 Write-Host "--- 3. Local Browser Profile Installation Status ---" -ForegroundColor White

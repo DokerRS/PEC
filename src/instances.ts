@@ -300,6 +300,8 @@ export function registerHeartbeat(
     appliedProxyName = node ? (node.name || hostPort) : "По умолчанию";
   }
 
+  const effectiveDomainUser = meta.domainUser || existing?.domainUser || rawDomainUser;
+
   const record: ExtensionInstance = {
     instanceId: cleanId,
     ip: String(data.ip || "").slice(0, 64),
@@ -318,9 +320,9 @@ export function registerHeartbeat(
     tokenHash: meta.tokenHash || existing?.tokenHash,
     enrolledAt: meta.enrolledAt || existing?.enrolledAt,
     revoked: meta.revoked !== undefined ? meta.revoked : existing?.revoked,
-    domainUser: rawDomainUser || meta.domainUser || existing?.domainUser,
-    isLegacy: meta.isLegacy !== undefined ? meta.isLegacy : (!rawDomainUser && !meta.domainUser && !existing?.domainUser),
-    username: meta.username || existing?.username || rawDomainUser,
+    domainUser: effectiveDomainUser,
+    isLegacy: meta.isLegacy !== undefined ? meta.isLegacy : (!effectiveDomainUser),
+    username: meta.username || existing?.username || effectiveDomainUser,
     pairedAppId: meta.pairedAppId || existing?.pairedAppId,
     pairedHostname: meta.pairedHostname || existing?.pairedHostname,
     verifiedByApp: meta.verifiedByApp !== undefined ? meta.verifiedByApp : existing?.verifiedByApp,

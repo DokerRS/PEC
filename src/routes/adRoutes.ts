@@ -25,6 +25,9 @@ export function createAdRouter(adminAuthMiddleware?: RequestHandler): Router {
         rejectUnknownUsers: Boolean(cfg.rejectUnknownUsers),
         tlsRejectUnauthorized: Boolean(cfg.tlsRejectUnauthorized),
         usersCount: adSyncService.getAllowedUsersCount(),
+        // AD-UX-2: honest counters — unique sAMAccountName users vs every
+        // stored identifier (sam + UPN + mail) used for login matching.
+        uniqueUsersCount: adSyncService.countUniqueUsers(),
         hasPassword: Boolean(cfg.bindPassword && cfg.bindPassword.length > 0),
         lastSyncAt: lastSync.lastSyncAt,
         lastSyncError: lastSync.lastSyncError,
@@ -68,6 +71,7 @@ export function createAdRouter(adminAuthMiddleware?: RequestHandler): Router {
       res.json({
         ok: true,
         usersCount: result.count,
+        uniqueUsersCount: adSyncService.countUniqueUsers(),
         syncedAt: new Date().toISOString(),
         ...(result.error ? { warning: result.error } : {}),
       });

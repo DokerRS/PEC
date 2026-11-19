@@ -20,7 +20,12 @@ test("Dashboard renders Fleet navigation and titles", () => {
   assert.match(html, /id="tab-instances"/);
   assert.match(html, /Флот корпоративной сети/);
   assert.match(html, /Централизованное управление инстансами расширения, профилями и прокси-нодами/);
-  assert.match(html, /Зарегистрированный флот/);
+  // FLEET-UI-1: the two fleet tables carry the "Extensions"/"Applications" headings
+  assert.match(html, /data-i18n="titleFleetExtensions"/);
+  assert.match(html, /data-i18n="titleFleetApplications"/);
+  assert.ok(html.includes('class="fleet-table-container"'), "both fleet tables must use the fixed-height scroll container");
+  assert.ok((html.match(/class="fleet-table-container"/g) || []).length >= 2, "both fleet tables must be wrapped");
+  assert.match(html, /Зарегистрированные браузерные расширения/);
   assert.match(html, /Действия/);
 });
 
