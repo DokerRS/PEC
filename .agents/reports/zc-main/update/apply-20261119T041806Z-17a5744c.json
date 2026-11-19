@@ -1,0 +1,167 @@
+{
+  "schema_version": "1.0.0",
+  "report_type": "update",
+  "project_id": "vlv-code/PEC",
+  "installation_id": "zc-main",
+  "harness_id": "zcode",
+  "actor_id": "vlv-code/PEC::zcode::zc-main::agent-meta-guardian",
+  "run_id": "apply-20261119T041806Z-17a5744c",
+  "created_at": "2026-11-19T04:18:07Z",
+  "status": "completed",
+  "git_state": {
+    "commit_sha": "170587dcdb19730434cd1cbd3fa8dad124f14788",
+    "branch": "dev/ad-security-integration",
+    "is_clean": false,
+    "modified_files": [
+      ".agents/framework-lock.json",
+      ".agents/team/agent-devops-infra/profile.md",
+      ".agents/team/agent-intake-dispatcher/profile.md",
+      ".agents/update-journal.json",
+      "docs/gpo-deployment-guide.md",
+      "scripts/compact_memory.py",
+      "scripts/inspect_meta_project.py",
+      "scripts/update_meta_project.py",
+      "src/templates/gpoTemplates.ts",
+      ".agents/approved_update_plan.json",
+      ".agents/update-engine.lock",
+      "templates/AGENTS.md",
+      "templates/global/",
+      "templates/project_knowledge/",
+      "templates/release_manifest.json",
+      "templates/reports/",
+      "templates/team/",
+      "test/domainUserManagedChain.test.ts"
+    ],
+    "git_state_error": null
+  },
+  "input_fingerprints": [
+    {
+      "path": ".agents/meta-project.json",
+      "sha256": "90bbadcbd6577f86a758947310084677810144f8b757ead6287032d87b3c1802"
+    },
+    {
+      "path": ".agents/project_knowledge/boundaries.md",
+      "sha256": "44660a36037e18eb693c32dcdfaa4a1d1c7657ca9c40a433cae8ba2afa03dde5"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "07c8eb15412a1c5a22bafa94a76aea39805015c9e2893448fc3aef68eeb5c83b"
+    },
+    {
+      "path": ".agents/framework-lock.json",
+      "sha256": "dbf5095afdc2e156371727c8a27716311daccb1e4f9f7480edb01a957c2eb822"
+    }
+  ],
+  "versions": {
+    "before": "c39b8e2979004c72abf233f217fc1b4c01fc77b6",
+    "after": {
+      "framework_version": "1.0.0-alpha.7",
+      "commit_sha": "1fd899635ae404b551cf5de3ed01ea5ed55f0c21"
+    }
+  },
+  "source": {
+    "ref": "main",
+    "commit_sha": "1fd899635ae404b551cf5de3ed01ea5ed55f0c21",
+    "origin": "upstream"
+  },
+  "affected_components": [
+    {
+      "path": "scripts/inspect_meta_project.py",
+      "kind": "script",
+      "action": "update"
+    },
+    {
+      "path": "scripts/compact_memory.py",
+      "kind": "script",
+      "action": "update"
+    },
+    {
+      "path": "scripts/update_meta_project.py",
+      "kind": "script",
+      "action": "update"
+    },
+    {
+      "path": "templates/AGENTS.md",
+      "kind": "template",
+      "action": "create"
+    },
+    {
+      "path": "templates/global/AGENTS.md",
+      "kind": "template",
+      "action": "create"
+    },
+    {
+      "path": "templates/project_knowledge/architecture.md",
+      "kind": "template",
+      "action": "create"
+    },
+    {
+      "path": "templates/project_knowledge/observations.md",
+      "kind": "template",
+      "action": "create"
+    },
+    {
+      "path": "templates/project_knowledge/tasks.md",
+      "kind": "template",
+      "action": "create"
+    },
+    {
+      "path": "templates/project_knowledge/weak_spots.md",
+      "kind": "template",
+      "action": "create"
+    },
+    {
+      "path": "templates/release_manifest.json",
+      "kind": "template",
+      "action": "create"
+    },
+    {
+      "path": "templates/team/notes.md",
+      "kind": "template",
+      "action": "create"
+    },
+    {
+      "path": "templates/team/profile.md",
+      "kind": "template",
+      "action": "create"
+    },
+    {
+      "path": "templates/team/system_prompt.md",
+      "kind": "template",
+      "action": "create"
+    },
+    {
+      "path": "templates/reports/init_report.json",
+      "kind": "report_schema",
+      "action": "create"
+    },
+    {
+      "path": "templates/reports/manage_report.json",
+      "kind": "report_schema",
+      "action": "create"
+    },
+    {
+      "path": "templates/reports/tune_report.json",
+      "kind": "report_schema",
+      "action": "create"
+    },
+    {
+      "path": "templates/reports/update_report.json",
+      "kind": "report_schema",
+      "action": "create"
+    }
+  ],
+  "approved_plan_file": ".agents/approved_update_plan.json",
+  "executed_migrations": [],
+  "preserved_adaptations": [],
+  "conflicts": [],
+  "checks": [
+    {
+      "name": "update_apply",
+      "command": "python scripts/update_meta_project.py apply",
+      "status": "pass",
+      "output_summary": "17 components affected, 0 conflicts, 0 needs-base, 0 protected-refused, journal written to .agents/update-journal.json"
+    }
+  ],
+  "remaining_manual_actions": []
+}

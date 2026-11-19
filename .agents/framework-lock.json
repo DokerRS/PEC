@@ -18,8 +18,8 @@
     {
       "path": "scripts/inspect_meta_project.py",
       "kind": "script",
-      "base_sha256": "96a0cf965135ab0f3a31879ab44df33ba9f2b11b1a41d629861c67b29b42a9ff",
-      "installed_sha256": "96a0cf965135ab0f3a31879ab44df33ba9f2b11b1a41d629861c67b29b42a9ff",
+      "base_sha256": "aa38d5c307bfbc41d811600663440f12e54cea6097acd58aea5b9d0b84c07a01",
+      "installed_sha256": "aa38d5c307bfbc41d811600663440f12e54cea6097acd58aea5b9d0b84c07a01",
       "target": "scripts/inspect_meta_project.py"
     },
     {
@@ -39,8 +39,8 @@
     {
       "path": "scripts/compact_memory.py",
       "kind": "script",
-      "base_sha256": "bb81997225796da2c4e10c0d48d82fee6a1bfe0dabb2703e6cb39c412434664c",
-      "installed_sha256": "bb81997225796da2c4e10c0d48d82fee6a1bfe0dabb2703e6cb39c412434664c",
+      "base_sha256": "488ee3358b2649d7343d7efd853fcb4facd571b1fc658dbcb7016a565a598625",
+      "installed_sha256": "488ee3358b2649d7343d7efd853fcb4facd571b1fc658dbcb7016a565a598625",
       "target": "scripts/compact_memory.py"
     },
     {
@@ -53,8 +53,8 @@
     {
       "path": "scripts/update_meta_project.py",
       "kind": "script",
-      "base_sha256": "41ba0d1ec69dfc3bea3570ffd0c0bff0c302b66f9fe6aa41b34497dde97d2612",
-      "installed_sha256": "41ba0d1ec69dfc3bea3570ffd0c0bff0c302b66f9fe6aa41b34497dde97d2612",
+      "base_sha256": "d327469c3c5b9b23ebfffe98d9446d64aba20807e4c9770adc0be82fcfa84161",
+      "installed_sha256": "d327469c3c5b9b23ebfffe98d9446d64aba20807e4c9770adc0be82fcfa84161",
       "target": "scripts/update_meta_project.py"
     },
     {
@@ -196,14 +196,112 @@
       "base_sha256": "d55ed99798dd6d7de0a3629eef45e61437f782eeed06ad21a2be82accc8c531a",
       "installed_sha256": "d55ed99798dd6d7de0a3629eef45e61437f782eeed06ad21a2be82accc8c531a",
       "target": ".agents/skills/tune-meta-project/SKILL.md"
+    },
+    {
+      "path": "templates/AGENTS.md",
+      "kind": "template",
+      "base_sha256": "483dd32fb875f8f192a88eba4b91cb1962a1cc5b4d2b77e3c22ea931c26caaa9",
+      "installed_sha256": "483dd32fb875f8f192a88eba4b91cb1962a1cc5b4d2b77e3c22ea931c26caaa9",
+      "target": "templates/AGENTS.md"
+    },
+    {
+      "path": "templates/global/AGENTS.md",
+      "kind": "template",
+      "base_sha256": "62376fea2ea9166313f979a92315673f7d522b4740013db526f02317c30280c1",
+      "installed_sha256": "62376fea2ea9166313f979a92315673f7d522b4740013db526f02317c30280c1",
+      "target": "templates/global/AGENTS.md"
+    },
+    {
+      "path": "templates/project_knowledge/architecture.md",
+      "kind": "template",
+      "base_sha256": "035d58dde8e08f1849538135a7fc0d73f77501538efbfe7457d31e7618853b28",
+      "installed_sha256": "035d58dde8e08f1849538135a7fc0d73f77501538efbfe7457d31e7618853b28",
+      "target": "templates/project_knowledge/architecture.md"
+    },
+    {
+      "path": "templates/project_knowledge/observations.md",
+      "kind": "template",
+      "base_sha256": "a7c8ba4fa56655cec9a433e35389e0f911860b50fafa350749e0c75ccee9213e",
+      "installed_sha256": "a7c8ba4fa56655cec9a433e35389e0f911860b50fafa350749e0c75ccee9213e",
+      "target": "templates/project_knowledge/observations.md"
+    },
+    {
+      "path": "templates/project_knowledge/tasks.md",
+      "kind": "template",
+      "base_sha256": "5278d7c7fcba8150920b4243f5a17084727adfd5a112899b17e7c2eaf0602409",
+      "installed_sha256": "5278d7c7fcba8150920b4243f5a17084727adfd5a112899b17e7c2eaf0602409",
+      "target": "templates/project_knowledge/tasks.md"
+    },
+    {
+      "path": "templates/project_knowledge/weak_spots.md",
+      "kind": "template",
+      "base_sha256": "90e4a718f105f9925e198b0ebdd393f58ce60bda98cb36c3396860af01478371",
+      "installed_sha256": "90e4a718f105f9925e198b0ebdd393f58ce60bda98cb36c3396860af01478371",
+      "target": "templates/project_knowledge/weak_spots.md"
+    },
+    {
+      "path": "templates/release_manifest.json",
+      "kind": "template",
+      "base_sha256": "6756b5e34feec26a381499c9a402d9315b866defaf1487be3a89264cc47ce7a7",
+      "installed_sha256": "6756b5e34feec26a381499c9a402d9315b866defaf1487be3a89264cc47ce7a7",
+      "target": "templates/release_manifest.json"
+    },
+    {
+      "path": "templates/team/notes.md",
+      "kind": "template",
+      "base_sha256": "caf99a02d20b78d0201feb684bcfb5134507a9ceeaf0d936197a50fb58d3bcd9",
+      "installed_sha256": "caf99a02d20b78d0201feb684bcfb5134507a9ceeaf0d936197a50fb58d3bcd9",
+      "target": "templates/team/notes.md"
+    },
+    {
+      "path": "templates/team/profile.md",
+      "kind": "template",
+      "base_sha256": "928c3da2158771965f712f18288410a1856098b5a324a37ff2a287a432527068",
+      "installed_sha256": "928c3da2158771965f712f18288410a1856098b5a324a37ff2a287a432527068",
+      "target": "templates/team/profile.md"
+    },
+    {
+      "path": "templates/team/system_prompt.md",
+      "kind": "template",
+      "base_sha256": "6166acee62145c44a1ecbbaa1ffdf9f506899bd23464043ec2eac00cb196ca73",
+      "installed_sha256": "6166acee62145c44a1ecbbaa1ffdf9f506899bd23464043ec2eac00cb196ca73",
+      "target": "templates/team/system_prompt.md"
+    },
+    {
+      "path": "templates/reports/init_report.json",
+      "kind": "report_schema",
+      "base_sha256": "ea23887e98878c1fa4ac19b2426912fd0a9bb99395c3803d435a91022c1123f6",
+      "installed_sha256": "ea23887e98878c1fa4ac19b2426912fd0a9bb99395c3803d435a91022c1123f6",
+      "target": "templates/reports/init_report.json"
+    },
+    {
+      "path": "templates/reports/manage_report.json",
+      "kind": "report_schema",
+      "base_sha256": "f5a502319a617bc632b0397bc1e9838258f36c1392cacdf25724a1f214cd2c5d",
+      "installed_sha256": "f5a502319a617bc632b0397bc1e9838258f36c1392cacdf25724a1f214cd2c5d",
+      "target": "templates/reports/manage_report.json"
+    },
+    {
+      "path": "templates/reports/tune_report.json",
+      "kind": "report_schema",
+      "base_sha256": "c5826ee2e67a238beda5f75e28c480237a02a26e103e8d54afb61d7d83fdd285",
+      "installed_sha256": "c5826ee2e67a238beda5f75e28c480237a02a26e103e8d54afb61d7d83fdd285",
+      "target": "templates/reports/tune_report.json"
+    },
+    {
+      "path": "templates/reports/update_report.json",
+      "kind": "report_schema",
+      "base_sha256": "83ad568bb25f8d702f220123275c13fbad47db252d22cccac38e3c2d7386cfa1",
+      "installed_sha256": "83ad568bb25f8d702f220123275c13fbad47db252d22cccac38e3c2d7386cfa1",
+      "target": "templates/reports/update_report.json"
     }
   ],
   "source": {
-    "repository": "C:/Users/ADM_ZH~1/AppData/Local/Temp/meta-project-upstream",
+    "repository": "C:/Users/adm_zhuravlev/Documents/antigravity/meta-project",
     "ref": "main",
-    "commit_sha": "c39b8e2979004c72abf233f217fc1b4c01fc77b6",
+    "commit_sha": "1fd899635ae404b551cf5de3ed01ea5ed55f0c21",
     "origin": "upstream",
     "channel": "preview"
   },
-  "installed_at": "2026-11-18T05:27:23Z"
+  "installed_at": "2026-11-19T04:18:07Z"
 }
