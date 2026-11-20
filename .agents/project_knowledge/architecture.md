@@ -67,7 +67,7 @@ Architectural map, subsystem interaction, and data flows.
 
 ### 2.6 Fleet Telemetry & Sync
 - **Modules:** `src/instances.ts`, `src/routes/instancesRoutes.ts`, `src/routes/appSyncRoutes.ts`.
-- **Function:** Ingests heartbeats (`POST /api/sync`) from extensions and desktop clients, manages instance state with LRU capacity protection, browser detection (`Chrome`, `Edge`, `Yandex`, `Opera`, `Brave`, `Vivaldi`), and provides global kill-switch capability.
+- **Function:** Ingests heartbeats (`POST /api/sync`) from extensions and desktop clients, manages instance state with LRU capacity protection, browser detection (`Chrome`, `Edge`, `Yandex`, `Opera`, `Brave`, `Vivaldi`), and provides global kill-switch and Zero-Trust AD Auto-Recovery / Unrevoke capability.
 - **Enrollment rate limiting:** `EnrollmentTracker` (`src/routes/credsRoutes.ts`) throttles credential-enrollment bursts with an injectable clock (`nowFn`, default `Date.now`) enabling deterministic virtual-time tests (AUDIT-QA-2).
 
 ### 2.7 Logging, Observability & Prometheus Metrics

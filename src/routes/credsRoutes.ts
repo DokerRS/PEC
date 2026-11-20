@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import express, { Router, Request, Response } from "express";
-import { getProxyConfig, registerHeartbeat, enrollInstanceToken, getInstanceMeta, assignInstanceProxy, isSafeInstanceId, revokeInstanceToken } from "../instances.js";
+import { getProxyConfig, registerHeartbeat, enrollInstanceToken, getInstanceMeta, assignInstanceProxy, isSafeInstanceId, revokeInstanceToken, unrevokeInstanceToken } from "../instances.js";
 import { isDomainUserAllowed, adSyncService } from "../adSync.js";
 import { RoutingProfile, ProxyConfiguration } from "../types.js";
 import { probeProxyTcp, getAllProxies, getProxyById, getActiveProxy } from "../proxies.js";
@@ -17,7 +17,7 @@ function authenticateExtRequest(
   tokenProvided: string | undefined,
   instanceId: string | undefined,
   sharedToken: string,
-  options?: { isSync?: boolean }
+  options?: { isSync?: boolean; domainUser?: string }
 ): { authenticated: boolean; shouldEnroll: boolean } {
   if (!tokenProvided) {
     return { authenticated: false, shouldEnroll: false };
@@ -25,8 +25,28 @@ function authenticateExtRequest(
 
   if (instanceId) {
     const meta = getInstanceMeta(instanceId);
-    // If an instance is revoked, immediately reject with 403 regardless of token
+    // If an instance is revoked:
     if (meta?.revoked) {
+      // In POST /api/sync with shared bootstrap token, allow auto-recovery if:
+      // 1. Not manually revoked by admin
+      // 2. Shared bootstrap token matches
+      // 3. Bound domain user matches presented domain user (anti-spoofing)
+      // 4. AD is enabled and user is now allowed in AD
+      const adConfig = adSyncService.getConfig();
+      const boundUser = meta.domainUser;
+      const cleanUser = options?.domainUser?.trim();
+      const canAutoRecover = Boolean(
+        options?.isSync &&
+        meta.revokedReason !== "manual" &&
+        sharedToken && timingSafeEqualString(tokenProvided, sharedToken) &&
+        boundUser && cleanUser && boundUser.toLowerCase() === cleanUser.toLowerCase() &&
+        adConfig.enabled &&
+        isDomainUserAllowed(cleanUser)
+      );
+
+      if (canAutoRecover) {
+        return { authenticated: true, shouldEnroll: true };
+      }
       return { authenticated: false, shouldEnroll: false };
     }
 
@@ -245,7 +265,7 @@ export function createCredsRouter(getSharedToken: () => string): Router {
         }
         if (meta?.domainUser && !isDomainUserAllowed(meta.domainUser)) {
           if (instanceId) {
-            revokeInstanceToken(instanceId);
+            revokeInstanceToken(instanceId, "ad_killswitch");
           }
           recordAudit({
             ip: clientHost,
@@ -324,8 +344,9 @@ export function createCredsRouter(getSharedToken: () => string): Router {
       }
 
       const instanceId = rawInstanceId ? String(rawInstanceId).trim() : undefined;
+      const cleanDomainUser = typeof domainUser === "string" ? domainUser.trim() : undefined;
 
-      const auth = authenticateExtRequest(xExtToken, instanceId, token, { isSync: true });
+      const auth = authenticateExtRequest(xExtToken, instanceId, token, { isSync: true, domainUser: cleanDomainUser });
       if (!token || !xExtToken || !auth.authenticated) {
         recordAudit({
           ip: clientHost,
@@ -338,7 +359,6 @@ export function createCredsRouter(getSharedToken: () => string): Router {
       }
 
       const existingMeta = instanceId ? getInstanceMeta(instanceId) : undefined;
-      const cleanDomainUser = typeof domainUser === "string" ? domainUser.trim() : undefined;
 
       // Anti-spoofing check: bind instanceId to the first registered domainUser.
       // Any attempt to switch domainUser on an existing instance without admin reset is rejected.
@@ -380,7 +400,7 @@ export function createCredsRouter(getSharedToken: () => string): Router {
           }
         } else if (!isDomainUserAllowed(effectiveUser)) {
           if (instanceId) {
-            revokeInstanceToken(instanceId);
+            revokeInstanceToken(instanceId, "ad_killswitch");
           }
           recordAudit({
             ip: clientHost,
@@ -394,6 +414,19 @@ export function createCredsRouter(getSharedToken: () => string): Router {
             error: "Access revoked by Active Directory",
             action: "DISABLE_PROXY",
           });
+        } else {
+          // User is authorized in Active Directory!
+          // If instance was previously revoked (and not manually locked by admin), auto-recover it
+          if (instanceId && existingMeta?.revoked && existingMeta.revokedReason !== "manual") {
+            unrevokeInstanceToken(instanceId);
+            recordAudit({
+              ip: clientHost,
+              endpoint: "/api/sync",
+              status: 200,
+              result: "CONFIG_UPDATED",
+              details: `Access restored by Active Directory for user: ${effectiveUser}`,
+            });
+          }
         }
       }
 

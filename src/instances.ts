@@ -161,6 +161,7 @@ let persistentMeta: Record<
     tokenHash?: string;
     enrolledAt?: string;
     revoked?: boolean;
+    revokedReason?: string;
     username?: string;
     domainUser?: string;
     isLegacy?: boolean;
@@ -747,7 +748,7 @@ export function enrollInstanceToken(instanceId: string, tokenHash: string): bool
 /**
  * Revoke an instance's per-instance token and mark it revoked.
  */
-export function revokeInstanceToken(instanceId: string): boolean {
+export function revokeInstanceToken(instanceId: string, reason?: string): boolean {
   if (isUnsafeObjectId(instanceId)) return false;
   if (!persistentMeta[instanceId]) {
     persistentMeta[instanceId] = {};
@@ -755,6 +756,9 @@ export function revokeInstanceToken(instanceId: string): boolean {
   delete persistentMeta[instanceId].tokenHash;
   delete persistentMeta[instanceId].enrolledAt;
   persistentMeta[instanceId].revoked = true;
+  if (reason) {
+    persistentMeta[instanceId].revokedReason = reason;
+  }
   saveInstancesMeta();
 
   const existing = instancesMap.get(instanceId);
@@ -762,6 +766,25 @@ export function revokeInstanceToken(instanceId: string): boolean {
     existing.tokenHash = undefined;
     existing.enrolledAt = undefined;
     existing.revoked = true;
+    existing.revokedReason = reason;
+  }
+  return true;
+}
+
+/**
+ * Unrevoke an instance: resets the revoked flag to false and clears revocation reason.
+ */
+export function unrevokeInstanceToken(instanceId: string): boolean {
+  if (isUnsafeObjectId(instanceId)) return false;
+  if (!persistentMeta[instanceId]) return false;
+  persistentMeta[instanceId].revoked = false;
+  delete persistentMeta[instanceId].revokedReason;
+  saveInstancesMeta();
+
+  const existing = instancesMap.get(instanceId);
+  if (existing) {
+    existing.revoked = false;
+    existing.revokedReason = undefined;
   }
   return true;
 }
@@ -769,7 +792,7 @@ export function revokeInstanceToken(instanceId: string): boolean {
 /**
  * Retrieve persistent metadata (tokenHash, enrolledAt, revoked) for an instance.
  */
-export function getInstanceMeta(instanceId: string): { group?: string; assignedProfileId?: string; assignedProxyId?: string; tokenHash?: string; enrolledAt?: string; revoked?: boolean; username?: string; domainUser?: string; isLegacy?: boolean; legacy?: boolean; pairedAppId?: string; pairedHostname?: string; verifiedByApp?: boolean; lastSeen?: number } | undefined {
+export function getInstanceMeta(instanceId: string): { group?: string; assignedProfileId?: string; assignedProxyId?: string; tokenHash?: string; enrolledAt?: string; revoked?: boolean; revokedReason?: string; username?: string; domainUser?: string; isLegacy?: boolean; legacy?: boolean; pairedAppId?: string; pairedHostname?: string; verifiedByApp?: boolean; lastSeen?: number } | undefined {
   if (isUnsafeObjectId(instanceId)) return undefined;
   return persistentMeta[instanceId];
 }

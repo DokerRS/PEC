@@ -2,6 +2,15 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [0.9.10-alpha] - 2026-11-20
+### Added
+- **AD-RECOVERY-1**: Active Directory Kill-Switch Zero-Trust Auto-Recovery & Unrevoke:
+  - Automatic unrevocation of browser extension and desktop client tokens on `/api/sync` and `/api/app/sync` heartbeats when a previously revoked user is re-allowed in the AD group.
+  - Strict isolation: manual administrative revocations (`manual`) are preserved and cannot be bypassed by AD sync.
+  - Administrative endpoint `POST /api/instances/:id/unrevoke-token` to explicitly restore revoked instances.
+  - Interactive `🔄` ("Восстановить доступ") action button in the fleet telemetry table next to revoked instances.
+  - Resilient extension client recovery: on 403 Forbidden with a revoked token, the extension clears its local memory token and seamlessly falls back to re-authenticating with the GPO-provisioned bootstrap token.
+
 ## [0.9.9-alpha] - 2026-11-20
 ### Changed
 - **UI-TRUTH-PARITY-1**: Global UI truth parity overhaul across dashboard web panels:

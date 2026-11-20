@@ -5,12 +5,15 @@ import http from "node:http";
 import { AddressInfo } from "node:net";
 import { createCredsRouter, renderPacForInstance } from "../src/routes/credsRoutes.js";
 import { createAppSyncRouter } from "../src/routes/appSyncRoutes.js";
+import { createInstancesRouter } from "../src/routes/instancesRoutes.js";
 import { adSyncService } from "../src/adSync.js";
 import {
   clearInstances,
   _clearPersistentMetaForTesting,
   getInstanceMeta,
   registerHeartbeat,
+  revokeInstanceToken,
+  unrevokeInstanceToken,
 } from "../src/instances.js";
 
 const SHARED_TOKEN = "test-shared-ext-token-123456";
@@ -21,9 +24,11 @@ async function createTestServer() {
   app.use(express.json());
   const credsRouter = createCredsRouter(() => SHARED_TOKEN);
   const appSyncRouter = createAppSyncRouter(() => FLEET_TOKEN);
+  const instancesRouter = createInstancesRouter();
 
   app.use(credsRouter);
   app.use(appSyncRouter);
+  app.use(instancesRouter);
 
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -325,6 +330,226 @@ test("AD Kill-Switch & Anti-Spoofing Suite", async (t) => {
       assert.strictEqual(data3.ok, false);
       assert.strictEqual(data3.action, "DISABLE_PROXY");
       assert.ok(data3.error.includes("Username mismatch"));
+    } finally {
+      await close();
+    }
+  });
+
+  await t.test("credsRoutes: AD Auto-Recovery restores revoked instance when user is re-allowed in AD", async () => {
+    const { baseUrl, close } = await createTestServer();
+    try {
+      adSyncService.updateConfig({
+        enabled: true,
+        rejectUnknownUsers: true,
+      });
+      adSyncService.setMockAllowedUsers(["alice.user"]);
+
+      // 1. Initial successful connection
+      const res1 = await fetch(`${baseUrl}/api/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Ext-Token": SHARED_TOKEN,
+        },
+        body: JSON.stringify({
+          instanceId: "inst-autorecover-1",
+          domainUser: "CORP\\alice.user",
+        }),
+      });
+      assert.strictEqual(res1.status, 200);
+      const data1 = await res1.json() as any;
+      assert.strictEqual(data1.ok, true);
+      const firstToken = data1.instanceToken;
+      assert.ok(firstToken, "Expected instance token issued");
+
+      // 2. User excluded from AD -> Kill-Switch triggers
+      adSyncService.setMockAllowedUsers([]);
+      const res2 = await fetch(`${baseUrl}/api/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Ext-Token": firstToken,
+        },
+        body: JSON.stringify({
+          instanceId: "inst-autorecover-1",
+          domainUser: "CORP\\alice.user",
+        }),
+      });
+      assert.strictEqual(res2.status, 403);
+      const data2 = await res2.json() as any;
+      assert.strictEqual(data2.action, "DISABLE_PROXY");
+
+      const metaRevoked = getInstanceMeta("inst-autorecover-1");
+      assert.strictEqual(metaRevoked?.revoked, true);
+      assert.strictEqual(metaRevoked?.revokedReason, "ad_killswitch");
+
+      // 3. User restored to AD -> next sync with SHARED_TOKEN auto-recovers
+      adSyncService.setMockAllowedUsers(["alice.user"]);
+      const res3 = await fetch(`${baseUrl}/api/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Ext-Token": SHARED_TOKEN,
+        },
+        body: JSON.stringify({
+          instanceId: "inst-autorecover-1",
+          domainUser: "CORP\\alice.user",
+        }),
+      });
+      assert.strictEqual(res3.status, 200);
+      const data3 = await res3.json() as any;
+      assert.strictEqual(data3.ok, true);
+      assert.ok(data3.instanceToken, "Expected new instance token issued on auto-recovery");
+
+      const metaRecovered = getInstanceMeta("inst-autorecover-1");
+      assert.strictEqual(metaRecovered?.revoked, false);
+      assert.strictEqual(metaRecovered?.revokedReason, undefined);
+    } finally {
+      await close();
+    }
+  });
+
+  await t.test("credsRoutes: manual revocation by admin does not auto-recover via AD sync alone", async () => {
+    const { baseUrl, close } = await createTestServer();
+    try {
+      adSyncService.updateConfig({
+        enabled: true,
+        rejectUnknownUsers: true,
+      });
+      adSyncService.setMockAllowedUsers(["charlie.user"]);
+
+      // 1. Initial connection
+      const res1 = await fetch(`${baseUrl}/api/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Ext-Token": SHARED_TOKEN,
+        },
+        body: JSON.stringify({
+          instanceId: "inst-manual-lock-1",
+          domainUser: "CORP\\charlie.user",
+        }),
+      });
+      assert.strictEqual(res1.status, 200);
+
+      // 2. Admin manually revokes instance
+      const resRevoke = await fetch(`${baseUrl}/api/instances/inst-manual-lock-1/revoke-token`, {
+        method: "POST",
+      });
+      assert.strictEqual(resRevoke.status, 200);
+      const metaManual = getInstanceMeta("inst-manual-lock-1");
+      assert.strictEqual(metaManual?.revoked, true);
+      assert.strictEqual(metaManual?.revokedReason, "manual");
+
+      // 3. Sync attempt with SHARED_TOKEN still rejected because revocation was manual
+      const resSyncBlocked = await fetch(`${baseUrl}/api/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Ext-Token": SHARED_TOKEN,
+        },
+        body: JSON.stringify({
+          instanceId: "inst-manual-lock-1",
+          domainUser: "CORP\\charlie.user",
+        }),
+      });
+      assert.strictEqual(resSyncBlocked.status, 403);
+
+      // 4. Admin explicitly un-revokes via API
+      const resUnrevoke = await fetch(`${baseUrl}/api/instances/inst-manual-lock-1/unrevoke-token`, {
+        method: "POST",
+      });
+      assert.strictEqual(resUnrevoke.status, 200);
+      const dataUnrevoke = await resUnrevoke.json() as any;
+      assert.strictEqual(dataUnrevoke.unrevoked, true);
+
+      // 5. Subsequent sync passes and re-enrolls
+      const resSyncRestored = await fetch(`${baseUrl}/api/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Ext-Token": SHARED_TOKEN,
+        },
+        body: JSON.stringify({
+          instanceId: "inst-manual-lock-1",
+          domainUser: "CORP\\charlie.user",
+        }),
+      });
+      assert.strictEqual(resSyncRestored.status, 200);
+      const dataRestored = await resSyncRestored.json() as any;
+      assert.strictEqual(dataRestored.ok, true);
+    } finally {
+      await close();
+    }
+  });
+
+  await t.test("appSyncRoutes: desktop AD Auto-Recovery restores revoked client when user is re-allowed in AD", async () => {
+    const { baseUrl, close } = await createTestServer();
+    try {
+      adSyncService.updateConfig({
+        enabled: true,
+        rejectUnknownUsers: true,
+      });
+      adSyncService.setMockAllowedUsers(["desktop.engineer"]);
+
+      // 1. Initial desktop connection
+      const res1 = await fetch(`${baseUrl}/api/app/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Fleet-Token": FLEET_TOKEN,
+        },
+        body: JSON.stringify({
+          appInstanceId: "app-autorecover-1",
+          hostname: "WORKSTATION-ENG",
+          username: "desktop.engineer",
+        }),
+      });
+      assert.strictEqual(res1.status, 200);
+      const data1 = await res1.json() as any;
+      assert.strictEqual(data1.ok, true);
+      const desktopToken = data1.instanceToken;
+      assert.ok(desktopToken, "Expected desktop instance token");
+
+      // 2. User excluded from AD
+      adSyncService.setMockAllowedUsers([]);
+      const res2 = await fetch(`${baseUrl}/api/app/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Instance-Token": desktopToken,
+        },
+        body: JSON.stringify({
+          appInstanceId: "app-autorecover-1",
+          hostname: "WORKSTATION-ENG",
+          username: "desktop.engineer",
+        }),
+      });
+      assert.strictEqual(res2.status, 403);
+      const metaRevoked = getInstanceMeta("app-autorecover-1");
+      assert.strictEqual(metaRevoked?.revoked, true);
+
+      // 3. User restored in AD
+      adSyncService.setMockAllowedUsers(["desktop.engineer"]);
+      const res3 = await fetch(`${baseUrl}/api/app/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Fleet-Token": FLEET_TOKEN,
+        },
+        body: JSON.stringify({
+          appInstanceId: "app-autorecover-1",
+          hostname: "WORKSTATION-ENG",
+          username: "desktop.engineer",
+        }),
+      });
+      assert.strictEqual(res3.status, 200);
+      const data3 = await res3.json() as any;
+      assert.strictEqual(data3.ok, true);
+      assert.ok(data3.instanceToken, "Expected new instance token issued on auto-recovery");
+
+      const metaRecovered = getInstanceMeta("app-autorecover-1");
+      assert.strictEqual(metaRecovered?.revoked, false);
     } finally {
       await close();
     }

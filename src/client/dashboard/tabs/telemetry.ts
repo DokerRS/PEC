@@ -210,9 +210,11 @@ export function filterFleetTable() {
             ? '<span class="badge badge-danger" title="' + (isRu ? 'Токен отозван' : 'Token revoked') + '">🚫 ' + (isRu ? 'Отозван' : 'Revoked') + '</span>'
             : '<span class="badge badge-secondary" title="' + (isRu ? 'Использует общий токен' : 'Using shared token') + '">' + (isRu ? 'Общий' : 'Shared') + '</span>');
 
-        const revokeBtnHtml = hasToken
-          ? '<button class="btn btn-sm btn-warning btn-revoke-token" data-id="' + escapeHtml(inst.instanceId) + '" title="' + (isRu ? 'Отозвать индивидуальный токен' : 'Revoke token') + '">🚫</button>'
-          : '';
+        const revokeBtnHtml = inst.revoked
+          ? '<button class="btn btn-sm btn-success btn-unrevoke-token" data-id="' + escapeHtml(inst.instanceId) + '" title="' + (isRu ? 'Восстановить доступ (снять блокировку)' : 'Restore access (unrevoke)') + '">🔄</button>'
+          : (hasToken
+            ? '<button class="btn btn-sm btn-warning btn-revoke-token" data-id="' + escapeHtml(inst.instanceId) + '" title="' + (isRu ? 'Отозвать индивидуальный токен' : 'Revoke token') + '">🚫</button>'
+            : '');
 
         const isChecked = selectedFleetInstances.has(inst.instanceId);
 
@@ -702,6 +704,25 @@ export let lastLoadedDesktopInstances = [];
       }
     }
 
+    export async function unrevokeInstanceToken(id: string) {
+      const isRu = currentLang === 'ru';
+      if (!await pecConfirm((isRu ? 'Восстановить доступ для устройства ' : 'Restore access for device ') + id + '?', { isDanger: false })) return;
+      try {
+        const res = await adminFetch('/api/instances/' + encodeURIComponent(id) + '/unrevoke-token', {
+          method: 'POST'
+        });
+        if (res.ok || res.status === 200) {
+          toast(isRu ? 'Доступ успешно восстановлен' : 'Access successfully restored', 'success');
+          loadInstances();
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          toast('Unrevoke error: ' + (errData.error || res.statusText), 'error');
+        }
+      } catch (err) {
+        toast('Unrevoke error: ' + err, 'error');
+      }
+    }
+
     export async function deleteInstance(id) {
       if (!await pecConfirm("Удалить устройство " + id + "?", { isDanger: true })) return;
       try {
@@ -721,6 +742,12 @@ export let lastLoadedDesktopInstances = [];
     }
 
     document.addEventListener('click', function (e) {
+      const unrevokeBtn = e.target.closest('.btn-unrevoke-token');
+      if (unrevokeBtn) {
+        const id = unrevokeBtn.getAttribute('data-id');
+        if (id) unrevokeInstanceToken(id);
+        return;
+      }
       const revokeBtn = e.target.closest('.btn-revoke-token');
       if (revokeBtn) {
         const id = revokeBtn.getAttribute('data-id');
@@ -2043,6 +2070,7 @@ export let currentActiveAppVer = '';
     window.setActiveReleaseVersion = setActiveReleaseVersion;
     window.deleteReleaseVersion = deleteReleaseVersion;
     window.downloadReleaseVersion = downloadReleaseVersion;
+    window.unrevokeInstanceToken = unrevokeInstanceToken;
 
 
 // Register modal closers

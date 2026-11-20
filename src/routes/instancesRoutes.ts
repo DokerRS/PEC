@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { getActiveInstances, assignInstanceProfile, assignInstanceProxy, deleteInstance, revokeInstanceToken, getProxyConfig, updateProxyConfig } from "../instances.js";
+import { getActiveInstances, assignInstanceProfile, assignInstanceProxy, deleteInstance, revokeInstanceToken, unrevokeInstanceToken, getProxyConfig, updateProxyConfig } from "../instances.js";
 import { getProxyById } from "../proxies.js";
 import { recordAudit, getClientIp } from "../audit.js";
 import type { ProxyConfiguration } from "../types.js";
@@ -158,7 +158,7 @@ export function createInstancesRouter(): Router {
     let count = 0;
     for (const id of instanceIds) {
       try {
-        const revoked = revokeInstanceToken(String(id));
+        const revoked = revokeInstanceToken(String(id), "manual");
         if (revoked) count++;
       } catch {}
     }
@@ -207,7 +207,7 @@ export function createInstancesRouter(): Router {
   });
 
   router.post("/api/instances/:id/revoke-token", (req: Request, res: Response) => {
-    const revoked = revokeInstanceToken(req.params.id);
+    const revoked = revokeInstanceToken(req.params.id, "manual");
     recordAudit({
       ip: getClientIp(req),
       endpoint: "/api/instances/:id/revoke-token",
@@ -216,6 +216,18 @@ export function createInstancesRouter(): Router {
       details: `Instance ${req.params.id} token revoked: ${revoked}`,
     });
     res.json({ ok: true, revoked });
+  });
+
+  router.post("/api/instances/:id/unrevoke-token", (req: Request, res: Response) => {
+    const unrevoked = unrevokeInstanceToken(req.params.id);
+    recordAudit({
+      ip: getClientIp(req),
+      endpoint: "/api/instances/:id/unrevoke-token",
+      status: 200,
+      result: "CONFIG_UPDATED",
+      details: `Instance ${req.params.id} token unrevoked: ${unrevoked}`,
+    });
+    res.json({ ok: true, unrevoked });
   });
 
   router.get("/api/config", (_req: Request, res: Response) => {

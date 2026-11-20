@@ -96,6 +96,7 @@ export interface ExtensionInstance {
   tokenHash?: string;
   enrolledAt?: string;
   revoked?: boolean;
+  revokedReason?: string;
   username?: string;
   domainUser?: string;
   isLegacy?: boolean;

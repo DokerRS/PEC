@@ -13,6 +13,7 @@ import {
   enrollInstanceToken,
   acquireInstanceMutex,
   revokeInstanceToken,
+  unrevokeInstanceToken,
 } from "../instances.js";
 import { isDomainUserAllowed, adSyncService } from "../adSync.js";
 import { getActiveProxy, getProxyById, getAllProxies } from "../proxies.js";
@@ -65,10 +66,23 @@ export function createAppSyncRouter(
       } else if (cleanAppId) {
         const meta = getInstanceMeta(cleanAppId);
         if (meta?.revoked) {
-          return res.status(401).json({ ok: false, error: "Unauthorized: Instance revoked" });
-        }
+          const boundUser = meta.domainUser || meta.username;
+          const presentedUser = typeof req.body?.username === "string" ? req.body.username.trim() : "";
+          const canAutoRecover = Boolean(
+            meta.revokedReason !== "manual" &&
+            rawFleetToken && fleetExpected && timingSafeEqualString(rawFleetToken, fleetExpected) &&
+            boundUser && presentedUser && boundUser.toLowerCase() === presentedUser.toLowerCase() &&
+            adSyncService.getConfig().enabled &&
+            isDomainUserAllowed(boundUser)
+          );
 
-        if (meta?.tokenHash) {
+          if (canAutoRecover) {
+            authenticated = true;
+            shouldEnroll = true;
+          } else {
+            return res.status(401).json({ ok: false, error: "Unauthorized: Instance revoked" });
+          }
+        } else if (meta?.tokenHash) {
           if (!rawInstanceToken) {
             return res.status(401).json({
               ok: false,
@@ -142,7 +156,7 @@ export function createAppSyncRouter(
         if (!effectiveUser) {
           if (adConfig.rejectUnknownUsers) {
             if (cleanAppId) {
-              revokeInstanceToken(cleanAppId);
+              revokeInstanceToken(cleanAppId, "ad_killswitch");
             }
             return res.status(403).json({
               ok: false,
@@ -152,13 +166,26 @@ export function createAppSyncRouter(
           }
         } else if (!isDomainUserAllowed(effectiveUser)) {
           if (cleanAppId) {
-            revokeInstanceToken(cleanAppId);
+            revokeInstanceToken(cleanAppId, "ad_killswitch");
           }
           return res.status(403).json({
             ok: false,
             error: "Forbidden: Access revoked by Active Directory",
             action: "DISABLE_PROXY",
           });
+        } else {
+          // User is authorized in Active Directory!
+          // If desktop instance was previously revoked (and not manually locked by admin), auto-recover it
+          if (cleanAppId && existingMeta?.revoked && existingMeta.revokedReason !== "manual") {
+            unrevokeInstanceToken(cleanAppId);
+            recordAudit({
+              ip: clientIp,
+              endpoint: "/api/app/sync",
+              status: 200,
+              result: "CONFIG_UPDATED",
+              details: `Desktop access restored by Active Directory for user: ${effectiveUser}`,
+            });
+          }
         }
       }
 

@@ -1259,23 +1259,42 @@ async function executeSync(forceRefresh = false, applyConfig = true, selectedPro
       // incoming selectedProxyId as a user choice and would overwrite a
       // proxy forced from the admin panel on every routine heartbeat.
       const effectiveSelectedProxyId = selectedProxyId;
+      const syncBody = JSON.stringify({
+        instanceId: instId,
+        version: manifest.version,
+        extensionId: chrome.runtime.id,
+        browser: getBrowserTag(),
+        activeProxyMode: currentProxyState.protocol,
+        group: targetGroup,
+        selectedProxyId: effectiveSelectedProxyId,
+        domainUser: domainUser || undefined,
+      });
 
       try {
-        const res = await fetch(syncUrl, {
+        let res = await fetch(syncUrl, {
           method: "POST",
           headers: headers,
-          body: JSON.stringify({
-            instanceId: instId,
-            version: manifest.version,
-            extensionId: chrome.runtime.id,
-            browser: getBrowserTag(),
-            activeProxyMode: currentProxyState.protocol,
-            group: targetGroup,
-            selectedProxyId: effectiveSelectedProxyId,
-            domainUser: domainUser || undefined,
-          }),
+          body: syncBody,
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
+
+        // Self-healing: if per-instance token was rejected with 403, drop it and retry immediately with managed bootstrap token
+        if (res.status === 403 && memoryInstanceToken && token) {
+          logEvent("warn", "Per-instance token rejected (HTTP 403). Dropping token and retrying with fleet bootstrap token...");
+          memoryInstanceToken = null;
+          try {
+            if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+              chrome.storage.local.remove("pecInstanceToken");
+            }
+          } catch (e) {}
+          headers["X-Ext-Token"] = token;
+          res = await fetch(syncUrl, {
+            method: "POST",
+            headers: headers,
+            body: syncBody,
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          });
+        }
 
         if (res.ok) {
           const payload = await res.json();
@@ -1402,6 +1421,15 @@ async function executeSync(forceRefresh = false, applyConfig = true, selectedPro
             }
           } catch (e) {}
 
+          if (res.status === 403 && memoryInstanceToken) {
+            memoryInstanceToken = null;
+            try {
+              if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+                chrome.storage.local.remove("pecInstanceToken");
+              }
+            } catch (e) {}
+          }
+
           const statusMsg = "HTTP " + res.status + (res.statusText ? " " + res.statusText : "");
           console.warn("[PEC] Sync endpoint /api/sync returned " + statusMsg + ". Falling back to /creds");
           logEvent("warn", "Sync endpoint /api/sync returned " + statusMsg + ". Falling back to /creds");
@@ -1414,7 +1442,8 @@ async function executeSync(forceRefresh = false, applyConfig = true, selectedPro
       // Fallback to /creds
       if (!syncSuccessful) {
         const credsHeaders = {};
-        if (activeToken) credsHeaders["X-Ext-Token"] = activeToken;
+        const fallbackToken = memoryInstanceToken || token;
+        if (fallbackToken) credsHeaders["X-Ext-Token"] = fallbackToken;
         credsHeaders["X-Instance-Id"] = instId;
         const resFallback = await fetch(credsUrl, {
           headers: credsHeaders,
