@@ -1495,7 +1495,22 @@
     .badge-warning { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
     .badge-subtle { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
     .badge-version { background: rgba(var(--primary-rgb), 0.15); color: var(--primary); font-family: var(--mono); }
-    .badge-ad-user { background: rgba(59, 130, 246, 0.2); color: #60a5fa; font-family: var(--mono); }
+    .badge-ad-user {
+      background: rgba(59, 130, 246, 0.18);
+      color: #60a5fa;
+      font-family: var(--mono);
+      display: inline-block;
+      width: 145px;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: middle;
+      box-sizing: border-box;
+      border: 1px solid rgba(59, 130, 246, 0.28);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
 
     .banner {
       background: rgba(var(--primary-rgb), 0.08);

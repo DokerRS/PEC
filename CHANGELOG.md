@@ -2,6 +2,16 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [0.9.9-alpha] - 2026-11-20
+### Changed
+- **UI-TRUTH-PARITY-1**: Global UI truth parity overhaul across dashboard web panels:
+  - Routing: corrected routing rule sync interval text from legacy 30s to real runtime 15m; added i18n for desktop rules and presets.
+  - Active Directory & GPO: clarified Zero-Trust pull model (~5m sync or browser restart), extracted GPO guides to i18n, replaced hardcoded 1.2.0 version placeholder with "—".
+  - App Studio & Builder: documented 5m extension sync interval and 6m STALE threshold, exposed `#bldToken` fleet bootstrap token field, added WinDivert admin / PECAppSvc notice.
+  - Fleet Telemetry: added empty table onboarding instructions, status threshold tooltips (ONLINE <6m / STALE 6-15m / OFFLINE >15m), and monospace fixed-width ellipsis badge for AD domain users.
+  - Audit & Security: added color-coded audit log status legend (SERVED, SYNCED, REJECTED_TOKEN, DISABLE_PROXY, REJECTED_SSRF) and Chromium SOCKS5 authentication warning.
+  - Localization: achieved 100% dictionary parity between Russian and English in `i18n.ts`.
+
 ## [0.9.8-alpha] - 2026-11-19
 ### Added
 - **FLEET-BROWSER-1**: Multi-browser telemetry detection (`Chrome`, `Edge`, `Yandex`, `Opera`, `Brave`, `Vivaldi`) in client extension, heartbeat recording, and dashboard fleet table tags.

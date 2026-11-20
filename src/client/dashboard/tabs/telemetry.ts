@@ -109,7 +109,7 @@ export function filterFleetTable() {
       if (!instances || !instances.length) {
         selectedFleetInstances.clear();
         updateFleetBulkBar();
-        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Пока нет подключенных устройств. Расширения синхронизируются через <code>/api/sync</code> каждые 5 мин.' : 'No instances connected yet. Extensions sync via <code>/api/sync</code> every 5 min.') + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Пока нет подключенных устройств. Расширения опрашивают сервер по расписанию (по умолчанию каждые 5 мин), а также немедленно при старте браузера и ротации учетных данных.' : 'No instances connected yet. Extensions poll the server on schedule (default: every 5 min), as well as immediately upon browser launch and credential rotation.') + '</td></tr>';
         tbody.removeAttribute('data-rendered-sig');
         return;
       }
@@ -253,9 +253,9 @@ export function filterFleetTable() {
 
         let userDisplay = '';
         if (inst.domainUser) {
-          userDisplay = `<span class="badge badge-ad-user">🏢 ${esc(inst.domainUser)}</span>`;
+          userDisplay = `<span class="badge badge-ad-user" title="${esc(inst.domainUser)}">${esc(inst.domainUser)}</span>`;
         } else if (inst.username) {
-          userDisplay = `<span style="font-weight: 600; font-family: var(--mono); font-size: 12px;">👤 ${esc(inst.username)}</span> <span class="badge badge-warning" style="margin-left: 4px;" title="${isRu ? 'Старая версия расширения без поддержки AD. Работает в режиме мягкой миграции.' : 'Legacy extension without AD support. Operating in soft migration mode.'}">⚠️ Legacy (без AD)</span>`;
+          userDisplay = `<span style="font-weight: 600; font-family: var(--mono); font-size: 11px;">${esc(inst.username)}</span> <span class="badge badge-warning" style="margin-left: 4px;" title="${isRu ? 'Старая версия расширения без поддержки AD. Работает в режиме мягкой миграции.' : 'Legacy extension without AD support. Operating in soft migration mode.'}">⚠️ Legacy (без AD)</span>`;
         } else {
           userDisplay = `<span class="badge badge-warning" title="${isRu ? 'Старая версия расширения без поддержки AD. Работает в режиме мягкой миграции.' : 'Legacy extension without AD support. Operating in soft migration mode.'}">⚠️ Legacy (без AD)</span>`;
         }
@@ -1724,15 +1724,37 @@ export let currentPanelsList = [];
 
       tbody.innerHTML = logs.map(l => {
         let badge = 'badge-online';
-        if (l.result === 'REJECTED_TOKEN' || l.result === 'STORE_ERROR') badge = 'badge-offline';
-        else if (l.result === 'HEALTH_CHECK') badge = 'badge-action-proxy';
+        let title = '';
+        if (l.result === 'REJECTED_TOKEN') {
+          badge = 'badge-offline';
+          title = currentLang === 'ru' ? 'Неверный токен или отказ Active Directory' : 'Invalid token or Active Directory rejection';
+        } else if (l.result === 'REJECTED_SSRF') {
+          badge = 'badge-offline';
+          title = currentLang === 'ru' ? 'Защита локальной сети (SSRF блокировка)' : 'LAN security guard (SSRF blocked)';
+        } else if (l.result === 'STORE_ERROR') {
+          badge = 'badge-offline';
+          title = currentLang === 'ru' ? 'Ошибка хранилища' : 'Storage error';
+        } else if (l.result === 'DISABLE_PROXY') {
+          badge = 'badge-warning';
+          title = currentLang === 'ru' ? 'Сброс прокси по AD Kill-Switch' : 'Proxy disabled via AD Kill-Switch';
+        } else if (l.result === 'SERVED') {
+          badge = 'badge-online';
+          title = currentLang === 'ru' ? 'Выдача PAC и учетных данных' : 'Served PAC and credentials';
+        } else if (l.result === 'SYNCED') {
+          badge = 'badge-online';
+          title = currentLang === 'ru' ? 'Heartbeat и фоновая синхронизация' : 'Heartbeat and background sync';
+        } else if (l.result === 'HEALTH_CHECK') {
+          badge = 'badge-action-proxy';
+          title = currentLang === 'ru' ? 'Проверка доступности шлюза' : 'Gateway health check';
+        }
         
+        const titleAttr = title ? ` title="${esc(title)}"` : '';
         return `<tr>
           <td style="font-family: var(--mono); font-size: 12px;">${new Date(l.timestamp).toLocaleTimeString()}</td>
           <td style="font-family: var(--mono);">${esc(l.ip)}</td>
           <td><code>${esc(l.endpoint)}</code></td>
           <td style="font-family: var(--mono);">${esc(l.status)}</td>
-          <td><span class="badge ${badge}">${esc(l.result)}</span></td>
+          <td><span class="badge ${badge}"${titleAttr}>${esc(l.result)}</span></td>
           <td style="color: var(--text-muted); font-size: 12px;">${esc(l.details || '-')}</td>
         </tr>`;
       }).join('');

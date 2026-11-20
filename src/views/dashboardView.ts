@@ -466,10 +466,10 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
             <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
               <span style="font-size: 11px; color: var(--text-muted);" data-i18n="lblQuickRules">Быстрые пресеты для десктопа:</span>
-              <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="applyAppRulePreset('blocked_sites')">🌐 Сайты через прокси (*.youtube.com, x.com)</button>
-              <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="applyAppRulePreset('browsers')">Браузеры Direct</button>
-              <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="applyAppRulePreset('devtools')">Разработка (curl, git, docker)</button>
-              <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="applyAppRulePreset('tunnel')">Полный туннель (*)</button>
+              <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="applyAppRulePreset('blocked_sites')" data-i18n="btnAppPresetBlockedSites">🌐 Сайты через прокси (*.youtube.com, x.com)</button>
+              <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="applyAppRulePreset('browsers')" data-i18n="btnAppPresetBrowsers">Браузеры Direct</button>
+              <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="applyAppRulePreset('devtools')" data-i18n="btnAppPresetDevtools">Разработка (curl, git, docker)</button>
+              <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="applyAppRulePreset('tunnel')" data-i18n="btnAppPresetTunnel">Полный туннель (*)</button>
             </div>
             <button type="button" onclick="addNewAppProcessRule()" class="btn-secondary" style="font-size: 12px; padding: 4px 10px;" data-i18n="btnAddAppRule">
               + Добавить правило процесса
@@ -481,13 +481,13 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             <table id="branchAppProcessRulesTable" style="width: 100%; font-size: 12px;">
               <thead>
                 <tr>
-                  <th style="width: 18%;">Процессы (Process)</th>
-                  <th style="width: 26%;">Сайты / Домены (Target Domains)</th>
-                  <th style="width: 18%;">IP / Сети (Target Hosts)</th>
-                  <th style="width: 12%;">Порты (Ports)</th>
-                  <th style="width: 10%;">Протокол</th>
-                  <th style="width: 10%;">Действие</th>
-                  <th style="width: 6%; text-align: center;">Удалить</th>
+                  <th style="width: 18%;" data-i18n="thAppRuleProcess">Процессы (Process)</th>
+                  <th style="width: 26%;" data-i18n="thAppRuleDomains">Сайты / Домены (Target Domains)</th>
+                  <th style="width: 18%;" data-i18n="thAppRuleHosts">IP / Сети (Target Hosts)</th>
+                  <th style="width: 12%;" data-i18n="thAppRulePorts">Порты (Ports)</th>
+                  <th style="width: 10%;" data-i18n="thAppRuleProtocol">Протокол</th>
+                  <th style="width: 10%;" data-i18n="thAppRuleAction">Действие</th>
+                  <th style="width: 6%; text-align: center;" data-i18n="thAppRuleDelete">Удалить</th>
                 </tr>
               </thead>
               <tbody id="branchAppProcessRulesBody">
@@ -497,7 +497,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           </div>
 
           <div style="margin-top: 12px; font-size: 11px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center;">
-            <span>ℹ️ Правила десктопного агента автоматически синхронизируются с запущенными клиентами PEC-App и службой PECAppSvc каждые 30 секунд.</span>
+            <span data-i18n="hintAppRulesSync">ℹ️ Правила десктопного агента синхронизируются со службой PECAppSvc и клиентами PEC-App при каждом обращении к /api/app-sync (по умолчанию каждые 15 минут, настраивается в конструкторе приложения).</span>
             <span id="branchAppSaveStatus" style="font-weight: 600;"></span>
           </div>
         </div>
@@ -814,6 +814,9 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
               </select>
             </div>
           </div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; margin-bottom: 10px;" data-i18n="hintExtSyncInterval">
+            Интервал фоновой синхронизации расширения с сервером (по умолчанию: 5 мин, статус переходит в STALE при отсутствии ответа > 6 мин). При ошибке 407, старте браузера или ручном переключении прокси синхронизация выполняется немедленно.
+          </div>
 
           <div class="grid-form-1-15" style="margin-top: 10px;">
             <div>
@@ -846,6 +849,10 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           <label for="bldUpdateUrl" data-i18n="lblUpdateUrl">Update Manifest XML URL (update_url)</label>
           <input type="text" id="bldUpdateUrl" oninput="onConfigChangeLive()" placeholder="https://pec.example.corp/updates/updates.xml" data-i18n-ph="phUpdateUrl" />
           <div style="font-size: 11px; color: var(--text-muted); margin-top: -6px; margin-bottom: 10px;" data-i18n="hintUpdateUrl">Зашивается в manifest.json (update_url) и GPO. Если не заполнено, формируется автоматически как [Server URL]/updates/updates.xml</div>
+
+          <label for="bldToken" data-i18n="lblBldToken">Bootstrap-токен флота (EXT_SHARED_TOKEN)</label>
+          <input type="text" id="bldToken" oninput="onConfigChangeLive()" placeholder="corp-proxy-secret-token" data-i18n-ph="phBldToken" />
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: -6px; margin-bottom: 10px;" data-i18n="hintBldToken">Первичный bootstrap-токен для enrollment. После первого обращения каждому экземпляру выдается уникальный крипто-токен.</div>
 
           <div style="margin-top: 10px; margin-bottom: 12px;">
             <label for="builderDefaultProxyId" data-i18n="lblBuilderDefaultProxy">Прокси по умолчанию для сборки</label>
@@ -1175,11 +1182,15 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
               </label>
             </div>
 
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 10px; line-height: 1.4;" data-i18n="hintAppWinDivertService">
+              Для работы прозрачного драйвера перехвата пакетов WinDivert требуются права Администратора или запуск через системную службу Windows PECAppSvc.
+            </div>
+
             <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
               <label for="appSyncIntervalMinutes" style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;" data-i18n="lblAppSyncInterval">Интервал автосинхронизации с сервером (минуты):</label>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <input type="number" id="appSyncIntervalMinutes" min="1" max="1440" value="15" onchange="onAppConfigChangeLive()" style="width: 120px; font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--card-inner); color: var(--text);" />
-                <span style="font-size: 11px; color: var(--text-muted);" data-i18n="hintAppSyncInterval">Периодичность синхронизации профиля, прокси и маршрутов в фоновом режиме (по умолчанию: 15 мин).</span>
+                <span style="font-size: 11px; color: var(--text-muted);" data-i18n="hintAppSyncInterval">Периодичность синхронизации профиля, правил и учетных данных со службой PECAppSvc и клиентом (по умолчанию: 15 мин). При отсутствии персональной ноды автоматически наследуется прокси браузерного расширения.</span>
               </div>
             </div>
           </div>
@@ -1450,7 +1461,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                 <th class="sortable-th" data-sort="group" tabindex="0" role="button" aria-sort="none"><span data-i18n="thInstGroup">Группа флота</span> <span class="sort-icon"></span></th>
                 <th class="sortable-th" data-sort="profile" tabindex="0" role="button" aria-sort="none"><span data-i18n="thInstProfile">Assigned Profile</span> <span class="sort-icon"></span></th>
                 <th class="sortable-th" data-sort="syncs" tabindex="0" role="button" aria-sort="none"><span data-i18n="thInstSyncs">Syncs</span> <span class="sort-icon"></span></th>
-                <th class="sortable-th" data-sort="status" tabindex="0" role="button" aria-sort="none"><span data-i18n="thInstStatus">Status</span> <span class="sort-icon"></span></th>
+                <th class="sortable-th" data-sort="status" tabindex="0" role="button" aria-sort="none" title="ONLINE: ответ &lt; 6 мин | STALE: 6–15 мин | OFFLINE: &gt; 15 мин (на расширениях с кастомным таймером статус переходит в ONLINE по их расписанию)" data-i18n-title="hintStatusThresholds"><span data-i18n="thInstStatus">Status</span> <span class="sort-icon"></span></th>
                 <th data-i18n="thInstAssign">Assign</th>
                 <th data-i18n="thInstProxy">Прокси-сервер</th>
                 <th data-i18n="thInstActions">Действия</th>
@@ -1484,15 +1495,15 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             <table id="desktopInstancesTable" class="fleet-table">
               <thead>
                 <tr>
-                  <th style="width: 100px;">Статус</th>
-                  <th>Компьютер / Хост</th>
-                  <th>Пользователь ОС</th>
-                  <th>IP Адрес</th>
-                  <th>Версия</th>
-                  <th>Привязанное расширение</th>
-                  <th>Назначенный прокси</th>
-                  <th>Последняя активность</th>
-                  <th style="width: 80px; text-align: center;">Действия</th>
+                  <th style="width: 100px;" title="ONLINE: ответ &lt; 6 мин | STALE: 6–15 мин | OFFLINE: &gt; 15 мин (на расширениях с кастомным таймером статус переходит в ONLINE по их расписанию)" data-i18n-title="hintStatusThresholds" data-i18n="thDesktopStatus">Статус</th>
+                  <th data-i18n="thDesktopHost">Компьютер / Хост</th>
+                  <th data-i18n="thDesktopOsUser">Пользователь ОС</th>
+                  <th data-i18n="thDesktopIp">IP Адрес</th>
+                  <th data-i18n="thDesktopVer">Версия</th>
+                  <th data-i18n="thDesktopPairedExt">Привязанное расширение</th>
+                  <th data-i18n="thDesktopProxy">Назначенный прокси</th>
+                  <th data-i18n="thDesktopActivity">Последняя активность</th>
+                  <th style="width: 80px; text-align: center;" data-i18n="thDesktopActions">Действия</th>
                 </tr>
               </thead>
               <tbody id="desktopFleetTableBody">
@@ -1531,7 +1542,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           </div>
           <div class="stat-row">
             <span class="stat-label" data-i18n="lblManifestVer">Manifest Version</span>
-            <span class="stat-value" id="dispExtVer">1.2.0</span>
+            <span class="stat-value" id="dispExtVer">—</span>
           </div>
           <div class="stat-row">
             <span class="stat-label" data-i18n="lblRsaKey">RSA Private Key</span>
@@ -1582,27 +1593,27 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           </div>
 
           <div style="background: rgba(43, 114, 226, 0.08); border-left: 3px solid var(--primary); padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 11px; line-height: 1.5;">
-            <div style="font-weight: 700; margin-bottom: 6px; color: var(--text);">📋 Инструкция по развертыванию через GPO / Active Directory:</div>
-            <div style="margin-bottom: 6px;">
+            <div style="font-weight: 700; margin-bottom: 6px; color: var(--text);" data-i18n="titleGpoInstructions">📋 Инструкция по развертыванию через GPO / Active Directory:</div>
+            <div style="margin-bottom: 6px;" data-i18n="gpoStep1Desc">
               <strong>1. Рекомендуемый способ (Tier-1 — GPP Registry.xml):</strong><br>
               <span style="color: var(--text-muted);">
                 Скопируйте <code>Registry.xml</code> из пакета в каталог политики: <code>\\\\домен\\sysvol\\домен\\Policies\\{GUID}\\User\\Preferences\\Registry\\</code>.<br>
                 Настраивает все 4 браузера, установку и сквозной <code>domainUser</code> нативно через Windows Preferences без запуска скриптов.
               </span>
             </div>
-            <div style="margin-bottom: 6px;">
+            <div style="margin-bottom: 6px;" data-i18n="gpoStep2Desc">
               <strong>2. Через PowerShell Logon-скрипт:</strong><br>
               <span style="color: var(--text-muted);">
                 Укажите <code>deploy-pec-gpo.ps1</code> в <code>Конфигурация пользователя → Сценарии → Вход в систему</code>.
               </span>
             </div>
-            <div style="margin-bottom: 6px;">
+            <div style="margin-bottom: 6px;" data-i18n="gpoStep3Desc">
               <strong>3. Ручная настройка реестра в GPMC:</strong><br>
               <span style="color: var(--text-muted);">
                 Задайте параметры ниже: <strong>1. Forcelist</strong> (установка), <strong>2. ExtensionSettings</strong> (источник обновления) и <strong>3. domainUser</strong> (обязательно для привязки к AD).
               </span>
             </div>
-            <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
+            <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;" data-i18n="gpoSecReqs">
               <strong>Критические требования безопасности GPO:</strong><br>
               <span style="color: var(--text-muted);">
                 • Привязка к <strong>OU с ПК</strong>: включите Loopback Processing (Замыкание) в режиме <code>Merge (Объединение)</code>.<br>
@@ -1690,9 +1701,9 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
         </div>
 
         <div style="background: rgba(16, 185, 129, 0.08); border-left: 3px solid #10b981; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 11px; line-height: 1.5;">
-          <strong>Связка Active Directory с браузерным расширением:</strong><br>
-          <span style="color: var(--text-muted);">
-            Сервер проверяет членство пользователей в доменной группе по протоколу Zero-Trust. Чтобы расширение отправляло доменный логин сотрудника (<code>DOMAIN\\username</code>), на рабочих станциях через GPO должен быть задан параметр <code>domainUser = %USERDOMAIN%\\%USERNAME%</code> (настраивается в блоке GPO выше через готовый <code>Registry.xml</code> или deploy-скрипт). Устройства с применённой политикой сразу отображаются во «Флоте» с бейджем <span class="badge badge-ad-user">🏢 ДОМЕН\\пользователь</span> и мгновенно блокируются сервером при исключении из группы AD.
+          <strong data-i18n="titleZeroTrustAdBinding">Связка Active Directory с браузерным расширением:</strong><br>
+          <span style="color: var(--text-muted);" data-i18n="descZeroTrustAdPull">
+            Сервер проверяет членство пользователей в доменной группе по протоколу Zero-Trust. Чтобы расширение отправляло доменный логин сотрудника (<code>DOMAIN\\username</code>), на рабочих станциях через GPO должен быть задан параметр <code>domainUser = %USERDOMAIN%\\%USERNAME%</code> (настраивается в блоке GPO выше через готовый <code>Registry.xml</code> или deploy-скрипт). Устройства с применённой политикой отображаются во «Флоте» с бейджем <span class="badge badge-ad-user">ДОМЕН\\пользователь</span>. Проверка доступа выполняется по Pull-модели: расширения сверяются с сервером по расписанию (по умолчанию каждые 5 минут, либо немедленно при перезапуске браузера), и доступ отзывается при очередном обращении к <code>/api/sync</code>.
           </span>
         </div>
 
@@ -1785,6 +1796,13 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
 
       <div class="card">
         <h2 data-i18n="titleAuditLogs">Access & Security Audit Logs</h2>
+        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap;" data-i18n="hintAuditEventsLegend">
+          <span><span class="badge badge-online">SERVED</span> Выдача PAC/кредов</span>
+          <span><span class="badge badge-online">SYNCED</span> Heartbeat / синхронизация</span>
+          <span><span class="badge badge-offline">REJECTED_TOKEN</span> Неверный токен / отказ AD</span>
+          <span><span class="badge badge-warning">DISABLE_PROXY</span> Сброс прокси по AD Kill-Switch</span>
+          <span><span class="badge badge-offline">REJECTED_SSRF</span> Защита локальной сети (SSRF)</span>
+        </div>
         <div class="table-container">
           <table>
             <thead>
@@ -2058,7 +2076,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
 
       <div id="proxyFormSocksWarning" style="display: none; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; font-size: 11px; color: #f59e0b; line-height: 1.4; align-items: center; gap: 6px;">
         <img src="/icons/warning.png" class="icon-inline" alt="warn">
-        <span data-i18n="warnChromiumSocks5Auth">Warning: Chromium browsers (Chrome, Edge, Yandex) do not support username/password authentication for SOCKS5. For Chrome with auth, use HTTP protocol.</span>
+        <span data-i18n="warnChromiumSocks5Auth">Внимание: браузеры на базе Chromium (Chrome, Edge, Яндекс) не поддерживают авторизацию по логину/паролю для протокола SOCKS5. Для Chromium с авторизацией используйте протокол HTTP.</span>
       </div>
 
       <label for="proxyFormIsActive" style="display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: none; font-weight: normal; cursor: pointer; margin-bottom: 16px;">

@@ -49,7 +49,8 @@ export const I18N: Record<string, Record<string, string>> = {
         msgThemeLockedBySync: 'Synchronized with corporate dashboard appearance',
         msgThemePushFailed: 'Failed to save the appearance on the server - it will be retried on the next change',
         lblAppSyncInterval: 'Server Auto-sync Interval (minutes):',
-        hintAppSyncInterval: 'Frequency of background sync for profiles, proxies, and routes (default: 15 min).',
+        hintAppSyncInterval: 'Sync interval for profiles, rules, and credentials with PECAppSvc and desktop client (default: 15 min). Automatically inherits browser extension proxy when no personal node is assigned.',
+        hintAppWinDivertService: 'Transparent WinDivert packet filtering requires Administrator privileges or execution via the Windows PECAppSvc system service.',
         subSettingsTheme: 'All color themes are preserved and automatically adapt to the chosen layout:',
         lblSettingsLang: '3. Dashboard Language',
         titleGhVersionControl: 'GitHub Releases & Version Control',
@@ -362,7 +363,7 @@ export const I18N: Record<string, Record<string, string>> = {
         toastProxySynced: 'Proxy synchronized!',
         toastProxyDeleted: 'Proxy deleted',
         toastProxySaved: 'Proxy saved!',
-        warnChromiumSocks5Auth: '<img src="/icons/warning.png" class="icon-inline" alt="warn"> Chromium (Chrome, Edge, Brave, Yandex) does not support SOCKS5 authentication. If credentials are set, Chrome will reject the connection or bypass the proxy. Use HTTP protocol for authenticated corporate proxies or use SOCKS5 without username/password (e.g. IP whitelist).',
+        warnChromiumSocks5Auth: 'Warning: Chromium-based browsers (Chrome, Edge, Yandex) do not support username/password authentication for SOCKS5. For Chromium with credentials, use HTTP protocol.',
         warnSocksAuthTable: 'Chromium browsers do not support SOCKS5 authentication. Use HTTP or IP-whitelisted SOCKS5.',
         title3xuiCreds: '3x-ui API Credentials & Timing Scheduler',
         lbl3xuiPanelUrl: '3x-ui Panel URL',
@@ -439,7 +440,51 @@ export const I18N: Record<string, Record<string, string>> = {
         thLogStatus: 'Status',
         thLogResult: 'Result',
         thLogDetails: 'Details',
-        txtLoadingLogs: 'Loading logs...'
+        txtLoadingLogs: 'Loading logs...',
+
+        // Truth Parity & Routing
+        hintAppRulesSync: 'ℹ️ Desktop agent rules synchronize with PECAppSvc and PEC-App clients on every /api/app-sync request (default: every 15 min, configurable in App Studio).',
+        thAppRuleProcess: 'Processes',
+        thAppRuleDomains: 'Target Domains',
+        thAppRuleHosts: 'Target Hosts / IPs',
+        thAppRulePorts: 'Ports',
+        thAppRuleProtocol: 'Protocol',
+        thAppRuleAction: 'Action',
+        thAppRuleDelete: 'Delete',
+        btnAppPresetBlockedSites: '🌐 Sites via Proxy (*.youtube.com, x.com)',
+        btnAppPresetBrowsers: 'Browsers Direct',
+        btnAppPresetDevtools: 'Dev Tools (curl, git, docker)',
+        btnAppPresetTunnel: 'Full Tunnel (*)',
+
+        // Studio
+        hintExtSyncInterval: 'Background sync interval with server (default: 5 min, switches to STALE when no response > 6 min). On 407 error, browser launch, or manual proxy switch, synchronization runs immediately.',
+        lblBldToken: 'Fleet Bootstrap Token (EXT_SHARED_TOKEN)',
+        phBldToken: 'corp-proxy-secret-token',
+        hintBldToken: 'Initial bootstrap token for device enrollment. After first connection, each instance receives an individual cryptographic token.',
+
+        // Fleet & Status
+        hintStatusThresholds: 'ONLINE: response < 6 min | STALE: 6–15 min | OFFLINE: > 15 min (extensions with custom interval switch to ONLINE on their schedule)',
+        thDesktopStatus: 'Status',
+        thDesktopHost: 'Computer / Host',
+        thDesktopOsUser: 'OS User',
+        thDesktopIp: 'IP Address',
+        thDesktopVer: 'Version',
+        thDesktopPairedExt: 'Paired Extension',
+        thDesktopProxy: 'Assigned Proxy',
+        thDesktopActivity: 'Last Activity',
+        thDesktopActions: 'Actions',
+
+        // GPO & Active Directory
+        titleGpoInstructions: '📋 Active Directory / GPO Deployment Instructions:',
+        gpoStep1Desc: '<strong>1. Recommended method (Tier-1 — GPP Registry.xml):</strong><br><span style="color: var(--text-muted);">Copy <code>Registry.xml</code> from the package into policy folder: <code>\\\\domain\\sysvol\\domain\\Policies\\{GUID}\\User\\Preferences\\Registry\\</code>.<br>Natively configures all 4 browsers, installation, and transparent <code>domainUser</code> via Windows Preferences without running scripts.</span>',
+        gpoStep2Desc: '<strong>2. Via PowerShell Logon Script:</strong><br><span style="color: var(--text-muted);">Assign <code>deploy-pec-gpo.ps1</code> in <code>User Configuration → Scripts → Logon</code>.</span>',
+        gpoStep3Desc: '<strong>3. Manual Registry configuration in GPMC:</strong><br><span style="color: var(--text-muted);">Configure parameters below: <strong>1. Forcelist</strong> (install), <strong>2. ExtensionSettings</strong> (update source), and <strong>3. domainUser</strong> (required for AD binding).</span>',
+        gpoSecReqs: '<strong>Critical GPO Security Requirements:</strong><br><span style="color: var(--text-muted);">• Linking to <strong>Computer OU</strong>: enable Loopback Processing in <code>Merge</code> mode.<br>• <strong>Delegation tab</strong>: ensure <strong>Authenticated Users</strong> have Read permission (MS16-072 / KB3163622).<br>• Security Filtering: specify your target AD group.</span>',
+        titleZeroTrustAdBinding: 'Active Directory & Browser Extension Pairing:',
+        descZeroTrustAdPull: 'The server verifies user domain group membership via Zero-Trust policy. For the extension to transmit the employee domain login (<code>DOMAIN\\username</code>), workstations must configure <code>domainUser = %USERDOMAIN%\\%USERNAME%</code> via GPO (using <code>Registry.xml</code> or deploy script above). Configured devices appear in the Fleet with a <span class="badge badge-ad-user">DOMAIN\\user</span> badge. Enforcement follows a Pull model: extensions query the server periodically (default: every 5 minutes, or immediately upon browser restart), and access is revoked on the next request to <code>/api/sync</code>.',
+
+        // Audit Logs
+        hintAuditEventsLegend: '<span><span class="badge badge-online">SERVED</span> Served PAC / creds</span> <span><span class="badge badge-online">SYNCED</span> Heartbeat / sync</span> <span><span class="badge badge-offline">REJECTED_TOKEN</span> Invalid token / AD rejection</span> <span><span class="badge badge-warning">DISABLE_PROXY</span> Proxy disabled via AD Kill-Switch</span> <span><span class="badge badge-offline">REJECTED_SSRF</span> LAN security guard (SSRF)</span>'
       },
       ru: {
         appTitle: 'PEC - Proxy Extension Corp',
@@ -490,7 +535,8 @@ export const I18N: Record<string, Record<string, string>> = {
         msgThemeLockedBySync: 'Синхронизировано с корпоративным оформлением панели',
         msgThemePushFailed: 'Не удалось сохранить оформление на сервере — повтор при следующем изменении',
         lblAppSyncInterval: 'Интервал автосинхронизации с сервером (минуты):',
-        hintAppSyncInterval: 'Периодичность синхронизации профиля, прокси и маршрутов в фоновом режиме (по умолчанию: 15 мин).',
+        hintAppSyncInterval: 'Периодичность синхронизации профиля, правил и учетных данных со службой PECAppSvc и клиентом (по умолчанию: 15 мин). При отсутствии персональной ноды автоматически наследуется прокси браузерного расширения.',
+        hintAppWinDivertService: 'Для работы прозрачного драйвера перехвата пакетов WinDivert требуются права Администратора или запуск через системную службу Windows PECAppSvc.',
         subSettingsTheme: 'Все цветовые схемы сохранены и адаптируются под выбранный макет:',
         lblSettingsLang: '3. Язык интерфейса (Language)',
         titleGhVersionControl: 'Версии и релизы GitHub',
@@ -803,7 +849,7 @@ export const I18N: Record<string, Record<string, string>> = {
         toastProxySynced: 'Прокси синхронизирован!',
         toastProxyDeleted: 'Прокси удален',
         toastProxySaved: 'Прокси сохранен!',
-        warnChromiumSocks5Auth: '<img src="/icons/warning.png" class="icon-inline" alt="warn"> Браузеры на базе Chromium (Chrome, Edge, Brave, Яндекс) не поддерживают авторизацию (логин/пароль) для SOCKS5. При наличии логина Chrome не сможет подключиться к прокси. Используйте протокол HTTP для авторизованных корпоративных прокси либо SOCKS5 без логина/пароля (по IP-фильтру).',
+        warnChromiumSocks5Auth: 'Внимание: браузеры на базе Chromium (Chrome, Edge, Яндекс) не поддерживают авторизацию по логину/паролю для протокола SOCKS5. Для Chromium с авторизацией используйте протокол HTTP.',
         warnSocksAuthTable: 'Браузеры Chromium не поддерживают авторизацию для SOCKS5. Используйте HTTP или SOCKS5 без авторизации.',
         title3xuiCreds: 'Учетные данные 3x-ui API и планировщик',
         lbl3xuiPanelUrl: 'URL панели 3x-ui',
@@ -880,6 +926,50 @@ export const I18N: Record<string, Record<string, string>> = {
         thLogStatus: 'Статус',
         thLogResult: 'Результат',
         thLogDetails: 'Детали',
-        txtLoadingLogs: 'Загрузка журнала...'
+        txtLoadingLogs: 'Загрузка журнала...',
+
+        // Truth Parity & Routing
+        hintAppRulesSync: 'ℹ️ Правила десктопного агента синхронизируются со службой PECAppSvc и клиентами PEC-App при каждом обращении к /api/app-sync (по умолчанию каждые 15 минут, настраивается в конструкторе приложения).',
+        thAppRuleProcess: 'Процессы (Process)',
+        thAppRuleDomains: 'Сайты / Домены (Target Domains)',
+        thAppRuleHosts: 'IP / Сети (Target Hosts)',
+        thAppRulePorts: 'Порты (Ports)',
+        thAppRuleProtocol: 'Протокол',
+        thAppRuleAction: 'Действие',
+        thAppRuleDelete: 'Удалить',
+        btnAppPresetBlockedSites: '🌐 Сайты через прокси (*.youtube.com, x.com)',
+        btnAppPresetBrowsers: 'Браузеры Direct',
+        btnAppPresetDevtools: 'Разработка (curl, git, docker)',
+        btnAppPresetTunnel: 'Полный туннель (*)',
+
+        // Studio
+        hintExtSyncInterval: 'Интервал фоновой синхронизации расширения с сервером (по умолчанию: 5 мин, статус переходит в STALE при отсутствии ответа > 6 мин). При ошибке 407, старте браузера или ручном переключении прокси синхронизация выполняется немедленно.',
+        lblBldToken: 'Bootstrap-токен флота (EXT_SHARED_TOKEN)',
+        phBldToken: 'corp-proxy-secret-token',
+        hintBldToken: 'Первичный bootstrap-токен для enrollment. После первого обращения каждому экземпляру выдается уникальный крипто-токен.',
+
+        // Fleet & Status
+        hintStatusThresholds: 'ONLINE: ответ < 6 мин | STALE: 6–15 мин | OFFLINE: > 15 мин (на расширениях с кастомным таймером статус переходит в ONLINE по их расписанию)',
+        thDesktopStatus: 'Статус',
+        thDesktopHost: 'Компьютер / Хост',
+        thDesktopOsUser: 'Пользователь ОС',
+        thDesktopIp: 'IP Адрес',
+        thDesktopVer: 'Версия',
+        thDesktopPairedExt: 'Привязанное расширение',
+        thDesktopProxy: 'Назначенный прокси',
+        thDesktopActivity: 'Последняя активность',
+        thDesktopActions: 'Действия',
+
+        // GPO & Active Directory
+        titleGpoInstructions: '📋 Инструкция по развертыванию через GPO / Active Directory:',
+        gpoStep1Desc: '<strong>1. Рекомендуемый способ (Tier-1 — GPP Registry.xml):</strong><br><span style="color: var(--text-muted);">Скопируйте <code>Registry.xml</code> из пакета в каталог политики: <code>\\\\домен\\sysvol\\домен\\Policies\\{GUID}\\User\\Preferences\\Registry\\</code>.<br>Настраивает все 4 браузера, установку и сквозной <code>domainUser</code> нативно через Windows Preferences без запуска скриптов.</span>',
+        gpoStep2Desc: '<strong>2. Через PowerShell Logon-скрипт:</strong><br><span style="color: var(--text-muted);">Укажите <code>deploy-pec-gpo.ps1</code> в <code>Конфигурация пользователя → Сценарии → Вход в систему</code>.</span>',
+        gpoStep3Desc: '<strong>3. Ручная настройка реестра в GPMC:</strong><br><span style="color: var(--text-muted);">Задайте параметры ниже: <strong>1. Forcelist</strong> (установка), <strong>2. ExtensionSettings</strong> (источник обновления) и <strong>3. domainUser</strong> (обязательно для привязки к AD).</span>',
+        gpoSecReqs: '<strong>Критические требования безопасности GPO:</strong><br><span style="color: var(--text-muted);">• Привязка к <strong>OU с ПК</strong>: включите Loopback Processing (Замыкание) в режиме <code>Merge (Объединение)</code>.<br>• Вкладка <strong>Delegation (Делегирование)</strong>: обязательно добавьте <strong>Authenticated Users</strong> («Прошедшие проверку») на Чтение (MS16-072 / KB3163622).<br>• Фильтры безопасности: укажите вашу целевую группу AD.</span>',
+        titleZeroTrustAdBinding: 'Связка Active Directory с браузерным расширением:',
+        descZeroTrustAdPull: 'Сервер проверяет членство пользователей в доменной группе по протоколу Zero-Trust. Чтобы расширение отправляло доменный логин сотрудника (<code>DOMAIN\\username</code>), на рабочих станциях через GPO должен быть задан параметр <code>domainUser = %USERDOMAIN%\\%USERNAME%</code> (настраивается в блоке GPO выше через готовый <code>Registry.xml</code> или deploy-скрипт). Устройства с применённой политикой отображаются во «Флоте» с бейджем <span class="badge badge-ad-user">ДОМЕН\\пользователь</span>. Проверка доступа выполняется по Pull-модели: расширения сверяются с сервером по расписанию (по умолчанию каждые 5 минут, либо немедленно при перезапуске браузера), и доступ отзывается при очередном обращении к <code>/api/sync</code>.',
+
+        // Audit Logs
+        hintAuditEventsLegend: '<span><span class="badge badge-online">SERVED</span> Выдача PAC/кредов</span> <span><span class="badge badge-online">SYNCED</span> Heartbeat / синхронизация</span> <span><span class="badge badge-offline">REJECTED_TOKEN</span> Неверный токен / отказ AD</span> <span><span class="badge badge-warning">DISABLE_PROXY</span> Сброс прокси по AD Kill-Switch</span> <span><span class="badge badge-offline">REJECTED_SSRF</span> Защита локальной сети (SSRF)</span>'
       }
     };

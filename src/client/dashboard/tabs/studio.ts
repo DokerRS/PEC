@@ -344,6 +344,10 @@ export let isCustomIconUploaded = false;
         if (updInput) {
           updInput.value = cfg.updateUrl || '';
         }
+        const tokInput = document.getElementById('bldToken');
+        if (tokInput) {
+          tokInput.value = cfg.defaultToken || cfg.token || '';
+        }
         document.getElementById('bldSyncInterval').value = cfg.syncIntervalMinutes || 15;
         document.getElementById('bldWebRtc').checked = cfg.webRtcProtection !== false;
         document.getElementById('bldDnsGuard').checked = cfg.dnsLeakProtection !== false;
@@ -985,6 +989,9 @@ export let isCustomIconUploaded = false;
         updateUrl: document.getElementById('bldUpdateUrl')
           ? document.getElementById('bldUpdateUrl').value.trim()
           : '',
+        defaultToken: document.getElementById('bldToken')
+          ? document.getElementById('bldToken').value.trim()
+          : undefined,
         syncIntervalMinutes: parseInt(document.getElementById('bldSyncInterval').value, 10) || 15,
         webRtcProtection: document.getElementById('bldWebRtc').checked,
         dnsLeakProtection: document.getElementById('bldDnsGuard').checked,
