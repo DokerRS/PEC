@@ -34,8 +34,9 @@ function render(isDefaultTokenInUse: boolean): string {
 
 test("dashboard render: references the static assets, no inline code blocks", () => {
   const html = render(false);
-  assert.match(html, /<link rel="stylesheet" href="\/dashboard.css">/);
-  assert.match(html, /<script src="\/dashboard(\.min)?\.js"><\/script>/);
+  // FLEET cache-buster: the href may carry a ?v=<version> query
+  assert.match(html, /<link rel="stylesheet" href="\/dashboard\.css(\?v=[^"]+)?">/);
+  assert.match(html, /<script src="\/dashboard(\.min)?\.js(\?v=[^"]+)?"><\/script>/);
   assert.ok(!html.includes("<style>"), "CSS must ship as the external asset");
   assert.ok(!/<script>[\s\S]/.test(html), "client JS must ship as the external asset");
 });
@@ -222,8 +223,14 @@ test("dashboard render & assets: Proxy Settings tab, multi-proxy table, modals a
   assert.ok(html.includes('id="activePacDirectiveText"'), "must render active PAC directive indicator text");
   assert.ok(html.includes('id="activeProxyBadge"'), "must render active proxy badge");
 
-  // 3x-ui and Modals
-  assert.ok(html.includes('id="rotInsecureTls"'), "must render insecure TLS toggle for 3x-ui");
+  // 3x-ui and Modals (updated by the multi-server rotation task: the legacy
+  // "3x-ui API Credentials & Timing Scheduler" card is gone — the insecure
+  // TLS toggle now lives in the per-panel modal)
+  assert.ok(html.includes('id="panelInsecureTls"'), "must render insecure TLS toggle in the per-panel modal");
+  assert.ok(!html.includes('id="rotPanelUrl"'), "legacy rotation card must be removed");
+  assert.ok(!html.includes('id="rotAdminPass"'), "legacy rotation card inputs must be removed");
+  assert.ok(html.includes('id="panelRotationEnabled"'), "per-panel auto-rotation checkbox must be present");
+  assert.ok(html.includes('id="panelTargetRemark"'), "per-panel target remark input must be present");
   assert.ok(html.includes('id="modalAdd3xui"'), "must render modalAdd3xui");
   assert.ok(html.includes('id="add3xuiTag"'), "must render add3xuiTag input");
   assert.ok(html.includes('id="add3xuiPreview"'), "must render add3xuiPreview");
@@ -276,12 +283,13 @@ test("dashboard: placeholder warning banner and passwordSavedBadge are present, 
   assert.ok(!html.includes('id="routingModePac"'), "obsolete routingModePac radio must be removed");
   assert.ok(!html.includes('id="routingModeFixed"'), "obsolete routingModeFixed radio must be removed");
 
-  // 3. Password saved badge present next to rotAdminPass
-  assert.ok(html.includes('id="passwordSavedBadge"'), "must contain passwordSavedBadge");
-  assert.ok(html.includes('(Пароль сохранён на сервере)'), "must contain password saved text");
+  // 3. Password saved badge: the legacy rotation card is removed (multi-server
+  //    rotation task) — the badge markup must be gone with it.
+  assert.ok(!html.includes('id="passwordSavedBadge"'), "legacy passwordSavedBadge markup must be removed with the rotation card");
+  assert.ok(!html.includes('(Пароль сохранён на сервере)'), "legacy password-saved text must be removed");
 
-  // 4. Client JS functions and badge handling
-  assert.ok(dashboardJs.includes("passwordSavedBadge"), "dashboard.js must reference passwordSavedBadge");
+  // 4. Client JS still references the badge id defensively (dead-safe getter)
+  assert.ok(dashboardJs.includes("passwordSavedBadge"), "dashboard.js must reference passwordSavedBadge defensively");
 });
 
 
