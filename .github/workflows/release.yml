@@ -32,10 +32,15 @@ jobs:
       - name: Extract release notes from CHANGELOG
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          # Prefix match on the section heading (CHANGELOG uses both styles
+          # across history: [v0.9.x-alpha] and [0.9.x-alpha] since 0.9.7, both
+          # suffixed with " - YYYY-MM-DD"). index() guards instead of bracket
+          # regexes - bracket escaping in awk regex literals is
+          # implementation-dependent across gawk builds.
           awk -v ver="$VERSION" '
-            $0 ~ "^## \\[v" ver "\\]" { inblock=1; next }
-            inblock && /^## \[/ { exit }
-            inblock { print }
+            { if (inblock && index($0, "## [") == 1) exit
+              if (index($0, "## [" ver "]") == 1 || index($0, "## [v" ver "]") == 1) { inblock=1; next }
+              if (inblock) print }
           ' CHANGELOG.md > RELEASE_NOTES.md
           if [ ! -s RELEASE_NOTES.md ]; then
             echo "See [CHANGELOG.md](https://github.com/vlv-code/PEC/blob/main/CHANGELOG.md)." > RELEASE_NOTES.md
