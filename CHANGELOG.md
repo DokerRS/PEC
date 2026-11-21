@@ -2,6 +2,14 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [0.9.12-alpha] - 2026-11-21
+### Fixed
+- **UI-PREVIEW-FLEET-CLEAN-1**: Fleet telemetry table and constructor preview studio overhaul:
+  - Removed redundant desktop pairing badge («🔗 Десктоп») from the browser extensions fleet table, ensuring clean visual separation between extension and native desktop application tables.
+  - Resolved 404 error loading `popupTheme.js` inside the sandboxed Extension Studio preview iframe by inlining the pre-paint theme bootstrap script directly.
+  - Implemented reactive synchronization of Extension Studio preview state (`liveSimState`) with real fleet proxies (`availableProxies`, `activeProxyId`, host/port/protocol), active PAC routing presets, and permission checkboxes (`allowUserProxySwitch`, `allowUserBypass`) with two-way `SET_ACTIVE_PROXY` handler.
+  - App Studio: eliminated hardcoded 30s sync timing in favor of dynamic `appSyncIntervalMinutes`, added reactive periodic log generation, and dynamic traffic interception generator reflecting `currentAppRules`.
+
 ## [0.9.11-alpha] - 2026-11-21
 ### Changed
 - **GPO-CANONICAL-REG-1**: Canonicalized Active Directory GPO deployment to pure Windows Registry files (`pec-policy-user.reg`, `pec-policy-machine.reg`, `README-GPO.txt`) and direct GPMC configuration (3 standard parameters: `ExtensionInstallForcelist`, `ExtensionSettings`, `domainUser`).
