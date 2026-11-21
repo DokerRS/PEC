@@ -4,7 +4,7 @@ Universal transparent proxy client for Windows enterprise applications - route a
 
 ## Table of Contents
 
-- [ProxyBridge for Windows](#proxybridge-for-windows)
+- [Installation](#installation)
   - [Table of Contents](#table-of-contents)
   - [Installation](#installation)
   - [Usage](#usage)
@@ -31,10 +31,10 @@ Universal transparent proxy client for Windows enterprise applications - route a
 
 ## Installation
 
-1. Download the latest `ProxyBridge-Setup-X.X.X.exe` from the [Releases](https://github.com/InterceptSuite/ProxyBridge/releases) page
+1. Download the latest `PEC-App-Setup.exe` from the [Releases](https://github.com/vlv-code/PEC/releases) page
 2. Run the installer with Administrator privileges
 3. The installer will:
-   - Install ProxyBridge to `C:\Program Files\ProxyBridge`
+   - Install PEC-App to `C:\Program Files\ProxyExtensionCorp`
    - Add the install directory to your system PATH (GUI, CLI, and DLL all accessible)
    - Create Start Menu shortcuts for the GUI application
    - Include all required dependencies (WinDivert driver)

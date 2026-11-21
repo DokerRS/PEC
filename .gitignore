@@ -22,6 +22,7 @@ build/
 .env
 .env.local
 .env.*.local
+.npmrc
 current_creds.json
 dashboard_auth.json
 instances_meta.json

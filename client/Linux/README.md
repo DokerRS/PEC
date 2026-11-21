@@ -460,10 +460,10 @@ full RELRO, BIND_NOW, PIE, stack protector and CET flags; `Linux/tests/check_bin
        libelf zlib curl gtk3 pkg-config
    ```
 
-2. **Clone or download ProxyBridge source code:**
+2. **Clone or download PEC repository:**
    ```bash
-   git clone https://github.com/InterceptSuite/ProxyBridge.git
-   cd ProxyBridge/Linux
+   git clone https://github.com/vlv-code/PEC.git
+   cd PEC/client/Linux
    ```
 
 3. **Build using the build script:**
@@ -556,9 +556,9 @@ GNU Affero General Public License v3 (AGPL-3.0) - See [LICENSE](../../LICENSE) f
 
 ---
 
-**Author:** Sourav Kalal / InterceptSuite
-**GitHub:** https://github.com/InterceptSuite/ProxyBridge
-**Documentation:** https://github.com/InterceptSuite/ProxyBridge/tree/master/Linux
+**Author:** PEC Team (Original Core by Sourav Kalal / InterceptSuite, MIT)
+**GitHub:** https://github.com/vlv-code/PEC
+**Documentation:** https://github.com/vlv-code/PEC/tree/main/client/Linux
 
 ## Testing
 
