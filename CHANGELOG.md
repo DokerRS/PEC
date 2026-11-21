@@ -2,6 +2,18 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [0.9.13-alpha] - 2026-11-22
+### Added
+- **UI-LOGIC-ROTATION-CLEAN-1**: Multi-server 3x-ui rotation architecture, in-studio code editor, and dashboard logic hardening:
+  - Multi-server rotation: `Panel3xuiConfig` extended with `rotationEnabled`, `targetRemark`, `rotationIntervalMinutes` — rotation scheduling and targeting are now configured per 3x-ui panel and persisted with the panel registry (`rotate.ts`, `rotationRoutes.ts`).
+  - Built-in lightweight code editor in Extension Studio (micro-implementation of CodeJar + Prism.js): JS/HTML syntax highlighting, Tab handling, soft wrap, min-height 500px.
+  - i18n parity for all new panels and actions (ru/en).
+### Fixed
+- **P0 UI-logic defects**: synchronized geo-import element ids between `routing.ts` and `dashboardView.ts`; inspector action wiring restored.
+- **Fleet safety**: `pecConfirm` confirmation gates on studio-preset code generation and activation of generated code.
+- **Cache-busting**: correct `navigator.language` handling for the Node.js test environment in `popup.js` / `popupJsTemplate.ts`; stylesheet and script cache-buster flows through the release version.
+- **Tests**: dashboard markup pins made cache-buster-query-optional; assertions refreshed after the legacy «3x-ui API Credentials & Timing Scheduler» card was replaced by per-panel rotation modals (`8e9effb`).
+
 ## [0.9.12-alpha] - 2026-11-21
 ### Fixed
 - **UI-PREVIEW-FLEET-CLEAN-1**: Fleet telemetry table and constructor preview studio overhaul:
