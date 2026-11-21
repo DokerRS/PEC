@@ -2,6 +2,12 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [0.9.11-alpha] - 2026-11-21
+### Changed
+- **GPO-CANONICAL-REG-1**: Canonicalized Active Directory GPO deployment to pure Windows Registry files (`pec-policy-user.reg`, `pec-policy-machine.reg`, `README-GPO.txt`) and direct GPMC configuration (3 standard parameters: `ExtensionInstallForcelist`, `ExtensionSettings`, `domainUser`).
+- **GPO-CLEANUP**: Completely removed fragile Group Policy Preferences XML artifacts (`Registry.xml`, `/api/builder/registry-xml`) and helper PowerShell scripts (`deploy-pec-gpo.ps1`, `verify-pec-gpo.ps1`, `/api/builder/script/:name`).
+- **DOCS-TRUTH-PARITY**: Synchronized `README.md`, `README.ru.md`, `docs/gpo-deployment-guide.md`, `docs/architecture-plan.md`, and `architecture.md` with the canonical GPO architecture.
+
 ## [0.9.10-alpha] - 2026-11-20
 ### Added
 - **AD-RECOVERY-1**: Active Directory Kill-Switch Zero-Trust Auto-Recovery & Unrevoke:

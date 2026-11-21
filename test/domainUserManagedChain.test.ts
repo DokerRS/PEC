@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import { renderDeployGpoScript, renderVerifyGpoScript, renderGppRegistryXml } from "../src/templates/gpoTemplates.js";
+import { generateGpoConfig } from "../src/packager.js";
 import { registerHeartbeat, getActiveInstances, clearInstances } from "../src/instances.js";
 import { getAppBuildConfig } from "../src/appPackager.js";
 
@@ -218,35 +218,20 @@ test("DOMAINUSER-1 (d): machine WITHOUT GPP domainUser stays Legacy; first domai
   void getAppBuildConfig;
 });
 
-test("DOMAINUSER-1 (b): deploy script carries -DomainUserName override + Registry.xml automatic %USERNAME%", () => {
-  const deploy = renderDeployGpoScript(
+test("DOMAINUSER-1 (b): generated GPO .reg policies configure managed storage domainUser to %USERDOMAIN%\\%USERNAME%", () => {
+  const gpo = generateGpoConfig(
     "testextid0000000000000000000000000000000000",
     "https://pec.corp.local",
     "tok",
-    "SEC-Proxy-Users",
-    "CORP\\svc-pec"
+    { targetGroup: "SEC-Proxy-Users" }
   );
-  assert.match(deploy, /\[string\]\$DomainUserName = ""/, "deploy param -DomainUserName must exist");
-  assert.match(deploy, /if \(\$DomainUserName\)/, "override must gate the registry value");
-  assert.match(deploy, /%USERDOMAIN%\\%USERNAME%/, "automatic form stays the default");
-  assert.match(deploy, /\$DomainUserName \} else \{ \$env:USERDOMAIN/, "override wins when provided");
 
-  // Registry.xml (GPP path) keeps the automatic per-user substitution
-  const xml = renderGppRegistryXml(
-    "testextid0000000000000000000000000000000000",
-    "https://pec.corp.local",
-    "tok",
-    "SEC-Proxy-Users"
+  assert.ok(
+    gpo.regContentUser.includes('"domainUser"="%USERDOMAIN%\\\\%USERNAME%"'),
+    "regContentUser must include domainUser set to %USERDOMAIN%\\%USERNAME%"
   );
-  assert.match(xml, /name="domainUser"/, "Registry.xml must declare the domainUser policy entry");
-  assert.match(xml, /%USERDOMAIN%\\%USERNAME%/, "Registry.xml uses the automatic per-user form");
-
-  // Verify script warns when the domainUser key is missing on targets
-  const verify = renderVerifyGpoScript(
-    "testextid0000000000000000000000000000000000",
-    "https://pec.corp.local",
-    "tok"
+  assert.ok(
+    gpo.regContentMachine.includes('"domainUser"="%USERDOMAIN%\\\\%USERNAME%"'),
+    "regContentMachine must include domainUser set to %USERDOMAIN%\\%USERNAME%"
   );
-  assert.match(verify, /domainUser \(Managed Storage identity\)/, "verify must carry a dedicated domainUser check");
-  assert.match(verify, /stays Legacy \(no AD identity/, "missing key must WARN with the Legacy consequence");
 });

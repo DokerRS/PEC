@@ -13,16 +13,13 @@ import {
   renderPopupJs,
 } from "./extensionTemplates.js";
 import {
-  renderDeployGpoScript,
-  renderVerifyGpoScript,
   renderGpoReadme,
-  renderGppRegistryXml,
 } from "./templates/gpoTemplates.js";
 import { writeJsonAtomic, writeFileAtomic, readJsonStore } from "./jsonStore.js";
 import { applyDashboardThemeToClientConfig } from "./serverTheme.js";
 import { getBuilderConfigPath, getReleasesDir } from "./storage.js";
 import { recordRelease } from "./releases.js";
-import type { ExtensionBuildConfig, ExtensionBuildInfo } from "./types.js";
+import type { ExtensionBuildConfig, ExtensionBuildInfo, GpoConfig } from "./types.js";
 import { DEFAULT_APP_VERSION } from "./appPackager.js";
 
 const EXTENSION_DIR = path.resolve(process.env.PEC_EXTENSION_DIR || "./extension");
@@ -243,7 +240,7 @@ export function generateGpoConfig(
   serverBaseUrl: string,
   token: string,
   options?: GpoConfigOptions
-) {
+): GpoConfig {
   // .reg string values: escape backslashes and quotes, flatten line breaks -
   // a raw quote or backslash in any value would corrupt the registry file.
   const regEscape = (s: string) =>
@@ -355,19 +352,6 @@ export function generateGpoConfig(
   // Default regContent respects option.scope or defaults to User (HKCU)
   const regContent = options?.scope === "machine" ? regContentMachine : regContentUser;
 
-  const deployScript = renderDeployGpoScript(
-    extensionId,
-    serverBaseUrl,
-    token,
-    options?.targetGroup || ""
-  );
-  const verifyScript = renderVerifyGpoScript(extensionId, serverBaseUrl, token);
-  const registryXml = renderGppRegistryXml(
-    extensionId,
-    serverBaseUrl,
-    token,
-    options?.targetGroup || ""
-  );
   const readmeContent = renderGpoReadme(extensionId, serverBaseUrl);
 
   return {
@@ -378,10 +362,7 @@ export function generateGpoConfig(
     regContent,
     regContentUser,
     regContentMachine,
-    deployScript,
-    verifyScript,
     readmeContent,
-    registryXml,
   };
 }
 
@@ -1220,32 +1201,9 @@ export function generateGpoDeploymentPack(
   const zip = new AdmZip();
   const regUserWithBom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(gpo.regContentUser, "utf-8")]);
   const regMachineWithBom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(gpo.regContentMachine, "utf-8")]);
-  zip.addFile("pec-policy-user-hkcu.reg", regUserWithBom);
-  zip.addFile("pec-policy-machine-hklm.reg", regMachineWithBom);
-  zip.addFile("deploy-pec-gpo.ps1", Buffer.from(gpo.deployScript, "utf-8"));
-  zip.addFile("verify-pec-gpo.ps1", Buffer.from(gpo.verifyScript, "utf-8"));
-  zip.addFile(
-    "extension-settings.json",
-    Buffer.from(JSON.stringify(gpo.extensionSettingsJson, null, 2), "utf-8")
-  );
-  zip.addFile(
-    "extension-settings-chrome.json",
-    Buffer.from(JSON.stringify(gpo.extensionSettingsEntries.chrome, null, 2), "utf-8")
-  );
-  zip.addFile(
-    "extension-settings-edge.json",
-    Buffer.from(JSON.stringify(gpo.extensionSettingsEntries.edge, null, 2), "utf-8")
-  );
-  zip.addFile(
-    "extension-settings-yandex.json",
-    Buffer.from(JSON.stringify(gpo.extensionSettingsEntries.yandex, null, 2), "utf-8")
-  );
-  zip.addFile("Registry.xml", Buffer.from(gpo.registryXml, "utf-8"));
-  zip.addFile("README-GPO.md", Buffer.from(gpo.readmeContent, "utf-8"));
-  const gpoLicense = path.resolve("./LICENSE");
-  if (fs.existsSync(gpoLicense)) {
-    zip.addFile("LICENSE", fs.readFileSync(gpoLicense));
-  }
+  zip.addFile("pec-policy-user.reg", regUserWithBom);
+  zip.addFile("pec-policy-machine.reg", regMachineWithBom);
+  zip.addFile("README-GPO.txt", Buffer.from(gpo.readmeContent, "utf-8"));
 
   const zipBuffer = zip.toBuffer();
   const zipPath = path.join(UPDATES_DIR, "pec-gpo-deployment-pack.zip");

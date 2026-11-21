@@ -14,7 +14,7 @@
 [![Node.js](https://img.shields.io/badge/node.js-%3E%3D20-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg)](Dockerfile)
 [![Chrome Extension](https://img.shields.io/badge/chrome%20extension-MV3-brightgreen.svg)](https://developer.chrome.com/docs/extensions/mv3/)
-[![Release](https://img.shields.io/badge/release-v0.9.10--alpha-blue.svg)](https://github.com/vlv-code/PEC/releases)
+[![Release](https://img.shields.io/badge/release-v0.9.11--alpha-blue.svg)](https://github.com/vlv-code/PEC/releases)
 [![Status: Public Alpha](https://img.shields.io/badge/status-public--alpha-orange.svg)]()
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Boosty](https://img.shields.io/badge/Donate-Boosty-F15F2C.svg)](https://boosty.to/oovlvoo)
@@ -36,10 +36,10 @@
    - Автоматическое обнаружение и привязка браузерного расширения к локальному десктопному клиенту через localhost loopback.
    - Сквозная телеметрия сетевого статуса, версий и единый fallback-режим.
 
-3. **Конструктор расширений и нативная GPO-доставка (Native GPP Registry Pack)**:
+3. **Конструктор расширений и каноническое GPO-развертывание (.REG и GPMC)**:
    - Автоматическая компиляция и подпись `.CRX` пакета 2048-битным RSA ключом.
    - Генерация файла автоматического обновления `updates.xml` для корпоративного развертывания.
-   - **Нативный GPP Registry Pack (Tier-1)**: Корпоративный пакет Group Policy Preferences (`Registry.xml`) для прямого импорта в редактор GPMC (`Конфигурация пользователя -> Настройка -> Параметры Windows -> Реестр`). Обеспечивает сквозную идентификацию доменного пользователя (`domainUser = "%USERDOMAIN%\%USERNAME%"`) и автоматическую очистку при выходе из целевой группы AD за счет механизма `removePolicy="1"` («Удалить этот элемент, если он больше не применяется»). Для локального или автономного тестирования без GPMC сохранен вспомогательный скрипт `deploy-pec-gpo.ps1`.
+   - **Канонический пакет .REG и настройка GPMC**: Корпоративное развертывание политик через чистые файлы реестра Windows (`pec-policy-user.reg`, `pec-policy-machine.reg`, `README-GPO.txt`) и прямое задание трёх ключевых параметров в редакторе GPMC (`ExtensionInstallForcelist` для установки, `ExtensionSettings` для источника обновлений и `domainUser = "%USERDOMAIN%\%USERNAME%"` для сквозной Zero-Trust идентификации). Поддерживает мультибраузерную доставку (Google Chrome, Microsoft Edge, Яндекс Браузер, Opera) без необходимости запуска скриптов PowerShell или использования хрупких XML-манифестов.
    - **Веб-панель управления Active Directory и мягкая миграция**: Встроенный интерфейс во вкладке GPO для оперативной настройки параметров LDAPS (`data/ad_config.json`), проверки соединения в реальном времени (`POST /api/ad/test`) и ручного запуска синхронизации. Поддержка поэтапного перевода парка машин в режиме мягкой миграции (`AD_REJECT_UNKNOWN_USERS=false`) с отображением статуса `Legacy` для устаревших клиентов до перехода на строгий Zero-Trust.
    - Три пресета интерфейса: **Self-Service Pro** (полный UI с диагностикой и кнопкой временного обхода), **Kiosk / Restricted** (read-only попап для киосков и учебных классов), **Stealth Agent** (невидимая фоновая служба).
    - Интерактивный предпросмотр (**Live Extension Preview**) с реактивным симулятором состояний.

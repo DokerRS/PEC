@@ -72,11 +72,12 @@ Squid в архитектуру не входит: фильтрацию доме
      - В политике компьютера включить режим замыкания:
        `Конфигурация компьютера → Административные шаблоны → Система → Групповая политика → Режим обработки пользовательской групповой политики замыкания = Включено (Объединение / Merge)`.
     - **Способы развертывания политик GPO:**
-      - **Рекомендуемый (Zero Clobbering / deploy-pec-gpo.ps1):** Используйте готовый скрипт развертывания из архива *GPO Deployment Pack* веб-панели PEC. Скрипт автоматически десериализует существующие значения `ExtensionSettings` и выполняет безопасное слияние JSON (Merge), либо находит свободный индекс в `ExtensionInstallForcelist`, гарантируя, что другие корпоративные расширения (антивирусы, DLP, EDR) не будут стёрты (аудит X-02).
-      - **Через Group Policy Preferences (Registry):**
-        - Путь: `Конфигурация пользователя (включено) → Настройка → Конфигурация Windows → Реестр`
-        - Для каждого браузера создается ветка `ExtensionInstallForcelist` (числовой параметр со значением `<ID>;https://<serverBaseUrl>/updates/updates.xml`) и ветка `3rdparty\extensions\<ID>\policy` (параметры `extToken`, `syncUrl`, `credsUrl`).
-        - Если используется `ExtensionSettings`, обязательно выполняйте слияние JSON, чтобы не перезаписать политики сторонних расширений.
+      - **Канонический (GPMC и .REG файлы):** Используйте готовые файлы реестра `pec-policy-user.reg` и `pec-policy-machine.reg` из архива *GPO Deployment Pack* веб-панели PEC, либо настройте параметры напрямую в GPMC:
+        - Путь: `Конфигурация пользователя (или Компьютера) → Настройка → Конфигурация Windows → Реестр`
+        - Для каждого браузера настраиваются 3 параметра:
+          1. `ExtensionInstallForcelist`: параметр со значением `<ID>;https://<serverBaseUrl>/updates/updates.xml`
+          2. `ExtensionSettings`: JSON с разрешенным источником установки и режимом установки (`force_installed` или `normal_installed`)
+          3. `domainUser`: параметр со значением `%USERDOMAIN%\%USERNAME%` в ветке `3rdparty\extensions\<ID>\policy` для сквозной идентификации в Active Directory Zero-Trust
     - **Параметры для браузеров:**
       - **Google Chrome** (`Software\Policies\Google\Chrome`): `installation_mode = force_installed`
       - **Microsoft Edge** (`Software\Policies\Microsoft\Edge`): `installation_mode = force_installed`
@@ -98,7 +99,7 @@ Squid в архитектуру не входит: фильтрацию доме
        return "DIRECT";
    }
    ```
-2. Раздать PAC-файл всем сотрудникам компании через существующий механизм (GPO ProxyPacUrl или GPP Registry `AutoConfigURL`).
+2. Раздать PAC-файл всем сотрудникам компании через существующий механизм (GPO ProxyPacUrl или параметр реестра `AutoConfigURL`).
 
 ### Этап 5. Сквозное тестирование
 1. **Пользователь в группе `SEC-Proxy-VPN`:**

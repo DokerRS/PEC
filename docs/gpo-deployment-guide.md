@@ -6,15 +6,14 @@
 
 ## 1. Архитектура и ключевые принципы
 
-Основным рекомендованным способом развертывания (Tier-1) является **нативный импорт Group Policy Preferences (Registry.xml)** через оснастку GPMC без необходимости выполнения скриптов при входе пользователя в систему.
+Основным рекомендованным способом развертывания (Tier-1) является **канонический пакет .REG файлов (`pec-policy-user.reg`, `pec-policy-machine.reg`) и прямое управление параметрами реестра в GPMC** без использования внешних скриптов и нестабильных XML-манифестов.
 
 ```mermaid
 flowchart TD
-    AD["Active Directory Domain Controller\n(GPO: User Preferences Registry.xml)"] -->|Репликация через SysVol| WS["Рабочие станции (Windows 10/11)\nи Терминальные серверы (RDS)"]
+    AD["Active Directory Domain Controller\n(GPO: Реестр GPMC или .REG)"] -->|Репликация через SysVol| WS["Рабочие станции (Windows 10/11)\nи Терминальные серверы (RDS)"]
     
-    subgraph Client["Клиентский сеанс пользователя (GPP CSE)"]
-        WS -->|Item-Level Targeting: SEC-Proxy-Users| GPP["Group Policy Preferences\n(Нативная обработка реестра)"]
-        GPP -->|Запись политик в HKCU\n(removePolicy=1)| REG["Реестр HKCU\\Software\\Policies\n(Chrome, Edge, Yandex, Opera)\ndomainUser = %USERDOMAIN%\\%USERNAME%"]
+    subgraph Client["Клиентский сеанс пользователя"]
+        WS -->|Security Filtering: SEC-Proxy-Users| REG["Реестр HKCU\\Software\\Policies\n(Chrome, Edge, Yandex, Opera)\ndomainUser = %USERDOMAIN%\\%USERNAME%"]
         REG -->|Старт браузера| BROWSER["Chromium Браузер\n(Enterprise Managed)"]
     end
     
@@ -34,16 +33,16 @@ flowchart TD
 ```
 
 ### Основные принципы безопасности:
-1. **Нативная GPO без сторонних интерпретаторов (Tier-1 GPP Registry.xml):**
-   Распространение параметров выполняется штатным механизмом Windows Group Policy Preferences. Не требуется включать исполнение PowerShell-скриптов в политиках ExecutionPolicy или настраивать Logon-скрипты.
+1. **Каноническая GPO через чистый реестр Windows (Tier-1 .REG и GPMC):**
+   Распространение параметров выполняется штатными средствами Windows через ветки политик браузеров в реестре (`Software\Policies\...`). Не требуется разрешать исполнение PowerShell-скриптов в политиках ExecutionPolicy или настраивать Logon-скрипты.
 2. **Сквозная доменная идентификация (Zero-Trust Identity Mapping):**
    В ветку управляемых политик браузера записывается строковый параметр `domainUser = "%USERDOMAIN%\%USERNAME%"`. При входе пользователя подсистема Windows автоматически раскрывает доменные переменные окружения (например, `CORP\ivanov`). Расширение считывает `domainUser` из `chrome.storage.managed` и передает его в запросах к серверу для сверки с Active Directory.
-3. **Автоматический отзыв прав через `removePolicy="1"`:**
-   Все элементы в манифесте `Registry.xml` сформированы с флагом **«Remove this item when it is no longer applied»** (`removePolicy="1"`). Если администратор исключает пользователя из группы `SEC-Proxy-Users`, клиентская служба Group Policy Preferences при следующем цикле `gpupdate` автоматически удаляет записи расширения из реестра `HKCU`.
+3. **Управление доступом через AD Security Filtering и делегирование (MS16-072):**
+   Разрешение на применение политики задается через группы безопасности Active Directory (Security Filtering). Для корректного чтения политик рабочими станциями в соответствии с MS16-072 (KB3163622) группе `Authenticated Users` на вкладке Delegation обязательно назначается право на чтение объекта GPO.
 4. **Мгновенный серверный Kill-Switch (Active Directory Sync):**
    Сервер PEC периодически опрашивает контроллер домена по LDAPS. Если учетная запись пользователя заблокирована в домене или исключена из группы `AD_REQUIRED_GROUP_DN`, сервер возвращает статус **403 Forbidden** на запросы `/api/sync` и `/creds`, немедленно аннулирует выданные токены инстанса и принудительно отключает туннелирование (перевод в прямой режим DIRECT).
 5. **Изоляция пользователей на терминальных серверах (RDS / Citrix):**
-   Политики принудительной установки и настройки применяются исключительно в ветку **текущего пользователя (`HKCU\Software\Policies\...`)**, а не в `HKLM`. Это исключает утечку конфигураций между сеансами разных пользователей на общем сервере.
+   Политики принудительной установки и настройки применяются преимущественно в ветку **текущего пользователя (`HKCU\Software\Policies\...`)**, а не в `HKLM`. Это исключает утечку конфигураций между сеансами разных пользователей на общем сервере.
 6. **Гигиена секретов:**
    В GPO передается только низкопривилегированный **`EXT_SHARED_TOKEN`** (fleet-токен). Административный токен управления `ADMIN_TOKEN` изолирован на сервере.
 
@@ -68,52 +67,63 @@ flowchart TD
 
 ---
 
-## 3. Сценарий 1 (Tier-1, Рекомендуемый): Нативное развертывание через Group Policy Preferences (Registry.xml)
+## 3. Сценарий 1 (Tier-1, Рекомендуемый): Каноническое развертывание через GPMC и .REG файлы
 
-Этот сценарий является основным корпоративным стандартом: он использует встроенный в Windows механизм Group Policy Preferences, не зависит от политики выполнения скриптов PowerShell и обеспечивает чистый жизненный цикл удаления политик.
+Этот сценарий является основным корпоративным стандартом: он использует встроенные возможности оснастки Group Policy Management (GPMC) и готовые `.REG` файлы реестра Windows, не зависит от политики выполнения скриптов PowerShell и исключает синтаксические ошибки при настройке браузеров.
 
-### Шаг 1. Получение манифеста Registry.xml
-1. В веб-панели PEC откройте вкладку **«GPO Deployment»**.
-2. В блоке загрузки нажмите кнопку **«Скачать GPP Registry.xml»** (или выгрузите `Registry.xml` из состава полного GPO Pack).
+### Шаг 1. Получение пакета развертывания
+1. В веб-панели PEC откройте вкладку **«GPO & Конструктор»**.
+2. В блоке загрузки скачайте архив **«GPO Deployment Pack»** (содержит `pec-policy-user.reg`, `pec-policy-machine.reg` и `README-GPO.txt`).
 
 ### Шаг 2. Создание объекта GPO в GPMC
 1. Откройте консоль **Group Policy Management** (`gpmc.msc`).
-2. Создайте новый объект групповой политики, например: `PEC-Corp-Proxy-Preferences`.
-3. Привяжите GPO к подразделению (OU) с пользователями или к корню домена.
+2. Создайте новый объект групповой политики, например: `PEC-Proxy-Extension-Deployment`.
+3. Привяжите GPO к подразделению (OU) с пользователями (`HKCU`) или компьютерами (`HKLM`).
+4. Настройте фильтрацию безопасности (**Security Filtering**): добавьте группу доступа (например, `SEC-Proxy-Users`).
+5. На вкладке **Delegation (Делегирование)** обязательно добавьте группу **`Authenticated Users`** («Прошедшие проверку») с разрешением **«Read» (Чтение)** (требование безопасности MS16-072 / KB3163622).
 
-### Шаг 3. Импорт элементов Registry.xml в политику
-Вы можете разместить сгенерированный файл конфигурации в хранилище политики:
-1. В консоли GPMC нажмите правой кнопкой мыши по созданной GPO → **Edit** (Редактировать).
-2. Разверните узел:  
-   `User Configuration (Конфигурация пользователя) → Preferences (Настройки) → Windows Settings (Параметры Windows) → Registry (Реестр)`.
-3. Откройте каталог политики в проводнике:
-   `\\<domain>\sysvol\<domain>\Policies\<GPO-GUID>\User\Preferences\Registry\`
-4. Скопируйте файл `Registry.xml` в указанную директорию.
-5. Вернитесь в консоль редактора GPO и нажмите **F5 (Обновить)**. В окне отобразятся преднастроенные элементы для всех поддерживаемых браузеров:
-   - **Google Chrome:** `Software\Policies\Google\Chrome`
-   - **Microsoft Edge:** `Software\Policies\Microsoft\Edge`
-   - **Яндекс.Браузер:** `Software\Policies\YandexBrowser`
-   - **Opera:** `Software\Policies\Opera Software\Opera`
+### Шаг 3. Настройка параметров в GPMC
+В редакторе GPO перейдите по пути:  
+`Конфигурация пользователя (или Компьютера) → Настройка → Конфигурация Windows → Реестр`  
+*(Preferences → Windows Settings → Registry)*.
 
-### Шаг 4. Настройка нацеливания на группу (Item-Level Targeting) и флага removePolicy
-Каждый элемент в `Registry.xml` настроен на безопасное применение:
-1. Откройте свойства любого созданного элемента реестра и перейдите на вкладку **Common (Общие)**.
-2. Убедитесь, что активен флаг: **«Remove this item when it is no longer applied»** (Удалить элемент, если он больше не применяется, атрибут `removePolicy="1"`). Это гарантирует очистку реестра при выходе пользователя из группы.
-3. Отметьте опцию **Item-level targeting (Нацеливание на уровень элемента)** и нажмите **Targeting...**:
-   - Нажмите **New Item → Security Group**.
-   - Укажите доменную группу: `SEC-Proxy-Users`.
-   - Убедитесь, что выбрана опция *«User in group»*.
+Для каждого целевого браузера задаются ровно три ключевых параметра:
 
-### Шаг 5. Сквозная передача доменного имени (domainUser)
-В секции Managed Storage для каждого браузера (`3rdparty\extensions\<ID>\policy`) формируется ключ:
+#### 1. ExtensionInstallForcelist (Принудительная установка)
+- **Куст:** `HKEY_CURRENT_USER` (или `HKEY_LOCAL_MACHINE`)
+- **Путь к разделу:**
+  - Chrome: `Software\Policies\Google\Chrome\ExtensionInstallForcelist`
+  - Edge: `Software\Policies\Microsoft\Edge\ExtensionInstallForcelist`
+  - Яндекс.Браузер: `Software\Policies\YandexBrowser\ExtensionInstallForcelist`
+  - Opera: `Software\Policies\Opera Software\Opera\ExtensionInstallForcelist`
+- **Имя параметра:** `1` (или следующий свободный индекс)
+- **Тип:** `REG_SZ`
+- **Значение:** `<ID_расширения>;https://<serverBaseUrl>/updates/updates.xml`
+
+#### 2. ExtensionSettings (Источник обновлений и режим)
+- **Куст:** `HKEY_CURRENT_USER` (или `HKEY_LOCAL_MACHINE`)
+- **Путь к разделу:**
+  - Chrome: `Software\Policies\Google\Chrome`
+  - Edge: `Software\Policies\Microsoft\Edge`
+  - Яндекс.Браузер: `Software\Policies\YandexBrowser`
+  - Opera: `Software\Policies\Opera Software\Opera`
+- **Имя параметра:** `ExtensionSettings`
+- **Тип:** `REG_SZ`
+- **Значение:** JSON-конфигурация с разрешенным источником установки `https://<serverBaseUrl>/*` и режимом установки (`force_installed` для Chrome/Edge/Opera, `normal_installed` для Яндекс.Браузера).
+
+#### 3. domainUser (Сквозная доменная идентификация для Zero-Trust)
+- **Куст:** `HKEY_CURRENT_USER` (или `HKEY_LOCAL_MACHINE`)
+- **Путь к разделу:**
+  - Chrome: `Software\Policies\Google\Chrome\3rdparty\extensions\<ID_расширения>\policy`
+  - Edge: `Software\Policies\Microsoft\Edge\3rdparty\extensions\<ID_расширения>\policy`
+  - Яндекс.Браузер: `Software\Policies\YandexBrowser\3rdparty\extensions\<ID_расширения>\policy`
+  - Opera: `Software\Policies\Opera Software\Opera\3rdparty\extensions\<ID_расширения>\policy`
 - **Имя параметра:** `domainUser`
 - **Тип:** `REG_SZ`
 - **Значение:** `%USERDOMAIN%\%USERNAME%`
 
-Операционная система Windows при обработке Preferences в сеансе пользователя автоматически заменяет переменные на актуальные значения (например, `CORP\j.doe`). Браузерное расширение считывает этот параметр и передает его в заголовках синхронизации, обеспечивая сквозной аудит и Zero-Trust валидацию в Active Directory.
-
 > [!IMPORTANT]
-> **Без этого шага флот остаётся Legacy (без AD).** Если ключ `domainUser` не применяется (шаг пропущен, фильтрация GPP не покрывает машины), расширение не отправляет доменную идентичность в `/api/sync`, и все инстансы помечаются `Legacy` в разделе «Флот» — AD-функции (Kill-Switch, Zero-Trust валидация) для них не действуют. Legacy снимается автоматически при первом приходе `domainUser` от машины. Скрипт `verify-pec-gpo.ps1` предупреждает (WARN), если ключ отсутствует на целевых машинах; deploy-скрипт принимает опциональный параметр `-DomainUserName` для явного переопределения (по умолчанию — автоматические `%USERDOMAIN%\%USERNAME%`).
+> **Без параметра domainUser флот остаётся Legacy (без AD).** Если ключ `domainUser` не применяется, расширение не отправляет доменную идентичность в `/api/sync`, и все инстансы помечаются `Legacy` в разделе «Флот» — AD-функции (Kill-Switch, Zero-Trust валидация) для них не действуют. Legacy снимается автоматически при первом поступлении `domainUser` от машины.
 
 ---
 
@@ -128,71 +138,54 @@ flowchart TD
    - Установите статус: **Enabled** (Включено).
    - Выберите режим: **Merge** (Объединение).
 
-При входе пользователя на терминальный сервер служба Windows GPP CSE применит настройки реестра исключительно в ветку `HKEY_CURRENT_USER` его изолированного сеанса.
+При входе пользователя на терминальный сервер групповая политика применит настройки реестра исключительно в ветку `HKEY_CURRENT_USER` его изолированного сеанса.
 
 ---
 
-## 5. Сценарий 2 (Вспомогательный): Локальное развертывание и стенды без GPMC (deploy-pec-gpo.ps1)
+## 5. Сценарий 2: Локальное применение через чистые .REG файлы (pec-policy-user.reg / pec-policy-machine.reg)
 
-> [!NOTE]
-> Скрипт `deploy-pec-gpo.ps1` является **вспомогательной утилитой** и предназначен для локального тестирования, настройки автономных рабочих мест, подготовки эталонных образов (VDI Gold Image) или развертывания в средах, где администратор не имеет прямого доступа к GPMC.
+Для автономных рабочих станций, тестовых стендов, подготовки эталонных образов (VDI Gold Image) или сред без централизованного Active Directory развертывание выполняется прямым импортом готовых `.REG` файлов из пакета `GPO Deployment Pack`.
 
-Скрипт автоматически определяет установленные браузеры, динамически вычисляет следующий свободный индекс в `ExtensionInstallForcelist` (исключая конфликты с DLP/антивирусами) и записывает политики в реестр.
-
-### Использование скрипта:
-Запуск в пользовательской сессии PowerShell (права администратора не требуются, так как запись идет в HKCU):
-```powershell
-# Стандартное применение с проверкой членства в доменной группе:
-.\deploy-pec-gpo.ps1 -RequireAdGroup "SEC-Proxy-Users"
-
-# Принудительное развертывание без проверки доменной группы (тестовый стенд):
-.\deploy-pec-gpo.ps1 -Force
-
-# Полный отзыв и удаление всех настроек расширения:
-.\deploy-pec-gpo.ps1 -Uninstall
+### Применение в сеансе пользователя (HKCU):
+Двойным щелчком примените `pec-policy-user.reg` или выполните команду в командной строке (права администратора не требуются):
+```cmd
+reg import pec-policy-user.reg
 ```
 
-Скрипт также поддерживает запуск через классический механизм **GPO Logon Scripts** (`User Configuration → Policies → Windows Settings → Scripts → Logon`), если использование Group Policy Preferences по каким-либо причинам ограничено корпоративными стандартами.
+### Применение для всех пользователей рабочей станции (HKLM):
+Для применения настроек на уровне всей операционной системы запустите командную строку от имени администратора и выполните:
+```cmd
+reg import pec-policy-machine.reg
+```
 
 ---
 
 ## 6. Проверка и диагностика на рабочих местах
 
-### Автоматическая проверка через `verify-pec-gpo.ps1`
-Запустите диагностический скрипт из архива на клиентском компьютере в PowerShell:
+### Проверка наличия ключей реестра
+Проверить корректность применения параметров реестра можно встроенными средствами Windows:
+
+**Через PowerShell:**
 ```powershell
-.\verify-pec-gpo.ps1
-```
-Скрипт проверит доступность сервера, корректность манифеста `updates.xml`, скачивание `.crx` и наличие ключей реестра:
-```text
-============================================================
- PEC Extension Corporate GPO Deployment Diagnostics
- Target Server: https://pec.corp.local
- Extension ID : abcdefghijklmnopabcdefghijklmnop
-============================================================
+# Проверка списка принудительно устанавливаемых расширений (Chrome):
+Get-ItemProperty -Path "HKCU:\Software\Policies\Google\Chrome\ExtensionInstallForcelist"
 
---- 1. Network & TLS Certificate Verification ---
-[PASS] PEC Server Reachability (/healthz) - HTTP 200 OK
-[PASS] Update Manifest (/updates/updates.xml) - Found valid XML containing appid
-[PASS] CRX Binary Download (/updates/extension.crx) - Content-Type: application/x-chrome-extension, Size: 48.5 KB
-
---- 2. Windows Registry Policy Verification ---
-[PASS] Google Chrome Enterprise Policies - Configured in HKCU (Forcelist + Managed Storage)
-[PASS] Microsoft Edge Enterprise Policies - Configured in HKCU (Forcelist + Managed Storage)
-[PASS] Yandex Browser Enterprise Policies - Configured in HKCU (Forcelist + Managed Storage)
-[PASS] Opera Enterprise Policies - Configured in HKCU (Forcelist + Managed Storage)
-[PASS] Domain User Policy Injection - '%USERDOMAIN%\%USERNAME%' defined in managed policy
-
---- 3. Local Browser Profile Installation Status ---
-[PASS] Google Chrome Installed Extension - Found version(s): 0.9.0
+# Проверка параметров Managed Storage и сквозной идентификации domainUser:
+Get-ItemProperty -Path "HKCU:\Software\Policies\Google\Chrome\3rdparty\extensions\<ID_РАСШИРЕНИЯ>\policy"
 ```
 
-### Ручная проверка в браузерах:
+**Через командную строку (cmd):**
+```cmd
+reg query "HKCU\Software\Policies\Google\Chrome\ExtensionInstallForcelist"
+reg query "HKCU\Software\Policies\Google\Chrome\3rdparty\extensions\<ID_РАСШИРЕНИЯ>\policy"
+```
+
+### Проверка в браузерах:
 1. Примените групповые политики на компьютере:
    ```cmd
    gpupdate /force
    ```
-2. Откройте браузер и перейдите на страницу политик:
+2. Откройте целевой браузер и перейдите на страницу корпоративных политик:
    - **Google Chrome:** `chrome://policy`
    - **Microsoft Edge:** `edge://policy`
    - **Яндекс.Браузер:** `browser://policy`
@@ -200,7 +193,8 @@ flowchart TD
 3. Нажмите кнопку **«Перезагрузить политики» (Reload policies)**.
 4. В таблице политик должны отображаться:
    - `ExtensionInstallForcelist` со статусом **OK**.
-   - В блоке управляемых расширений: параметры `domainUser`, `extToken`, `syncUrl`, `credsUrl`.
+   - `ExtensionSettings` со статусом **OK**.
+   - В блоке управляемых расширений (Managed Storage): параметры `domainUser`, `extToken`, `syncUrl`, `credsUrl`.
 
 ---
 
@@ -250,5 +244,5 @@ flowchart TD
 | Расширение установилось, но не подключается к прокси | Отсутствуют настройки в `3rdparty\extensions` | Проверьте наличие ветки `Software\Policies\<Browser>\3rdparty\extensions\<ID>\policy` и параметр `extToken`. |
 | Сервер возвращает HTTP 403 Forbidden на `/api/sync` или `/creds` | Сработал Active Directory Kill-Switch | Убедитесь, что пользователь входит в группу `AD_REQUIRED_GROUP_DN`, учетная запись не заблокирована в AD, и в реестре передается корректный `domainUser`. |
 | Политика не применилась к пользователю на RDS | Не включен Loopback Processing | Включите *Loopback Processing Mode = Merge* на OU терминальных серверов в GPMC. |
-| При исключении пользователя из группы расширение остаётся в браузере | В GPP не был включен флаг `removePolicy="1"` | В свойствах элементов реестра в GPMC (вкладка Common) отметьте чекбокс *«Remove this item when it is no longer applied»*. |
+| При исключении пользователя из группы расширение остаётся в браузере | Политика не отозвана на клиенте или пользователь не исключен из AD-группы | Проверьте Security Filtering объекта GPO; на стороне сервера PEC доступ блокируется немедленно через AD Kill-Switch. Для удаления расширения удалите записи реестра через GPO или `reg delete`. |
 | Изменился ID расширения после обновления сервера | Был утерян закрытый RSA-ключ | Убедитесь, что файл `extension/key.pem` сохранен в постоянном хранилище (или задан через переменную `PEC_PRIVATE_KEY_PEM`). |

@@ -526,16 +526,16 @@ test("P-06: GPO .reg files in deployment pack include UTF-8 BOM for Windows rege
   const { zipBuffer } = generateGpoDeploymentPack("http://127.0.0.1:3000", "test-token");
   const zip = new AdmZip(zipBuffer);
 
-  const userReg = zip.getEntry("pec-policy-user-hkcu.reg");
-  assert.ok(userReg, "pec-policy-user-hkcu.reg must exist in GPO zip");
+  const userReg = zip.getEntry("pec-policy-user.reg");
+  assert.ok(userReg, "pec-policy-user.reg must exist in GPO zip");
   const userBuf = userReg.getData();
   assert.equal(userBuf[0], 0xef, "User reg first byte must be 0xEF (BOM)");
   assert.equal(userBuf[1], 0xbb, "User reg second byte must be 0xBB (BOM)");
   assert.equal(userBuf[2], 0xbf, "User reg third byte must be 0xBF (BOM)");
   assert.ok(userBuf.toString("utf-8").includes("Windows Registry Editor Version 5.00"));
 
-  const machineReg = zip.getEntry("pec-policy-machine-hklm.reg");
-  assert.ok(machineReg, "pec-policy-machine-hklm.reg must exist in GPO zip");
+  const machineReg = zip.getEntry("pec-policy-machine.reg");
+  assert.ok(machineReg, "pec-policy-machine.reg must exist in GPO zip");
   const machineBuf = machineReg.getData();
   assert.equal(machineBuf[0], 0xef, "Machine reg first byte must be 0xEF (BOM)");
   assert.equal(machineBuf[1], 0xbb, "Machine reg second byte must be 0xBB (BOM)");

@@ -262,12 +262,8 @@ export const I18N: Record<string, Record<string, string>> = {
         lblGpoSettings: '2. ExtensionSettings (JSON)',
         btnDownloadReg: 'Download Windows .REG Policy File',
         titleGpoPackBanner: 'Comprehensive Active Directory GPO Deployment Pack',
-        descGpoPackBanner: 'Includes ready-to-import .REG policy files (HKCU and HKLM) for all 4 browsers (Chrome, Edge, Yandex, Opera), PowerShell deploy/verify scripts, JSON policies, and administrator manual.',
+        descGpoPackBanner: 'Includes ready-to-import .REG policy files (HKCU and HKLM) for all 4 browsers (Chrome, Edge, Yandex, Opera) and administrator manual.',
         btnDownloadGpoPack: 'Download GPO Deployment Pack (.zip)',
-        titleGpoScripts: 'PowerShell Automation Scripts',
-        descGpoScripts: 'Automated scripts for GPO Logon/Startup and workstation diagnostic verification.',
-        btnDownloadDeployPs: 'deploy-pec-gpo.ps1',
-        btnDownloadVerifyPs: 'verify-pec-gpo.ps1',
         lblGpoActivePath: 'Registry key:',
         btnCopy: 'Copy',
 
@@ -475,13 +471,10 @@ export const I18N: Record<string, Record<string, string>> = {
         thDesktopActions: 'Actions',
 
         // GPO & Active Directory
-        titleGpoInstructions: '📋 Active Directory / GPO Deployment Instructions:',
-        gpoStep1Desc: '<strong>1. Recommended method (Tier-1 — GPP Registry.xml):</strong><br><span style="color: var(--text-muted);">Copy <code>Registry.xml</code> from the package into policy folder: <code>\\\\domain\\sysvol\\domain\\Policies\\{GUID}\\User\\Preferences\\Registry\\</code>.<br>Natively configures all 4 browsers, installation, and transparent <code>domainUser</code> via Windows Preferences without running scripts.</span>',
-        gpoStep2Desc: '<strong>2. Via PowerShell Logon Script:</strong><br><span style="color: var(--text-muted);">Assign <code>deploy-pec-gpo.ps1</code> in <code>User Configuration → Scripts → Logon</code>.</span>',
-        gpoStep3Desc: '<strong>3. Manual Registry configuration in GPMC:</strong><br><span style="color: var(--text-muted);">Configure parameters below: <strong>1. Forcelist</strong> (install), <strong>2. ExtensionSettings</strong> (update source), and <strong>3. domainUser</strong> (required for AD binding).</span>',
-        gpoSecReqs: '<strong>Critical GPO Security Requirements:</strong><br><span style="color: var(--text-muted);">• Linking to <strong>Computer OU</strong>: enable Loopback Processing in <code>Merge</code> mode.<br>• <strong>Delegation tab</strong>: ensure <strong>Authenticated Users</strong> have Read permission (MS16-072 / KB3163622).<br>• Security Filtering: specify your target AD group.</span>',
+        titleGpoInstructions: '📋 Windows GPO / Registry Deployment Instructions:',
+        descGpoInstructions: '1. Create a Group Policy Object (GPO) linked to Users OU (HKCU) or Computers OU (HKLM).<br>2. Configure registry parameters below (manually in GPMC or via importing ready .REG files):<br>&nbsp;&nbsp;• <strong>1. ExtensionInstallForcelist</strong> — force install extension by ID.<br>&nbsp;&nbsp;• <strong>2. ExtensionSettings</strong> — corporate update source (update_url).<br>&nbsp;&nbsp;• <strong>3. domainUser</strong> — pass login %USERDOMAIN%\\%USERNAME% (required for AD binding).<br>3. <strong>Security requirements:</strong> linking to Computer OU requires Loopback Processing in Merge mode; Delegation tab must have Read permission for "Authenticated Users" (MS16-072).',
         titleZeroTrustAdBinding: 'Active Directory & Browser Extension Pairing:',
-        descZeroTrustAdPull: 'The server verifies user domain group membership via Zero-Trust policy. For the extension to transmit the employee domain login (<code>DOMAIN\\username</code>), workstations must configure <code>domainUser = %USERDOMAIN%\\%USERNAME%</code> via GPO (using <code>Registry.xml</code> or deploy script above). Configured devices appear in the Fleet with a <span class="badge badge-ad-user">DOMAIN\\user</span> badge. Enforcement follows a Pull model: extensions query the server periodically (default: every 5 minutes, or immediately upon browser restart), and access is revoked on the next request to <code>/api/sync</code>.',
+        descZeroTrustAdPull: 'The server verifies user domain group membership via Zero-Trust policy. For the extension to transmit the employee domain login (<code>DOMAIN\\username</code>), workstations must configure <code>domainUser = %USERDOMAIN%\\%USERNAME%</code> via GPO (using GPMC registry settings or .REG files above). Configured devices appear in the Fleet with a <span class="badge badge-ad-user">DOMAIN\\user</span> badge. Enforcement follows a Pull model: extensions query the server periodically (default: every 5 minutes, or immediately upon browser restart), and access is revoked on the next request to <code>/api/sync</code>.',
 
         // Audit Logs
         hintAuditEventsLegend: '<span><span class="badge badge-online">SERVED</span> Served PAC / creds</span> <span><span class="badge badge-online">SYNCED</span> Heartbeat / sync</span> <span><span class="badge badge-offline">REJECTED_TOKEN</span> Invalid token / AD rejection</span> <span><span class="badge badge-warning">DISABLE_PROXY</span> Proxy disabled via AD Kill-Switch</span> <span><span class="badge badge-offline">REJECTED_SSRF</span> LAN security guard (SSRF)</span>'
@@ -748,12 +741,8 @@ export const I18N: Record<string, Record<string, string>> = {
         lblGpoSettings: '2. ExtensionSettings (JSON)',
         btnDownloadReg: 'Скачать файл реестра Windows (.REG)',
         titleGpoPackBanner: 'Комплексный пакет развертывания Active Directory GPO',
-        descGpoPackBanner: 'Включает готовые .REG файлы (HKCU и HKLM) для всех 4 браузеров (Chrome, Edge, Яндекс, Opera), PowerShell скрипты deploy/verify, JSON-политики и руководство администратора.',
+        descGpoPackBanner: 'Включает готовые .REG файлы (HKCU и HKLM) для всех 4 браузеров (Chrome, Edge, Яндекс, Opera) и руководство администратора.',
         btnDownloadGpoPack: 'Скачать GPO Deployment Pack (.zip)',
-        titleGpoScripts: 'PowerShell скрипты автоматизации',
-        descGpoScripts: 'Скрипты для использования в качестве Logon/Startup скриптов GPO и проверки рабочего места.',
-        btnDownloadDeployPs: 'deploy-pec-gpo.ps1',
-        btnDownloadVerifyPs: 'verify-pec-gpo.ps1',
         lblGpoActivePath: 'Ветка реестра:',
         btnCopy: 'Копировать',
 
@@ -961,13 +950,10 @@ export const I18N: Record<string, Record<string, string>> = {
         thDesktopActions: 'Действия',
 
         // GPO & Active Directory
-        titleGpoInstructions: '📋 Инструкция по развертыванию через GPO / Active Directory:',
-        gpoStep1Desc: '<strong>1. Рекомендуемый способ (Tier-1 — GPP Registry.xml):</strong><br><span style="color: var(--text-muted);">Скопируйте <code>Registry.xml</code> из пакета в каталог политики: <code>\\\\домен\\sysvol\\домен\\Policies\\{GUID}\\User\\Preferences\\Registry\\</code>.<br>Настраивает все 4 браузера, установку и сквозной <code>domainUser</code> нативно через Windows Preferences без запуска скриптов.</span>',
-        gpoStep2Desc: '<strong>2. Через PowerShell Logon-скрипт:</strong><br><span style="color: var(--text-muted);">Укажите <code>deploy-pec-gpo.ps1</code> в <code>Конфигурация пользователя → Сценарии → Вход в систему</code>.</span>',
-        gpoStep3Desc: '<strong>3. Ручная настройка реестра в GPMC:</strong><br><span style="color: var(--text-muted);">Задайте параметры ниже: <strong>1. Forcelist</strong> (установка), <strong>2. ExtensionSettings</strong> (источник обновления) и <strong>3. domainUser</strong> (обязательно для привязки к AD).</span>',
-        gpoSecReqs: '<strong>Критические требования безопасности GPO:</strong><br><span style="color: var(--text-muted);">• Привязка к <strong>OU с ПК</strong>: включите Loopback Processing (Замыкание) в режиме <code>Merge (Объединение)</code>.<br>• Вкладка <strong>Delegation (Делегирование)</strong>: обязательно добавьте <strong>Authenticated Users</strong> («Прошедшие проверку») на Чтение (MS16-072 / KB3163622).<br>• Фильтры безопасности: укажите вашу целевую группу AD.</span>',
+        titleGpoInstructions: '📋 Инструкция по развертыванию через GPO / реестр Windows:',
+        descGpoInstructions: '1. Создайте объект групповой политики (GPO), привязанный к OU с пользователями (HKCU) или компьютерами (HKLM).<br>2. Задайте параметры реестра ниже (вручную в GPMC или импортом готового .REG файла):<br>&nbsp;&nbsp;• <strong>1. ExtensionInstallForcelist</strong> — принудительная установка расширения по ID.<br>&nbsp;&nbsp;• <strong>2. ExtensionSettings</strong> — источник корпоративных обновлений (update_url).<br>&nbsp;&nbsp;• <strong>3. domainUser</strong> — передача логина %USERDOMAIN%\\%USERNAME% (обязательно для привязки к AD).<br>3. <strong>Требования безопасности:</strong> привязка к OU с ПК требует Loopback Processing в режиме Merge; во вкладке Delegation обязательно наличие \'Authenticated Users\' на Чтение (MS16-072).',
         titleZeroTrustAdBinding: 'Связка Active Directory с браузерным расширением:',
-        descZeroTrustAdPull: 'Сервер проверяет членство пользователей в доменной группе по протоколу Zero-Trust. Чтобы расширение отправляло доменный логин сотрудника (<code>DOMAIN\\username</code>), на рабочих станциях через GPO должен быть задан параметр <code>domainUser = %USERDOMAIN%\\%USERNAME%</code> (настраивается в блоке GPO выше через готовый <code>Registry.xml</code> или deploy-скрипт). Устройства с применённой политикой отображаются во «Флоте» с бейджем <span class="badge badge-ad-user">ДОМЕН\\пользователь</span>. Проверка доступа выполняется по Pull-модели: расширения сверяются с сервером по расписанию (по умолчанию каждые 5 минут, либо немедленно при перезапуске браузера), и доступ отзывается при очередном обращении к <code>/api/sync</code>.',
+        descZeroTrustAdPull: 'Сервер проверяет членство пользователей в доменной группе по протоколу Zero-Trust. Чтобы расширение отправляло доменный логин сотрудника (<code>DOMAIN\\username</code>), на рабочих станциях через GPO должен быть задан параметр <code>domainUser = %USERDOMAIN%\\%USERNAME%</code> (настраивается в блоке GPO выше через параметры реестра GPMC или готовый .REG файл). Устройства с применённой политикой отображаются во «Флоте» с бейджем <span class="badge badge-ad-user">ДОМЕН\\пользователь</span>. Проверка доступа выполняется по Pull-модели: расширения сверяются с сервером по расписанию (по умолчанию каждые 5 минут, либо немедленно при перезапуске браузера), и доступ отзывается при очередном обращении к <code>/api/sync</code>.',
 
         // Audit Logs
         hintAuditEventsLegend: '<span><span class="badge badge-online">SERVED</span> Выдача PAC/кредов</span> <span><span class="badge badge-online">SYNCED</span> Heartbeat / синхронизация</span> <span><span class="badge badge-offline">REJECTED_TOKEN</span> Неверный токен / отказ AD</span> <span><span class="badge badge-warning">DISABLE_PROXY</span> Сброс прокси по AD Kill-Switch</span> <span><span class="badge badge-offline">REJECTED_SSRF</span> Защита локальной сети (SSRF)</span>'

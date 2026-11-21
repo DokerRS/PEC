@@ -1,9 +1,7 @@
 import "./helpers/setup.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { generateGpoConfig, buildGpoPackage } from "../src/packager.js";
-import { renderGppRegistryXml } from "../src/templates/gpoTemplates.js";
 
 test("generateGpoConfig generates multi-browser policies for HKCU and HKLM", () => {
   const extId = "abcdefghijklmnopabcdefghijklmnop";
@@ -68,37 +66,23 @@ test("generateGpoConfig generates multi-browser policies for HKCU and HKLM", () 
   assert.ok(gpo.regContent.includes("Google\\Chrome"));
 });
 
-test("renders deploy-pec-gpo.ps1 and verify-pec-gpo.ps1 without syntax errors", () => {
+test("renders README-GPO.txt with GPMC instructions and registry parameters", () => {
   const extId = "abcdefghijklmnopabcdefghijklmnop";
   const serverUrl = "https://pec.corp.local";
   const token = "corp-token-xyz";
 
   const gpo = generateGpoConfig(extId, serverUrl, token, { targetGroup: "Default" });
 
-  assert.ok(gpo.deployScript, "deployScript must be defined");
-  assert.ok(gpo.deployScript.includes("param("), "deployScript must have param block");
-  assert.ok(gpo.deployScript.includes(extId), "deployScript must include extId");
-  assert.ok(gpo.deployScript.includes(serverUrl), "deployScript must include serverUrl");
-  assert.ok(gpo.deployScript.includes("RequireAdGroup"), "deployScript must support RequireAdGroup");
-  assert.ok(gpo.deployScript.includes("ExtensionInstallForcelist"), "deployScript must configure forcelist");
-  assert.ok(gpo.deployScript.includes("YandexBrowser"), "deployScript must support YandexBrowser");
-  assert.ok(gpo.deployScript.includes("Opera Software"), "deployScript must support Opera");
-
-  assert.ok(gpo.verifyScript, "verifyScript must be defined");
-  assert.ok(gpo.verifyScript.includes("param("), "verifyScript must have param block");
-  assert.ok(gpo.verifyScript.includes(extId), "verifyScript must include extId");
-  assert.ok(gpo.verifyScript.includes("/healthz"), "verifyScript must test healthz endpoint");
-  assert.ok(gpo.verifyScript.includes("/updates/updates.xml"), "verifyScript must test updates.xml");
-  assert.ok(gpo.verifyScript.includes("ExtensionInstallForcelist"), "verifyScript must check registry");
-
   assert.ok(gpo.readmeContent, "readmeContent must be defined");
   assert.ok(gpo.readmeContent.includes("Active Directory"), "readmeContent must explain AD deployment");
-  assert.ok(gpo.readmeContent.includes("Authenticated Users"), "readmeContent must highlight Authenticated Users delegation");
-  assert.ok(gpo.readmeContent.includes("Конфигурация пользователя"), "readmeContent must describe User Configuration");
+  assert.ok(gpo.readmeContent.includes("GPMC"), "readmeContent must mention GPMC");
+  assert.ok(gpo.readmeContent.includes("ExtensionInstallForcelist"), "readmeContent must describe ExtensionInstallForcelist");
+  assert.ok(gpo.readmeContent.includes("ExtensionSettings"), "readmeContent must describe ExtensionSettings");
+  assert.ok(gpo.readmeContent.includes("domainUser"), "readmeContent must describe domainUser");
   assert.ok(gpo.readmeContent.includes("normal_installed"), "readmeContent must explain Yandex normal_installed");
 });
 
-test("generateGpoDeploymentPack creates valid zip with all deployment artifacts", async () => {
+test("generateGpoDeploymentPack creates valid zip with canonical deployment artifacts", async () => {
   const { generateGpoDeploymentPack } = await import("../src/packager.js");
   const pack = generateGpoDeploymentPack("https://pec.corp.local", "token-pack-test");
 
@@ -107,89 +91,20 @@ test("generateGpoDeploymentPack creates valid zip with all deployment artifacts"
   const zip = new AdmZip(pack.zipBuffer);
   const entries = zip.getEntries().map(e => e.entryName);
 
-  assert.ok(entries.includes("pec-policy-user-hkcu.reg"), "must include HKCU reg");
-  assert.ok(entries.includes("pec-policy-machine-hklm.reg"), "must include HKLM reg");
-  assert.ok(entries.includes("deploy-pec-gpo.ps1"), "must include deploy script");
-  assert.ok(entries.includes("verify-pec-gpo.ps1"), "must include verify script");
-  assert.ok(entries.includes("extension-settings.json"), "must include extension settings");
-  assert.ok(entries.includes("extension-settings-chrome.json"), "must include chrome settings");
-  assert.ok(entries.includes("extension-settings-edge.json"), "must include edge settings");
-  assert.ok(entries.includes("extension-settings-yandex.json"), "must include yandex settings");
-  assert.ok(entries.includes("Registry.xml"), "must include Registry.xml");
-  assert.ok(entries.includes("README-GPO.md"), "must include readme");
+  assert.deepEqual(
+    entries.sort(),
+    ["README-GPO.txt", "pec-policy-machine.reg", "pec-policy-user.reg"].sort(),
+    "pack must contain only canonical .reg files and README"
+  );
 
   // Verify secret hygiene
-  const regUser = zip.readAsText("pec-policy-user-hkcu.reg");
+  const regUser = zip.readAsText("pec-policy-user.reg");
   assert.ok(!regUser.includes(process.env.ADMIN_TOKEN || "test-root-admin-token"));
 });
 
-test("X-02: deploy-pec-gpo.ps1 merges ExtensionSettings and preserves other extensions on install and uninstall", () => {
-  const extId = "abcdefghijklmnopabcdefghijklmnop";
+test("buildGpoPackage alias creates valid zipBuffer", () => {
   const serverUrl = "https://pec.corp.local";
-  const token = "corp-token-xyz";
-
-  const gpo = generateGpoConfig(extId, serverUrl, token, { targetGroup: "Default" });
-
-  // 1. Must use ConvertFrom-Json when reading existing ExtensionSettings
-  assert.ok(
-    gpo.deployScript.includes("ConvertFrom-Json"),
-    "deployScript must parse existing ExtensionSettings with ConvertFrom-Json"
-  );
-  assert.ok(
-    gpo.deployScript.includes("ConvertTo-Json -Compress -Depth 10"),
-    "deployScript must serialize back with ConvertTo-Json -Compress -Depth 10"
-  );
-
-  // 2. Must NOT blindly overwrite ExtensionSettings or delete the whole property on uninstall
-  assert.ok(
-    !gpo.deployScript.includes('Remove-ItemProperty -Path $browserBase -Name "ExtensionSettings"'),
-    "deployScript must not remove entire ExtensionSettings on uninstall"
-  );
-  assert.ok(
-    gpo.deployScript.includes(".PSObject.Properties.Remove($ExtensionId)"),
-    "deployScript uninstall branch must remove only the PEC extension id property from ExtensionSettings"
-  );
-
-  // 3. PowerShell AST parse verification if powershell is available on Windows
-  if (process.platform === "win32") {
-    const b64 = Buffer.from(gpo.deployScript, "utf-8").toString("base64");
-    const testParseCmd = `$errors = $null; $tokens = $null; [System.Management.Automation.Language.Parser]::ParseInput([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${b64}')), [ref]$tokens, [ref]$errors); if ($errors.Count -gt 0) { throw ($errors | Out-String) }`;
-    assert.doesNotThrow(() => {
-      execFileSync("powershell", ["-NoProfile", "-Command", testParseCmd], { stdio: "pipe" });
-    }, "deployScript must parse without PowerShell syntax errors");
-  }
-});
-
-
-test("renderGppRegistryXml produces valid MS-GPPREG XML with required CLSIDs, action='R', removePolicy='1', and domainUser", () => {
-  const extId = "abcdefghijklmnopabcdefghijklmnop";
-  const serverUrl = "https://pec.corp.local";
-  const token = "corp-token-xyz";
-
-  const xml = renderGppRegistryXml(extId, serverUrl, token, "FinanceGroup");
-
-  assert.ok(xml.startsWith('<?xml version="1.0" encoding="utf-8"?>'), "XML must have standard declaration");
-  assert.ok(xml.includes('clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}"'), "Root must have MS-GPPREG CLSID");
-  assert.ok(xml.includes('clsid="{9CD4B2F7-2C92-116a-9E29-EEB64A588655}"'), "Items must have Registry item CLSID");
-  assert.ok(xml.includes('action="R"'), "Items must have action='R'");
-  assert.ok(xml.includes('removePolicy="1"'), "Items must have removePolicy='1'");
-  assert.ok(xml.includes('bypassErrors="1"'), "Items must have bypassErrors='1'");
-
-  // Parameter ExtensionSettings
-  assert.ok(xml.includes('name="ExtensionSettings"'), "ExtensionSettings must be present");
-  assert.ok(xml.includes('force_installed'), "Chrome/Edge must have force_installed");
-  assert.ok(xml.includes('normal_installed'), "Yandex must have normal_installed");
-
-  // Parameter domainUser
-  assert.ok(xml.includes('name="domainUser"'), "domainUser registry entry must be present");
-  assert.ok(xml.includes('value="%USERDOMAIN%\\%USERNAME%"'), "domainUser value must be %USERDOMAIN%\\%USERNAME%");
-
-  // Token and URLs
-  assert.ok(xml.includes(`value="${token}"`), "extToken must be present");
-  assert.ok(xml.includes(`value="${serverUrl}/api/sync"`), "syncUrl must be present");
-  assert.ok(xml.includes(`value="${serverUrl}/creds"`), "credsUrl must be present");
-
-  // buildGpoPackage alias verification
+  const token = "token-pack-test";
   const gpoPack = buildGpoPackage(serverUrl, token);
   assert.ok(gpoPack.zipBuffer.length > 0, "buildGpoPackage must return valid zipBuffer");
 });

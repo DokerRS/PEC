@@ -1,525 +1,6 @@
-import crypto from "node:crypto";
 /**
- * GPO Templates: PowerShell deployment and diagnostics scripts + AD GPMC Readme
+ * GPO Templates: Corporate Active Directory GPMC deployment guide and documentation.
  */
-
-export function renderDeployGpoScript(
-  extensionId: string,
-  serverUrl: string,
-  token: string,
-  targetGroup: string = "",
-  domainUserOverride: string = ""
-): string {
-  const safeExtId = extensionId.replace(/["`$]/g, "");
-  const safeServerUrl = serverUrl.replace(/["`$]/g, "").replace(/\/+$/, "");
-  const safeToken = token.replace(/["`$]/g, "");
-  const safeTargetGroup = targetGroup.replace(/["`$]/g, "");
-
-  return `<#
-.SYNOPSIS
-    PEC - Corporate Proxy Extension GPO Deployment Script
-.DESCRIPTION
-    Automates deployment and configuration of the PEC Chrome/Edge/Yandex/Opera extension
-    via Active Directory GPO (Logon script, Startup script, or manual execution).
-    Safe: will not overwrite existing corporate extensions in ExtensionInstallForcelist.
-    Supports AD security group filtering and multi-user RDS/Terminal Server environments.
-#>
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory=$false)]
-    [string]$ServerUrl = "${safeServerUrl}",
-
-    [Parameter(Mandatory=$false)]
-    [string]$Token = "${safeToken}",
-
-    [Parameter(Mandatory=$false)]
-    [string]$TargetGroup = "${safeTargetGroup}",
-
-    [Parameter(Mandatory=$false)]
-    [string]$DomainUserName = "",
-
-    [Parameter(Mandatory=$false)]
-    [ValidateSet("User", "Machine")]
-    [string]$Scope = "User",
-
-    [Parameter(Mandatory=$false)]
-    [string]$RequireAdGroup = "",
-
-    [Parameter(Mandatory=$false)]
-    [switch]$Uninstall,
-
-    [Parameter(Mandatory=$false)]
-    [switch]$Force
-)
-
-$ErrorActionPreference = "Stop"
-$ExtensionId = "${safeExtId}"
-$UpdateUrl = "$($ServerUrl.TrimEnd('/'))/updates/updates.xml"
-$CredsUrl = "$($ServerUrl.TrimEnd('/'))/creds"
-$SyncUrl = "$($ServerUrl.TrimEnd('/'))/api/sync"
-$ForcelistValue = "$ExtensionId;$UpdateUrl"
-
-function Write-PecLog([string]$Message, [string]$Level = "INFO") {
-    $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    $color = switch ($Level) {
-        "SUCCESS" { "Green" }
-        "WARN"    { "Yellow" }
-        "ERROR"   { "Red" }
-        default   { "Cyan" }
-    }
-    Write-Host "[$timestamp] [PEC-GPO] [$Level] $Message" -ForegroundColor $color
-}
-
-# --- 1. Check Active Directory Group Membership (if required) ---
-if (-not [string]::IsNullOrWhiteSpace($RequireAdGroup)) {
-    Write-PecLog "Checking membership for user '$env:USERNAME' in required AD group '$RequireAdGroup'..."
-    $isMember = $false
-
-    try {
-        $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-        $groupNames = @()
-        foreach ($group in $identity.Groups) {
-            try {
-                $groupNames += $group.Translate([System.Security.Principal.NTAccount]).Value
-            } catch {}
-        }
-
-        if ($groupNames.Count -eq 0) {
-            $whoami = whoami /groups /fo csv | ConvertFrom-Csv
-            $groupNames += $whoami.'Group Name'
-        }
-
-        foreach ($gn in $groupNames) {
-            if ($gn -like "*$RequireAdGroup*") {
-                $isMember = $true
-                break
-            }
-        }
-    } catch {
-        Write-PecLog "Could not resolve AD groups via token: $_" "WARN"
-    }
-
-    if (-not $isMember) {
-        Write-PecLog "User '$env:USERNAME' is NOT a member of required group '$RequireAdGroup'." "WARN"
-        Write-PecLog "Revoking/cleaning up PEC extension policies from user profile..."
-        $Uninstall = $true
-    } else {
-        Write-PecLog "User '$env:USERNAME' is a verified member of '$RequireAdGroup'." "SUCCESS"
-    }
-}
-
-# --- 2. Determine Registry Root ---
-$regRoot = if ($Scope -eq "Machine") { "HKLM:\\SOFTWARE\\Policies" } else { "HKCU:\\Software\\Policies" }
-
-$browsers = @(
-    @{ Name = "Google Chrome"; Key = "Google\\Chrome" },
-    @{ Name = "Microsoft Edge"; Key = "Microsoft\\Edge" },
-    @{ Name = "Yandex Browser"; Key = "YandexBrowser" },
-    @{ Name = "Opera"; Key = "Opera Software\\Opera" },
-    @{ Name = "Chromium (Generic)"; Key = "Chromium" }
-)
-
-# --- 3. Process Each Browser ---
-$script:hasDomainUser = $false
-$script:missingDomainUser = $false
-
-foreach ($b in $browsers) {
-    $browserBase = Join-Path $regRoot $b.Key
-    $forcelistPath = Join-Path $browserBase "ExtensionInstallForcelist"
-    $allowlistPath = Join-Path $browserBase "ExtensionInstallAllowlist"
-    $policyPath = Join-Path (Join-Path (Join-Path $browserBase "3rdparty") "extensions") (Join-Path $ExtensionId "policy")
-
-    if ($Uninstall) {
-        Write-PecLog "[$($b.Name)] Removing PEC policies..."
-
-        # Remove from Forcelist
-        if (Test-Path $forcelistPath) {
-            $props = (Get-ItemProperty -Path $forcelistPath).PSObject.Properties
-            foreach ($p in $props) {
-                if ($p.Value -like "$ExtensionId*") {
-                    Remove-ItemProperty -Path $forcelistPath -Name $p.Name -ErrorAction SilentlyContinue
-                    Write-PecLog "[$($b.Name)] Removed from ExtensionInstallForcelist (index $($p.Name))." "SUCCESS"
-                }
-            }
-        }
-
-        # Remove from Allowlist
-        if (Test-Path $allowlistPath) {
-            $props = (Get-ItemProperty -Path $allowlistPath).PSObject.Properties
-            foreach ($p in $props) {
-                if ($p.Value -eq $ExtensionId) {
-                    Remove-ItemProperty -Path $allowlistPath -Name $p.Name -ErrorAction SilentlyContinue
-                    Write-PecLog "[$($b.Name)] Removed from ExtensionInstallAllowlist (index $($p.Name))." "SUCCESS"
-                }
-            }
-        }
-
-        # Remove managed storage
-        $extBase = Join-Path (Join-Path (Join-Path $browserBase "3rdparty") "extensions") $ExtensionId
-        if (Test-Path $extBase) {
-            Remove-Item -Path $extBase -Recurse -Force -ErrorAction SilentlyContinue
-            Write-PecLog "[$($b.Name)] Removed managed policy keys." "SUCCESS"
-        }
-
-        # Remove PEC from ExtensionSettings (preserve other corporate extensions)
-        if (Test-Path $browserBase) {
-            $extSettingsRaw = (Get-ItemProperty -Path $browserBase -Name "ExtensionSettings" -ErrorAction SilentlyContinue).ExtensionSettings
-            if (-not [string]::IsNullOrWhiteSpace($extSettingsRaw)) {
-                try {
-                    $extSettingsObj = $extSettingsRaw | ConvertFrom-Json
-                    if ($extSettingsObj.PSObject.Properties[$ExtensionId]) {
-                        $extSettingsObj.PSObject.Properties.Remove($ExtensionId)
-                        $cleanedJson = $extSettingsObj | ConvertTo-Json -Compress -Depth 10
-                        Set-ItemProperty -Path $browserBase -Name "ExtensionSettings" -Value $cleanedJson -Type String
-                        Write-PecLog "[$($b.Name)] Removed PEC from ExtensionSettings (other extensions preserved)." "SUCCESS"
-                    }
-                } catch {
-                    Write-PecLog "[$($b.Name)] Could not update ExtensionSettings: $_" "WARN"
-                }
-            }
-        }
-        continue
-    }
-
-    Write-PecLog "[$($b.Name)] Applying PEC enterprise policies ($Scope scope)..."
-
-    # Ensure parent keys exist
-    if (-not (Test-Path $forcelistPath)) { New-Item -Path $forcelistPath -Force | Out-Null }
-    if (-not (Test-Path $allowlistPath)) { New-Item -Path $allowlistPath -Force | Out-Null }
-    if (-not (Test-Path $policyPath)) { New-Item -Path $policyPath -Force | Out-Null }
-
-    # Safe index assignment in ExtensionInstallForcelist (avoid collisions)
-    $forcelistProps = (Get-ItemProperty -Path $forcelistPath).PSObject.Properties
-    $existingIndex = $null
-    $maxIndex = 0
-
-    foreach ($p in $forcelistProps) {
-        if ($p.Name -match '^\d+$') {
-            $idx = [int]$p.Name
-            if ($idx -gt $maxIndex) { $maxIndex = $idx }
-        }
-        if ($p.Value -like "$ExtensionId*") {
-            $existingIndex = $p.Name
-        }
-    }
-
-    $targetIndex = if ($existingIndex) { $existingIndex } else { [string]($maxIndex + 1) }
-    Set-ItemProperty -Path $forcelistPath -Name $targetIndex -Value $ForcelistValue -Type String
-    Write-PecLog "[$($b.Name)] Forcelist entry set at index '$targetIndex'." "SUCCESS"
-
-    # Safe index assignment in ExtensionInstallAllowlist
-    $allowlistProps = (Get-ItemProperty -Path $allowlistPath).PSObject.Properties
-    $allowIndex = $null
-    $maxAllow = 0
-
-    foreach ($p in $allowlistProps) {
-        if ($p.Name -match '^\d+$') {
-            $idx = [int]$p.Name
-            if ($idx -gt $maxAllow) { $maxAllow = $idx }
-        }
-        if ($p.Value -eq $ExtensionId) {
-            $allowIndex = $p.Name
-        }
-    }
-
-    $targetAllow = if ($allowIndex) { $allowIndex } else { [string]($maxAllow + 1) }
-    Set-ItemProperty -Path $allowlistPath -Name $targetAllow -Value $ExtensionId -Type String
-    Write-PecLog "[$($b.Name)] Allowlist entry set at index '$targetAllow'." "SUCCESS"
-
-    # Modern ExtensionSettings (REG_SZ) with browser-specific installation mode and safe merge
-    # Note: Unmanaged Yandex Browser requires normal_installed; force_installed is blocked by Yandex security layer.
-    $installMode = if ($b.Key -like "*Yandex*") { "normal_installed" } else { "force_installed" }
-    $sourcePattern = $ServerUrl.TrimEnd('/') + '/*'
-    $pecSettings = [PSCustomObject]@{
-        installation_mode   = $installMode
-        update_url          = $UpdateUrl
-        override_update_url = $true
-    }
-
-    $existingSettingsRaw = $null
-    if (Test-Path $browserBase) {
-        $existingSettingsRaw = (Get-ItemProperty -Path $browserBase -Name "ExtensionSettings" -ErrorAction SilentlyContinue).ExtensionSettings
-    }
-
-    $settingsObj = $null
-    if (-not [string]::IsNullOrWhiteSpace($existingSettingsRaw)) {
-        try {
-            $settingsObj = $existingSettingsRaw | ConvertFrom-Json
-        } catch {
-            Write-PecLog "[$($b.Name)] Could not parse existing ExtensionSettings JSON, creating new." "WARN"
-            $settingsObj = $null
-        }
-    }
-
-    if ($null -eq $settingsObj) {
-        $settingsObj = [PSCustomObject]@{
-            '*' = [PSCustomObject]@{
-                install_sources = @($sourcePattern)
-            }
-        }
-    } else {
-        if ($null -eq $settingsObj.PSObject.Properties['*']) {
-            $starObj = [PSCustomObject]@{
-                install_sources = @($sourcePattern)
-            }
-            $settingsObj | Add-Member -MemberType NoteProperty -Name '*' -Value $starObj -Force
-        } else {
-            if ($null -eq $settingsObj.'*'.PSObject.Properties['install_sources']) {
-                $settingsObj.'*' | Add-Member -MemberType NoteProperty -Name 'install_sources' -Value @($sourcePattern) -Force
-            } else {
-                $currentSources = @($settingsObj.'*'.install_sources)
-                if ($currentSources -notcontains $sourcePattern) {
-                    $currentSources += $sourcePattern
-                    $settingsObj.'*'.install_sources = $currentSources
-                }
-            }
-        }
-    }
-
-    # Add or update $ExtensionId
-    if ($settingsObj.PSObject.Properties[$ExtensionId]) {
-        $settingsObj.PSObject.Properties[$ExtensionId].Value = $pecSettings
-    } else {
-        $settingsObj | Add-Member -MemberType NoteProperty -Name $ExtensionId -Value $pecSettings -Force
-    }
-
-    $extSettingsVal = $settingsObj | ConvertTo-Json -Compress -Depth 10
-    Set-ItemProperty -Path $browserBase -Name "ExtensionSettings" -Value $extSettingsVal -Type String
-    Write-PecLog "[$($b.Name)] ExtensionSettings applied (mode: $installMode, override_update_url: true)." "SUCCESS"
-
-    # Managed Storage configuration (chrome.storage.managed)
-    Set-ItemProperty -Path $policyPath -Name "extToken" -Value $Token -Type String
-    Set-ItemProperty -Path $policyPath -Name "syncUrl" -Value $SyncUrl -Type String
-    Set-ItemProperty -Path $policyPath -Name "credsUrl" -Value $CredsUrl -Type String
-    # EXT-DOMAINUSER-1: -DomainUserName overrides the automatic %USERDOMAIN%\\%USERNAME%.
-    # Without this policy key the whole fleet stays Legacy (no AD identity).
-    $domainUserVal = if ($DomainUserName) { $DomainUserName } else { $env:USERDOMAIN + '\\' + $env:USERNAME }
-    if (-not $domainUserVal) { $domainUserVal = "%USERDOMAIN%\\%USERNAME%" }
-    Set-ItemProperty -Path $policyPath -Name "domainUser" -Value $domainUserVal -Type String
-    Set-ItemProperty -Path $policyPath -Name "autoConfigureProxy" -Value 1 -Type DWord
-    if (-not [string]::IsNullOrWhiteSpace($TargetGroup)) {
-        Set-ItemProperty -Path $policyPath -Name "targetGroup" -Value $TargetGroup -Type String
-    }
-    Write-PecLog "[$($b.Name)] Managed configuration applied (Token, Sync, Creds)." "SUCCESS"
-}
-
-Write-PecLog "All PEC policies successfully configured. Restart browser or reload policies to activate." "SUCCESS"
-`;
-}
-
-export function renderVerifyGpoScript(
-  extensionId: string,
-  serverUrl: string,
-  token: string
-): string {
-  const safeExtId = extensionId.replace(/["`$]/g, "");
-  const safeServerUrl = serverUrl.replace(/["`$]/g, "").replace(/\/+$/, "");
-
-  return `<#
-.SYNOPSIS
-    PEC - Corporate Proxy Extension Deployment Diagnostic Tool
-.DESCRIPTION
-    Verifies network reachability to PEC behind Nginx, tests TLS certificate validity,
-    audits browser policies in registry (HKCU/HKLM), and verifies extension profile installation.
-#>
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory=$false)]
-    [string]$ServerUrl = "${safeServerUrl}",
-
-    [Parameter(Mandatory=$false)]
-    [string]$ExtensionId = "${safeExtId}"
-)
-
-$ErrorActionPreference = "Continue"
-
-function Write-CheckResult([string]$TestName, [string]$Status, [string]$Details = "") {
-    $color = switch ($Status) {
-        "PASS" { "Green" }
-        "WARN" { "Yellow" }
-        "FAIL" { "Red" }
-        default { "White" }
-    }
-    Write-Host "[$Status] " -ForegroundColor $color -NoNewline
-    Write-Host "$TestName" -NoNewline
-    if ($Details) {
-        Write-Host " - $Details" -ForegroundColor Gray
-    } else {
-        Write-Host ""
-    }
-}
-
-Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host " PEC Extension Corporate GPO Deployment Diagnostics" -ForegroundColor Cyan
-Write-Host " Target Server: $ServerUrl" -ForegroundColor Cyan
-Write-Host " Extension ID : $ExtensionId" -ForegroundColor Cyan
-Write-Host " Date/Time    : $(Get-Date)" -ForegroundColor Cyan
-Write-Host " User / Host  : $env:USERDOMAIN\\$env:USERNAME on $env:COMPUTERNAME" -ForegroundColor Cyan
-Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host ""
-
-# --- 1. Network & TLS Probes ---
-Write-Host "--- 1. Network & TLS Certificate Verification ---" -ForegroundColor White
-
-# 1.1 Healthz Endpoint
-try {
-    $healthUrl = "$($ServerUrl.TrimEnd('/'))/healthz"
-    $req = [System.Net.HttpWebRequest]::Create($healthUrl)
-    $req.Timeout = 8000
-    $resp = $req.GetResponse()
-    $statusCode = [int]$resp.StatusCode
-    $resp.Close()
-
-    if ($statusCode -eq 200) {
-        Write-CheckResult "PEC Server Reachability (/healthz)" "PASS" "HTTP 200 OK"
-    } else {
-        Write-CheckResult "PEC Server Reachability (/healthz)" "WARN" "Returned HTTP $statusCode"
-    }
-} catch [System.Net.WebException] {
-    $status = $_.Exception.Status
-    if ($_.Exception.Message -like "*trust*" -or $_.Exception.Message -like "*certificate*") {
-        Write-CheckResult "TLS Certificate Validation" "FAIL" "Certificate trust failure: $($_.Exception.Message)"
-    } else {
-        Write-CheckResult "PEC Server Reachability (/healthz)" "FAIL" "Cannot connect: $($_.Exception.Message)"
-    }
-} catch {
-    Write-CheckResult "PEC Server Reachability (/healthz)" "FAIL" "$_"
-}
-
-# 1.2 Updates.xml check
-try {
-    $xmlUrl = "$($ServerUrl.TrimEnd('/'))/updates/updates.xml"
-    $xmlReq = [System.Net.HttpWebRequest]::Create($xmlUrl)
-    $xmlReq.Timeout = 8000
-    $xmlResp = $xmlReq.GetResponse()
-    $sr = New-Object System.IO.StreamReader($xmlResp.GetResponseStream())
-    $xmlContent = $sr.ReadToEnd()
-    $sr.Close()
-    $xmlResp.Close()
-
-    if ($xmlContent -like "*$ExtensionId*") {
-        Write-CheckResult "Update Manifest (/updates/updates.xml)" "PASS" "Found valid XML containing appid='$ExtensionId'"
-    } else {
-        Write-CheckResult "Update Manifest (/updates/updates.xml)" "WARN" "XML returned but appid='$ExtensionId' not found"
-    }
-} catch {
-    Write-CheckResult "Update Manifest (/updates/updates.xml)" "FAIL" "Failed to retrieve: $($_.Exception.Message)"
-}
-
-# 1.3 CRX download test (HEAD or short read)
-try {
-    $crxUrl = "$($ServerUrl.TrimEnd('/'))/updates/extension.crx"
-    $crxReq = [System.Net.HttpWebRequest]::Create($crxUrl)
-    $crxReq.Method = "HEAD"
-    $crxReq.Timeout = 8000
-    $crxResp = $crxReq.GetResponse()
-    $contentType = $crxResp.ContentType
-    $contentLen = $crxResp.ContentLength
-    $crxResp.Close()
-
-    if ($contentType -like "*chrome-extension*" -or $contentType -like "*octet-stream*") {
-        Write-CheckResult "CRX Binary Download (/updates/extension.crx)" "PASS" "Content-Type: $contentType, Size: $([math]::Round($contentLen / 1KB, 1)) KB"
-    } else {
-        Write-CheckResult "CRX Binary Download (/updates/extension.crx)" "WARN" "Unexpected Content-Type '$contentType' from Nginx"
-    }
-} catch {
-    Write-CheckResult "CRX Binary Download (/updates/extension.crx)" "FAIL" "Cannot fetch CRX: $($_.Exception.Message)"
-}
-
-Write-Host ""
-Write-Host "--- 2. Windows Registry Policy Verification ---" -ForegroundColor White
-
-$browsers = @(
-    @{ Name = "Google Chrome"; Key = "Google\\Chrome" },
-    @{ Name = "Microsoft Edge"; Key = "Microsoft\\Edge" },
-    @{ Name = "Yandex Browser"; Key = "YandexBrowser" },
-    @{ Name = "Opera"; Key = "Opera Software\\Opera" }
-)
-
-foreach ($b in $browsers) {
-    $foundScope = $null
-    $hasForcelist = $false
-    $hasToken = $false
-    $hasSettings = $false
-    $settingsVal = $null
-
-    foreach ($scopeRoot in @("HKCU:\\Software\\Policies", "HKLM:\\SOFTWARE\\Policies")) {
-        $base = Join-Path $scopeRoot $b.Key
-        $forcePath = Join-Path $base "ExtensionInstallForcelist"
-        $polPath = Join-Path (Join-Path (Join-Path $base "3rdparty") "extensions") (Join-Path $ExtensionId "policy")
-
-        if (Test-Path $forcePath) {
-            $props = (Get-ItemProperty -Path $forcePath).PSObject.Properties
-            foreach ($p in $props) {
-                if ($p.Value -like "$ExtensionId*") {
-                    $hasForcelist = $true
-                    $foundScope = if ($scopeRoot -like "HKCU*") { "HKCU" } else { "HKLM" }
-                    break
-                }
-            }
-        }
-
-        if (Test-Path $polPath) {
-            $val = (Get-ItemProperty -Path $polPath -ErrorAction SilentlyContinue).extToken
-            if ($val) { $hasToken = $true }
-            # EXT-DOMAINUSER-1: without the domainUser policy key the whole fleet
-            # stays Legacy (no AD identity) — surface it as an explicit warning.
-            $domainUserVal = (Get-ItemProperty -Path $polPath -ErrorAction SilentlyContinue).domainUser
-            if ($domainUserVal) { $script:hasDomainUser = $true } else { $script:missingDomainUser = $true }
-        }
-
-        $rawSettings = (Get-ItemProperty -Path $base -ErrorAction SilentlyContinue).ExtensionSettings
-        if ($rawSettings) {
-            $hasSettings = $true
-            $settingsVal = $rawSettings
-            if (-not $foundScope) {
-                $foundScope = if ($scopeRoot -like "HKCU*") { "HKCU" } else { "HKLM" }
-            }
-        }
-    }
-
-    if ($b.Name -like "*Yandex*" -and $settingsVal -like "*force_installed*") {
-        Write-CheckResult "$($b.Name) Enterprise Policies" "WARN" "force_installed detected in unmanaged Yandex Browser! Extension may be deactivated by Yandex internal security. Change to normal_installed."
-    } elseif (($hasForcelist -and $hasToken) -or $hasSettings) {
-        $details = if ($hasSettings -and $hasForcelist) { "Forcelist + ExtensionSettings ($foundScope)" } elseif ($hasSettings) { "ExtensionSettings ($foundScope)" } else { "Forcelist + Managed Storage ($foundScope)" }
-        Write-CheckResult "$($b.Name) Enterprise Policies" "PASS" "Configured in $details"
-    } elseif ($hasForcelist) {
-        Write-CheckResult "$($b.Name) Enterprise Policies" "WARN" "ExtensionInstallForcelist present in $foundScope, but 3rdparty token policy missing!"
-    } else {
-        Write-CheckResult "$($b.Name) Enterprise Policies" "WARN" "No policies found in HKCU or HKLM"
-    }
-}
-
-    # EXT-DOMAINUSER-1: fleet-wide AD identity readiness summary
-    if ($script:missingDomainUser) {
-        Write-CheckResult "domainUser (Managed Storage identity)" "WARN" "domainUser policy missing on one or more browsers - the fleet stays Legacy (no AD identity/kill-switch). Re-run deploy-pec-gpo.ps1 or apply the GPP Registry.xml."
-    } elseif ($script:hasDomainUser) {
-        Write-CheckResult "domainUser (Managed Storage identity)" "PASS" "domainUser policy present - AD identity propagation active"
-    }
-
-Write-Host ""
-Write-Host "--- 3. Local Browser Profile Installation Status ---" -ForegroundColor White
-
-$profilePaths = @(
-    @{ Browser = "Google Chrome"; Path = "$env:LOCALAPPDATA\\Google\\Chrome\\User Data\\Default\\Extensions\\$ExtensionId" },
-    @{ Browser = "Microsoft Edge"; Path = "$env:LOCALAPPDATA\\Microsoft\\Edge\\User Data\\Default\\Extensions\\$ExtensionId" },
-    @{ Browser = "Yandex Browser"; Path = "$env:LOCALAPPDATA\\Yandex\\YandexBrowser\\User Data\\Default\\Extensions\\$ExtensionId" },
-    @{ Browser = "Opera"; Path = "$env:APPDATA\\Opera Software\\Opera Stable\\Extensions\\$ExtensionId" }
-)
-
-foreach ($p in $profilePaths) {
-    if (Test-Path $p.Path) {
-        $versions = Get-ChildItem -Path $p.Path -Directory | Select-Object -ExpandProperty Name
-        Write-CheckResult "$($p.Browser) Installed Extension" "PASS" "Found version(s): $($versions -join ', ')"
-    } else {
-        Write-CheckResult "$($p.Browser) Installed Extension" "WARN" "Not yet downloaded to local profile. Restart browser or click 'Reload policies' in browser://policy."
-    }
-}
-
-Write-Host ""
-Write-Host "Diagnostics complete." -ForegroundColor Cyan
-`;
-}
 
 export function renderGpoReadme(
   extensionId: string,
@@ -562,7 +43,7 @@ export function renderGpoReadme(
 
   return `# PEC Corporate GPO Deployment Package
 
-Данный пакет содержит все необходимые конфигурации и файлы для централизованного развертывания браузерного расширения **PEC (Proxy Extension Corp)** через групповые политики Active Directory.
+Данный пакет содержит конфигурации и файлы для централизованного развертывания браузерного расширения **PEC (Proxy Extension Corp)** через групповые политики Active Directory.
 
 - **Extension ID:** \`${extensionId}\`
 - **Server URL:** \`${safeServerUrl}\`
@@ -572,304 +53,106 @@ export function renderGpoReadme(
 
 ## Содержимое пакета
 
-1. **\`extension-settings-chrome.json\`** — боевой JSON параметр \`ExtensionSettings\` для Google Chrome (\`force_installed\`).
-2. **\`extension-settings-edge.json\`** — боевой JSON параметр \`ExtensionSettings\` для Microsoft Edge (\`force_installed\`).
-3. **\`extension-settings-yandex.json\`** — боевой JSON параметр \`ExtensionSettings\` для Яндекс.Браузера (\`normal_installed\`).
-4. **\`extension-settings.json\`** — базовый JSON параметр \`ExtensionSettings\` (для обратной совместимости).
-5. **\`pec-policy-user-hkcu.reg\`** — файл реестра текущего пользователя (\`HKCU\`) с готовыми разделами \`ExtensionSettings\`, \`ExtensionInstallForcelist\`, \`ExtensionInstallAllowlist\` и managed policy.
-6. **\`pec-policy-machine-hklm.reg\`** — файл реестра для всего компьютера (\`HKLM\`).
-7. **\`deploy-pec-gpo.ps1\`** — автоматизированный PowerShell-скрипт развертывания с защитой от затирания сторонних расширений.
-8. **\`verify-pec-gpo.ps1\`** — диагностический скрипт проверки сетевой доступности, TLS-сертификата Nginx и политик в реестре.
+1. **\`pec-policy-user.reg\`** — готовый файл реестра текущего пользователя (\`HKCU\`) со всеми параметрами для всех 4 браузеров.
+2. **\`pec-policy-machine.reg\`** — готовый файл реестра для всего компьютера (\`HKLM\`).
+3. **\`README-GPO.txt\`** — данная инструкция администратора.
 
 ---
 
-## Основной способ развертывания по умолчанию (Проверен в боевой среде)
+## Канонический способ развертывания через GPO (GPMC)
 
-Конфигурация протестирована в боевой корпоративной инфраструктуре Active Directory и является **стандартом развертывания по умолчанию**.
+Развертывание выполняется через консоль **Group Policy Management** (\`gpmc.msc\`) с помощью прямого импорта готовых \`.REG\` файлов или ручной настройки параметров реестра.
 
 ### 1. Топология размещения и привязки GPO
 
 1. Откройте консоль **Group Policy Management** (\`gpmc.msc\`).
 2. Создайте объект групповой политики (GPO), например: \`PEC-Proxy-Extension-Deployment\`.
-3. **Привязка к OU:** Свяжите объект GPO с **OU, содержащим целевые ПК (компьютеры сотрудников)**.
+3. **Привязка к OU:** Свяжите объект GPO с OU пользователей (\`HKCU\`) или компьютеров (\`HKLM\`).
 4. **Фильтры безопасности (Security Filtering):**
-   - В разделе *Security Filtering* добавьте вашу целевую группу безопасности пользователей/компьютеров Active Directory (например, \`CORP\\Proxy-Allowed-Users\` или \`CORP\\Proxy-Target-PCs\`).
+   - Укажите целевую группу безопасности пользователей или компьютеров Active Directory.
 5. ⚠️ **КРИТИЧЕСКИ ВАЖНО В ДЕЛЕГИРОВАНИИ (Delegation):**
    - Перейдите на вкладку **Delegation (Делегирование)** созданного объекта GPO.
-   - Нажмите **Add (Добавить)** и ОБЯЗАТЕЛЬНО укажите группу **\`Authenticated Users\`** (в русскоязычной Windows — **«Прошедшие проверку»**) с разрешением **«Read» (Чтение)**.
+   - Нажмите **Add (Добавить)** и ОБЯЗАТЕЛЬНО укажите группу **\`Authenticated Users\`** («Прошедшие проверку») с разрешением **«Read» (Чтение)**.
    > **Почему это обязательно?**  
-   > В соответствии с бюллетенем безопасности Microsoft **MS16-072 (KB3163622)**, групповые политики пользователя считываются клиентской рабочей станцией в контексте учетной записи компьютера. Если у \`Authenticated Users\` отсутствует право на чтение объекта GPO, при применении фильтрации безопасности компьютер не сможет прочесть файлы политики из SYSVOL, и параметры реестра пользователя **не применятся**.
-
-6. **Режим замыкания (Loopback Processing) для OU компьютеров:**
-   - Так как политика привязана к OU с ПК, откройте редактор GPO:
+   > В соответствии с бюллетенем безопасности Microsoft **MS16-072 (KB3163622)**, групповые политики пользователя считываются рабочей станцией в контексте учетной записи компьютера. Если у \`Authenticated Users\` отсутствует право на чтение объекта GPO, компьютер не сможет прочесть файлы политики из SYSVOL, и параметры реестра **не применятся**.
+6. **Режим замыкания (Loopback Processing) при привязке к OU компьютеров:**
+   - Если GPO привязана к OU с компьютерами сотрудников:
    - \`Конфигурация компьютера → Политики → Административные шаблоны → Система → Групповая политика\`
    - Включите: **«Режим обработки пользовательской групповой политики замыкания»** (\`Configure user Group Policy loopback processing mode\`) = **Включено (Объединение / Merge)**.
 
 ---
 
-### 2. Размещение параметров в редакторе GPO
+### 2. Размещение параметров в GPMC
 
-В редакторе объекта групповой политики перейдите по пути:
-\`Конфигурация пользователя (включено) → Настройка → Конфигурация Windows → Реестр\`  
-*(User Configuration → Preferences → Windows Settings → Registry)*
+В редакторе GPO перейдите по пути:
+\`Конфигурация пользователя (или Компьютера) → Настройка → Конфигурация Windows → Реестр\`
+*(Preferences → Windows Settings → Registry)*
 
-Создайте 3 элемента реестра для каждого поддерживаемого браузера:
+Для каждого целевого браузера задаются ровно три ключевых параметра:
 
-#### Элемент 1: Google Chrome
-- **Вкладка «Общие» (General):**
-  - **Действие:** \`Заменить\` *(Replace)*
-  - **Куст:** \`HKEY_CURRENT_USER\`
-  - **Путь к разделу:** \`Software\\Policies\\Google\\Chrome\`
-  - **Имя параметра:** \`ExtensionSettings\`
-  - **Тип параметра:** \`REG_SZ\`
-  - **Значение:**
-    \`\`\`json
-    ${chromeSettingsVal}
-    \`\`\`
-- **Вкладка «Общие параметры» (Common):**
-  - Остановить обработку элементов при ошибке: **Нет**
-  - Запуск в контексте безопасности текущего пользователя: **Нет**
-  - Удалить этот элемент, если он больше не применяется: **Нет**
-  - Применить один раз и не применять повторно: **Нет**
+#### 1. ExtensionInstallForcelist (Принудительная установка)
+- **Куст:** \`HKEY_CURRENT_USER\` (или \`HKEY_LOCAL_MACHINE\`)
+- **Путь к разделу:**
+  - Chrome: \`Software\\Policies\\Google\\Chrome\\ExtensionInstallForcelist\`
+  - Edge: \`Software\\Policies\\Microsoft\\Edge\\ExtensionInstallForcelist\`
+  - Яндекс.Браузер: \`Software\\Policies\\YandexBrowser\\ExtensionInstallForcelist\`
+  - Opera: \`Software\\Policies\\Opera Software\\Opera\\ExtensionInstallForcelist\`
+- **Имя параметра:** \`1\`
+- **Тип:** \`REG_SZ\`
+- **Значение:** \`${extensionId};${safeServerUrl}/updates/updates.xml\`
 
-#### Элемент 2: Microsoft Edge
-- **Вкладка «Общие» (General):**
-  - **Действие:** \`Заменить\` *(Replace)*
-  - **Куст:** \`HKEY_CURRENT_USER\`
-  - **Путь к разделу:** \`Software\\Policies\\Microsoft\\Edge\`
-  - **Имя параметра:** \`ExtensionSettings\`
-  - **Тип параметра:** \`REG_SZ\`
-  - **Значение:**
-    \`\`\`json
-    ${edgeSettingsVal}
-    \`\`\`
-- **Вкладка «Общие параметры» (Common):**
-  - Остановить обработку элементов при ошибке: **Нет**
-  - Запуск в контексте безопасности текущего пользователя: **Нет**
-  - Удалить этот элемент, если он больше не применяется: **Нет**
-  - Применить один раз и не применять повторно: **Нет**
+#### 2. ExtensionSettings (Источник обновлений и режим)
+- **Куст:** \`HKEY_CURRENT_USER\` (или \`HKEY_LOCAL_MACHINE\`)
+- **Путь к разделу:**
+  - Chrome: \`Software\\Policies\\Google\\Chrome\`
+  - Edge: \`Software\\Policies\\Microsoft\\Edge\`
+  - Яндекс.Браузер: \`Software\\Policies\\YandexBrowser\`
+  - Opera: \`Software\\Policies\\Opera Software\\Opera\`
+- **Имя параметра:** \`ExtensionSettings\`
+- **Тип:** \`REG_SZ\`
+- **Значение (Chrome/Edge/Opera):**
+  \`\`\`json
+  ${chromeSettingsVal}
+  \`\`\`
+- **Значение (Яндекс.Браузер):**
+  \`\`\`json
+  ${yandexSettingsVal}
+  \`\`\`
 
-#### Элемент 3: Яндекс.Браузер
-- **Вкладка «Общие» (General):**
-  - **Действие:** \`Заменить\` *(Replace)*
-  - **Куст:** \`HKEY_CURRENT_USER\`
-  - **Путь к разделу:** \`Software\\Policies\\YandexBrowser\`
-  - **Имя параметра:** \`ExtensionSettings\`
-  - **Тип параметра:** \`REG_SZ\`
-  - **Значение:**
-    \`\`\`json
-    ${yandexSettingsVal}
-    \`\`\`
-- **Вкладка «Общие параметры» (Common):**
-  - Остановить обработку элементов при ошибке: **Нет**
-  - Запуск в контексте безопасности текущего пользователя: **Нет**
-  - Удалить этот элемент, если он больше не применяется: **Нет**
-  - Применить один раз и не применять повторно: **Нет**
+#### 3. domainUser (Сквозная идентификация для Active Directory Zero-Trust)
+- **Куст:** \`HKEY_CURRENT_USER\` (или \`HKEY_LOCAL_MACHINE\`)
+- **Путь к разделу:**
+  - Chrome: \`Software\\Policies\\Google\\Chrome\\3rdparty\\extensions\\${extensionId}\\policy\`
+  - Edge: \`Software\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\${extensionId}\\policy\`
+  - Яндекс.Браузер: \`Software\\Policies\\YandexBrowser\\3rdparty\\extensions\\${extensionId}\\policy\`
+  - Opera: \`Software\\Policies\\Opera Software\\Opera\\3rdparty\\extensions\\${extensionId}\\policy\`
+- **Имя параметра:** \`domainUser\`
+- **Тип:** \`REG_SZ\`
+- **Значение:** \`%USERDOMAIN%\\%USERNAME%\`
+> ⚠️ **Обязательно для привязки к AD:** без передачи этого параметра расширения работают в режиме Legacy (без Kill-Switch и AD-авторизации).
 
 ---
 
-### ⚠️ Критическое замечание по Яндекс.Браузеру
+### ⚠️ Особенность Яндекс.Браузера
 
-> **ВНИМАНИЕ:**  
-> Если используемая редакция Яндекс.Браузера **не управляется через корпоративную консоль администрирования Яндекса**, режим установки \`force_installed\` ставить **НЕЛЬЗЯ**!  
-> В потребительских или неуправляемых через консоль версиях Яндекс.Браузера встроенная прослойка безопасности принудительно деактивирует и блокирует расширение, если для него задан \`force_installed\` из внешнего источника.  
-> Для Яндекс.Браузера обязательно используйте режим **\`normal_installed\`** — расширение будет установлено и регулярно обновляться по адресу \`update_url\`, не вызывая срабатывания защитных механизмов браузера.
+> Если версия Яндекс.Браузера **не управляется через корпоративную консоль администрирования Яндекса**, режим \`force_installed\` ставить нельзя (расширение будет заблокировано защитной системой браузера).
+> Для Яндекс.Браузера используйте готовый \`.REG\` файл или режим **\`normal_installed\`**.
 
 ---
 
-## Альтернативный вариант: Быстрое развертывание через Logon-скрипт
+### Быстрый импорт через .REG файлы
 
-1. В GPMC откройте GPO на редактирование.
-2. Перейдите в \`Конфигурация пользователя → Политики → Конфигурация Windows → Сценарии (вход/выход) → Вход в систему\`.
-3. Вкладка **PowerShell Scripts** → кнопка **Добавить** → скопируйте файл \`deploy-pec-gpo.ps1\`.
-4. (Опционально) В поле параметров укажите: \`-RequireAdGroup "CORP\\Proxy-Allowed-Users"\`.
+Вместо ручного заведения параметров вы можете применить готовые файлы из пакета:
+- \`pec-policy-user.reg\` — для применения в контексте пользователя (\`HKCU\`).
+- \`pec-policy-machine.reg\` — для применения в контексте компьютера (\`HKLM\`).
 
 ---
 
-## Проверка и диагностика на рабочих местах
+### Проверка применения политик на рабочем месте
 
-На целевом компьютере пользователя выполните в PowerShell:
-\`\`\`powershell
-gpupdate /force
-.\\verify-pec-gpo.ps1
-\`\`\`
-
-Для проверки применения политик непосредственно в браузере:
+После выполнения \`gpupdate /force\` проверьте статус применения в браузере:
 - **Chrome:** \`chrome://policy\` → кнопка *«Перезагрузить политики»*
 - **Edge:** \`edge://policy\` → кнопка *«Перезагрузить политики»*
 - **Яндекс.Браузер:** \`browser://policy\` → кнопка *«Перезагрузить политики»*
 `;
-}
-
-
-export function renderGppRegistryXml(
-  extensionId: string,
-  serverUrl: string,
-  token: string,
-  targetGroup: string = ""
-): string {
-  const safeExtId = extensionId.replace(/["`$]/g, "").trim();
-  const safeServerUrl = serverUrl.replace(/["`$]/g, "").replace(/\/+$/, "").trim();
-  const safeToken = token.replace(/["`$]/g, "").trim();
-  const safeTargetGroup = targetGroup.replace(/["`$]/g, "").trim();
-
-  const updateUrl = `${safeServerUrl}/updates/updates.xml`;
-  const credsUrl = `${safeServerUrl}/creds`;
-  const syncUrl = `${safeServerUrl}/api/sync`;
-  const forcelistVal = `${safeExtId};${updateUrl}`;
-
-  const escapeXmlAttr = (val: string): string => {
-    return val
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;");
-  };
-
-  const getGuid = (key: string, name: string): string => {
-    const hash = crypto.createHash("md5").update(`${safeExtId}:${key}:${name}`).digest("hex");
-    return `{${hash.substring(0, 8)}-${hash.substring(8, 12)}-${hash.substring(12, 16)}-${hash.substring(16, 20)}-${hash.substring(20, 32)}}`.toUpperCase();
-  };
-
-  const buildExtensionSettings = (mode: "force_installed" | "normal_installed") => {
-    const obj: any = {
-      "*": {
-        install_sources: [`${safeServerUrl}/*`],
-      },
-      [safeExtId]: {
-        installation_mode: mode,
-        update_url: updateUrl,
-        override_update_url: true,
-        extToken: safeToken,
-        credsUrl: credsUrl,
-        syncUrl: syncUrl,
-        ...(safeTargetGroup ? { targetGroup: safeTargetGroup } : {}),
-      },
-    };
-    return JSON.stringify(obj);
-  };
-
-  const browsers: Array<{
-    name: string;
-    key: string;
-    mode: "force_installed" | "normal_installed";
-  }> = [
-    { name: "Google Chrome", key: "Software\\Policies\\Google\\Chrome", mode: "force_installed" },
-    { name: "Microsoft Edge", key: "Software\\Policies\\Microsoft\\Edge", mode: "force_installed" },
-    { name: "Yandex Browser", key: "Software\\Policies\\YandexBrowser", mode: "normal_installed" },
-    { name: "Opera", key: "Software\\Policies\\Opera Software\\Opera", mode: "force_installed" },
-  ];
-
-  type RegItem = {
-    key: string;
-    name: string;
-    type: "REG_SZ" | "REG_DWORD";
-    value: string;
-    desc: string;
-  };
-
-  const items: RegItem[] = [];
-
-  for (const b of browsers) {
-    // 1. ExtensionSettings
-    items.push({
-      key: b.key,
-      name: "ExtensionSettings",
-      type: "REG_SZ",
-      value: buildExtensionSettings(b.mode),
-      desc: `${b.name} - ExtensionSettings`,
-    });
-
-    // 2. ExtensionInstallForcelist
-    items.push({
-      key: `${b.key}\\ExtensionInstallForcelist`,
-      name: "1",
-      type: "REG_SZ",
-      value: forcelistVal,
-      desc: `${b.name} - ExtensionInstallForcelist`,
-    });
-
-    // 3. ExtensionInstallAllowlist
-    items.push({
-      key: `${b.key}\\ExtensionInstallAllowlist`,
-      name: "1",
-      type: "REG_SZ",
-      value: safeExtId,
-      desc: `${b.name} - ExtensionInstallAllowlist`,
-    });
-
-    // 4. Managed Storage policy parameters
-    const policyKey = `${b.key}\\3rdparty\\extensions\\${safeExtId}\\policy`;
-
-    items.push({
-      key: policyKey,
-      name: "domainUser",
-      type: "REG_SZ",
-      value: "%USERDOMAIN%\\%USERNAME%",
-      desc: `${b.name} - domainUser`,
-    });
-
-    items.push({
-      key: policyKey,
-      name: "extToken",
-      type: "REG_SZ",
-      value: safeToken,
-      desc: `${b.name} - extToken`,
-    });
-
-    items.push({
-      key: policyKey,
-      name: "syncUrl",
-      type: "REG_SZ",
-      value: syncUrl,
-      desc: `${b.name} - syncUrl`,
-    });
-
-    items.push({
-      key: policyKey,
-      name: "credsUrl",
-      type: "REG_SZ",
-      value: credsUrl,
-      desc: `${b.name} - credsUrl`,
-    });
-
-    items.push({
-      key: policyKey,
-      name: "autoConfigureProxy",
-      type: "REG_DWORD",
-      value: "00000001",
-      desc: `${b.name} - autoConfigureProxy`,
-    });
-
-    if (safeTargetGroup) {
-      items.push({
-        key: policyKey,
-        name: "targetGroup",
-        type: "REG_SZ",
-        value: safeTargetGroup,
-        desc: `${b.name} - targetGroup`,
-      });
-    }
-  }
-
-  const timestamp = "2026-01-01 00:00:00";
-
-  let xml = '<?xml version="1.0" encoding="utf-8"?>\r\n';
-  xml += '<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">\r\n';
-
-  for (const item of items) {
-    const uid = getGuid(item.key, item.name);
-    const escapedKey = escapeXmlAttr(item.key);
-    const escapedName = escapeXmlAttr(item.name);
-    const escapedVal = escapeXmlAttr(item.value);
-    const escapedDesc = escapeXmlAttr(item.desc);
-
-    xml += `  <Registry clsid="{9CD4B2F7-2C92-116a-9E29-EEB64A588655}" name="${escapedDesc}" status="${escapedDesc}" image="11" changed="${timestamp}" uid="${uid}" bypassErrors="1" userContext="1" removePolicy="1">\r\n`;
-    xml += `    <Properties action="R" displayDecimal="0" default="0" hive="HKEY_CURRENT_USER" key="${escapedKey}" name="${escapedName}" type="${item.type}" value="${escapedVal}" bypassErrors="1" removePolicy="1" />\r\n`;
-    xml += '  </Registry>\r\n';
-  }
-
-  xml += '</RegistrySettings>\r\n';
-  return xml;
 }

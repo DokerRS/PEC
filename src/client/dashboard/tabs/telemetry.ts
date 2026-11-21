@@ -1101,24 +1101,6 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
       }
     }
 
-    export async function downloadScriptFile(name) {
-      try {
-        const res = await adminFetch('/api/builder/script/' + name + '.ps1');
-        if (!res.ok) {
-          toast('Failed to download script: HTTP ' + res.status, 'error');
-          return;
-        }
-        const text = await res.text();
-        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = (name === 'deploy' ? 'deploy-pec-gpo.ps1' : 'verify-pec-gpo.ps1');
-        a.click();
-      } catch (e) {
-        toast('Could not download script: ' + e, 'error');
-      }
-    }
-
     export function copyGpoForcelist() {
       const el = document.getElementById('gpoForcelist');
       if (el && el.textContent) {
@@ -1154,30 +1136,10 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
       });
     }
 
-    export async function downloadRegistryXml() {
-      try {
-        const res = await adminFetch('/api/builder/registry-xml');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'Registry.xml';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } catch (e) {
-        toast('Failed to download Registry.xml: ' + extractError(e), 'error');
-      }
-    }
-
     window.setGpoScope = setGpoScope;
     window.setGpoBrowser = setGpoBrowser;
     window.downloadGpoPack = downloadGpoPack;
     window.downloadRegFile = downloadRegFile;
-    window.downloadScriptFile = downloadScriptFile;
-    window.downloadRegistryXml = downloadRegistryXml;
     window.copyGpoForcelist = copyGpoForcelist;
     window.copyGpoSettings = copyGpoSettings;
     window.copyGpoRegSz = copyGpoRegSz;

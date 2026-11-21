@@ -5,7 +5,7 @@ import http from "node:http";
 import express from "express";
 import { createBuilderRouter } from "../src/routes/builderRoutes.js";
 
-test("GPO API routes deliver pack, reg, and scripts", async () => {
+test("GPO API routes deliver pack and reg files, and reject obsolete scripts", async () => {
   const app = express();
   app.use(express.json());
   const router = createBuilderRouter(
@@ -43,17 +43,15 @@ test("GPO API routes deliver pack, reg, and scripts", async () => {
     const regMachineText = await regMachineRes.text();
     assert.ok(regMachineText.includes("HKEY_LOCAL_MACHINE"), "reg file must be for HKLM");
 
-    // 4. Deploy script download
+    // 4. Obsolete scripts and Registry.xml endpoints are removed (404)
     const deployRes = await fetch(`${baseUrl}/api/builder/script/deploy.ps1`);
-    assert.equal(deployRes.status, 200);
-    const deployText = await deployRes.text();
-    assert.ok(deployText.includes("ExtensionInstallForcelist"), "script must contain forcelist logic");
+    assert.equal(deployRes.status, 404, "deploy script endpoint must be removed");
 
-    // 5. Verify script download
     const verifyRes = await fetch(`${baseUrl}/api/builder/script/verify.ps1`);
-    assert.equal(verifyRes.status, 200);
-    const verifyText = await verifyRes.text();
-    assert.ok(verifyText.includes("/healthz"), "script must contain healthz check");
+    assert.equal(verifyRes.status, 404, "verify script endpoint must be removed");
+
+    const xmlRes = await fetch(`${baseUrl}/api/builder/registry-xml`);
+    assert.equal(xmlRes.status, 404, "registry-xml endpoint must be removed");
 
     // 6. Extension info includes enhanced GPO metadata
     const infoRes = await fetch(`${baseUrl}/api/extension/info`);

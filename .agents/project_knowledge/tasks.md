@@ -257,3 +257,13 @@ Before starting work, every agent MUST review the active task list and, if neces
   (e) В `src/client/dashboard/tabs/telemetry.ts`: кнопка `🔄` («Восстановить доступ») в таблице флота рядом с бейджем `[🚫 Отозван]`;
   (f) Тесты: добавлены 3 сьюта в `test/adKillSwitch.test.ts` (авто-восстановление расширения, изоляция ручной блокировки admin, авто-восстановление десктопного клиента); 10/10 тестов passed, полный регрессионный сьют зелёный, 0 ошибок lint/typecheck.
 - [x] [User -> agent-devops-infra @ 2026-11-20 21:25] RELEASE-v0.9.10-alpha: Публикация патч-релиза v0.9.10-alpha (AD-RECOVERY-1) — CHANGELOG.md, package.json (0.9.10-alpha), README/README.ru.md, architecture.md, тег v0.9.10-alpha — проверено npm test, npm run lint (0 errors), check_boundaries.py (100% coverage, 0 drift)
+
+### Координация диспетчера — Канонизация развертывания GPO (.REG и GPMC) и удаление артефактов GPP / PowerShell
+- [x] [User -> agent-general-worker @ 2026-11-21 00:48] GPO-CANONICAL-REG-1: Полное удаление поддержки и артефактов нестабильных методов развертывания GPO (GPP Registry.xml, deploy-pec-gpo.ps1, verify-pec-gpo.ps1):
+  (a) В `src/templates/gpoTemplates.ts`: удалены функции `renderDeployGpoScript`, `renderVerifyGpoScript`, `renderGppRegistryXml`; `renderGpoReadme()` переписан на ручную настройку реестра в GPMC (ExtensionInstallForcelist, ExtensionSettings, domainUser) и работу с .REG файлами;
+  (b) В `src/packager.ts`: `generateGpoConfig()` типизирован чистым интерфейсом `GpoConfig` без legacy-полей; `generateGpoDeploymentPack()` формирует zip строго из трех файлов (`pec-policy-user.reg`, `pec-policy-machine.reg`, `README-GPO.txt`);
+  (c) В `src/routes/builderRoutes.ts`: удалены эндпоинты `GET /api/builder/registry-xml` и `GET /api/builder/script/:name`;
+  (d) В `src/views/dashboardView.ts` и `src/client/dashboard/`: удалены кнопки скачивания скриптов и Registry.xml, удалены неиспользуемые JS-функции; в `i18n.ts` обновлены описания пакета и удалены устаревшие ключи со 100% паритетом ru/en;
+  (e) В `test/`: обновлены `test/gpo.test.ts`, `test/domainUserManagedChain.test.ts`, `test/extensionArtifactJson.test.ts`, `test/gppRegistryXml.test.ts`, `test/gpoRoutes.test.ts`, `test/securityFixes.test.ts`;
+  (f) Сборка и верификация: `npm run build` (`public/dashboard.min.js` 354.8kb, `dist/server.cjs` 951.5kb), `npm run lint` (0 ошибок tsc/biome), все тесты GREEN.
+- [x] [User -> agent-devops-infra @ 2026-11-21 13:00] RELEASE-v0.9.11-alpha: Синхронизация внешней документации (Code-to-README Truth Parity: README.md, README.ru.md, docs/gpo-deployment-guide.md, docs/architecture-plan.md, architecture.md), релиз v0.9.11-alpha (package.json, CHANGELOG.md), проверка линтером, тестами и границами, коммит и публикация тега v0.9.11-alpha

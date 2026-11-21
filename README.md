@@ -11,7 +11,7 @@
 > The server core, dynamic PAC generation, and browser extension synchronization are battle-tested and running in production. However, native desktop clients (DirectX 11 GUI, WinDivert driver, Linux daemon) and specialized Active Directory GPO deployment scenarios across diverse Windows editions and RDS terminal farms are in public alpha testing. Feedback, issue reports, and contributions are welcome.
 
 [![CI Status](https://github.com/vlv-code/PEC/actions/workflows/ci.yml/badge.svg)](https://github.com/vlv-code/PEC/actions)
-[![Release](https://img.shields.io/badge/release-v0.9.10--alpha-blue.svg)](https://github.com/vlv-code/PEC/releases)
+[![Release](https://img.shields.io/badge/release-v0.9.11--alpha-blue.svg)](https://github.com/vlv-code/PEC/releases)
 [![Status: Public Alpha](https://img.shields.io/badge/status-public--alpha-orange.svg)]()
 [![Node.js](https://img.shields.io/badge/node.js-%3E%3D20-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg)](Dockerfile)
@@ -46,7 +46,7 @@ Agent instructions: [AGENTS.md](AGENTS.md) | Policy: [.agents/project_knowledge/
 3. **Extension Constructor Studio & GPO Deployment**:
    - Compiles and signs `.CRX` extension packages on-the-fly using 2048-bit RSA keys.
    - Generates enterprise `updates.xml` manifests for silent Google Chrome auto-updates.
-   - **Native GPP Registry Pack (Tier-1)**: Production-ready Active Directory GPO deployment via Group Policy Preferences (`Registry.xml`) for silent GPMC import (`User Configuration -> Preferences -> Windows Settings -> Registry`). Supports cross-browser policy distribution (Google Chrome, Microsoft Edge, Yandex Browser), dynamic user mapping (`domainUser = "%USERDOMAIN%\%USERNAME%"`), and automatic policy removal upon AD group exclusion via `removePolicy="1"`. Standalone PowerShell scripts (`deploy-pec-gpo.ps1`, `verify-pec-gpo.ps1`) and `.reg` templates are included for non-GPMC or testing environments.
+   - **Canonical .REG & GPMC Deployment**: Enterprise-grade Active Directory GPO deployment using clean Windows Registry files (`pec-policy-user.reg`, `pec-policy-machine.reg`, `README-GPO.txt`) and direct configuration of three standard registry parameters in GPMC (`ExtensionInstallForcelist` for installation, `ExtensionSettings` for update channel, and `domainUser = "%USERDOMAIN%\%USERNAME%"` for seamless Zero-Trust identity mapping). Supports cross-browser distribution across Google Chrome, Microsoft Edge, Yandex Browser, and Opera without relying on XML parsers or PowerShell script execution.
    - **Active Directory Web Management & Soft Migration**: Integrated dashboard controls in the GPO tab for runtime LDAPS settings (`data/ad_config.json`), live connection testing (`POST /api/ad/test`), and instant manual sync. Supports phased fleet rollout via Soft Migration mode (`AD_REJECT_UNKNOWN_USERS=false`) with warning telemetry badges (`Legacy`) for unmanaged clients before transitioning to strict Zero-Trust enforcement.
    - Three operational UI modes: **Self-Service Pro** (full diagnostic & temporary bypass controls), **Kiosk / Restricted** (read-only popup), and **Stealth Agent** (invisible background worker).
    - Real-time interactive preview sandbox with instant state simulation (Online, Bypassed, Offline, Re-auth).

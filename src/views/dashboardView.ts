@@ -1556,24 +1556,6 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             <button onclick="downloadExtensionPackage('crx')" class="btn" style="font-size: 13px;" data-i18n="btnDownloadCrxPkg">Download .CRX Package</button>
             <button onclick="downloadExtensionPackage('zip')" class="btn-secondary" style="font-size: 13px; margin-left: 8px;" data-i18n="btnDownloadZipPkg">Download .ZIP</button>
           </div>
-
-          <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 20px 0 16px 0;">
-
-          <h2 style="font-size: 14px;" data-i18n="titleGpoScripts">PowerShell скрипты автоматизации</h2>
-          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;" data-i18n="descGpoScripts">
-            Скрипты для использования в качестве Logon/Startup скриптов GPO и проверки рабочего места.
-          </p>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button onclick="downloadScriptFile('deploy')" class="btn-secondary" style="font-size: 12px;" data-i18n="btnDownloadDeployPs">
-              <img src="/icons/download.png" class="icon-inline" alt="dl"> deploy-pec-gpo.ps1
-            </button>
-            <button onclick="downloadScriptFile('verify')" class="btn-secondary" style="font-size: 12px;" data-i18n="btnDownloadVerifyPs">
-              <img src="/icons/check.png" class="icon-inline" alt="chk"> verify-pec-gpo.ps1
-            </button>
-            <button onclick="downloadRegistryXml()" class="btn-secondary" style="font-size: 12px;" title="Скачать готовый XML-манифест Group Policy Preferences для импорта в GPMC">
-              <img src="/icons/download.png" class="icon-inline" alt="dl"> Registry.xml (GPP)
-            </button>
-          </div>
         </div>
 
         <div class="card">
@@ -1593,33 +1575,14 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           </div>
 
           <div style="background: rgba(43, 114, 226, 0.08); border-left: 3px solid var(--primary); padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 11px; line-height: 1.5;">
-            <div style="font-weight: 700; margin-bottom: 6px; color: var(--text);" data-i18n="titleGpoInstructions">📋 Инструкция по развертыванию через GPO / Active Directory:</div>
-            <div style="margin-bottom: 6px;" data-i18n="gpoStep1Desc">
-              <strong>1. Рекомендуемый способ (Tier-1 — GPP Registry.xml):</strong><br>
-              <span style="color: var(--text-muted);">
-                Скопируйте <code>Registry.xml</code> из пакета в каталог политики: <code>\\\\домен\\sysvol\\домен\\Policies\\{GUID}\\User\\Preferences\\Registry\\</code>.<br>
-                Настраивает все 4 браузера, установку и сквозной <code>domainUser</code> нативно через Windows Preferences без запуска скриптов.
-              </span>
-            </div>
-            <div style="margin-bottom: 6px;" data-i18n="gpoStep2Desc">
-              <strong>2. Через PowerShell Logon-скрипт:</strong><br>
-              <span style="color: var(--text-muted);">
-                Укажите <code>deploy-pec-gpo.ps1</code> в <code>Конфигурация пользователя → Сценарии → Вход в систему</code>.
-              </span>
-            </div>
-            <div style="margin-bottom: 6px;" data-i18n="gpoStep3Desc">
-              <strong>3. Ручная настройка реестра в GPMC:</strong><br>
-              <span style="color: var(--text-muted);">
-                Задайте параметры ниже: <strong>1. Forcelist</strong> (установка), <strong>2. ExtensionSettings</strong> (источник обновления) и <strong>3. domainUser</strong> (обязательно для привязки к AD).
-              </span>
-            </div>
-            <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;" data-i18n="gpoSecReqs">
-              <strong>Критические требования безопасности GPO:</strong><br>
-              <span style="color: var(--text-muted);">
-                • Привязка к <strong>OU с ПК</strong>: включите Loopback Processing (Замыкание) в режиме <code>Merge (Объединение)</code>.<br>
-                • Вкладка <strong>Delegation (Делегирование)</strong>: обязательно добавьте <strong>Authenticated Users</strong> («Прошедшие проверку») на Чтение (MS16-072 / KB3163622).<br>
-                • Фильтры безопасности: укажите вашу целевую группу AD.
-              </span>
+            <div style="font-weight: 700; margin-bottom: 6px; color: var(--text);" data-i18n="titleGpoInstructions">📋 Инструкция по развертыванию через GPO / реестр Windows:</div>
+            <div style="color: var(--text-muted); line-height: 1.6;" data-i18n="descGpoInstructions">
+              1. Создайте объект групповой политики (GPO), привязанный к OU с пользователями (HKCU) или компьютерами (HKLM).<br>
+              2. Задайте параметры реестра ниже (вручную в GPMC или импортом готового .REG файла):<br>
+              &nbsp;&nbsp;• <strong>1. ExtensionInstallForcelist</strong> — принудительная установка расширения по ID.<br>
+              &nbsp;&nbsp;• <strong>2. ExtensionSettings</strong> — источник корпоративных обновлений (update_url).<br>
+              &nbsp;&nbsp;• <strong>3. domainUser</strong> — передача логина %USERDOMAIN%\%USERNAME% (обязательно для привязки к AD).<br>
+              3. <strong>Требования безопасности:</strong> привязка к OU с ПК требует Loopback Processing в режиме Merge; во вкладке Delegation обязательно наличие 'Authenticated Users' на Чтение (MS16-072).
             </div>
           </div>
 
@@ -1661,7 +1624,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
               <button type="button" class="btn-secondary" style="font-size: 10px; padding: 3px 8px;" onclick="copyGpoDomainUser()">Copy %USERDOMAIN%\\%USERNAME%</button>
             </div>
             <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.4;">
-              ⚠️ <em>Обязательно для привязки к AD: Windows раскрывает переменные при входе пользователя. Без этого параметра устройства работают в режиме Legacy (без AD). В GPP Registry.xml и deploy-pec-gpo.ps1 параметр уже включен.</em>
+              ⚠️ <em>Обязательно для привязки к AD: Windows раскрывает переменные при входе пользователя. Без этого параметра устройства работают в режиме Legacy (без AD).</em>
             </div>
           </div>
 
@@ -1703,7 +1666,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
         <div style="background: rgba(16, 185, 129, 0.08); border-left: 3px solid #10b981; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 11px; line-height: 1.5;">
           <strong data-i18n="titleZeroTrustAdBinding">Связка Active Directory с браузерным расширением:</strong><br>
           <span style="color: var(--text-muted);" data-i18n="descZeroTrustAdPull">
-            Сервер проверяет членство пользователей в доменной группе по протоколу Zero-Trust. Чтобы расширение отправляло доменный логин сотрудника (<code>DOMAIN\\username</code>), на рабочих станциях через GPO должен быть задан параметр <code>domainUser = %USERDOMAIN%\\%USERNAME%</code> (настраивается в блоке GPO выше через готовый <code>Registry.xml</code> или deploy-скрипт). Устройства с применённой политикой отображаются во «Флоте» с бейджем <span class="badge badge-ad-user">ДОМЕН\\пользователь</span>. Проверка доступа выполняется по Pull-модели: расширения сверяются с сервером по расписанию (по умолчанию каждые 5 минут, либо немедленно при перезапуске браузера), и доступ отзывается при очередном обращении к <code>/api/sync</code>.
+            Сервер проверяет членство пользователей в доменной группе по протоколу Zero-Trust. Чтобы расширение отправляло доменный логин сотрудника (<code>DOMAIN\\username</code>), на рабочих станциях через GPO должен быть задан параметр <code>domainUser = %USERDOMAIN%\\%USERNAME%</code> (настраивается в блоке GPO выше через параметры реестра GPMC или готовый .REG файл). Устройства с применённой политикой отображаются во «Флоте» с бейджем <span class="badge badge-ad-user">ДОМЕН\\пользователь</span>. Проверка доступа выполняется по Pull-модели: расширения сверяются с сервером по расписанию (по умолчанию каждые 5 минут, либо немедленно при перезапуске браузера), и доступ отзывается при очередном обращении к <code>/api/sync</code>.
           </span>
         </div>
 

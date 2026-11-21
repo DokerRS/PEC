@@ -105,6 +105,17 @@ export interface ExtensionInstance {
   verifiedByApp?: boolean;
 }
 
+export interface GpoConfig {
+  forcelistEntry: string;
+  forcelistEntries: Record<string, string>;
+  extensionSettingsJson: Record<string, any>;
+  extensionSettingsEntries: Record<string, Record<string, any>>;
+  regContent: string;
+  regContentUser: string;
+  regContentMachine: string;
+  readmeContent: string;
+}
+
 export interface RotationConfig {
   enabled: boolean;
   intervalMinutes: number;

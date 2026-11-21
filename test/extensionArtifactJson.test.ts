@@ -6,7 +6,6 @@ import path from "node:path";
 import AdmZip from "adm-zip";
 import { MANAGED_SCHEMA_TEMPLATE } from "../src/templates/managedSchemaTemplate.js";
 import { buildExtensionFiles, packageExtension } from "../src/packager.js";
-import { renderGppRegistryXml } from "../src/templates/gpoTemplates.js";
 import { getAppBuildConfig } from "../src/appPackager.js";
 import { TEST_TMP_DIR } from "./helpers/setup.js";
 
@@ -82,21 +81,8 @@ test("ESCAPE-1: .json entries inside the packaged CRX zip parse strictly", () =>
   }
 });
 
-test("ESCAPE-1 (audit d): generated .xml artifacts carry no raw backslash sequences", () => {
-  const xml = renderGppRegistryXml(
-    "testextid0000000000000000000000000000000000",
-    "https://pec.corp.local",
-    "gpo-token",
-    "SEC-Proxy-VPN"
-  );
-  // XML does not require backslash escaping (registry PATH data legitimately
-  // contains backslashes). The audit targets the JSON-bug class: raw
-  // unicode-escape sequences and unescaped ampersands.
-  assert.ok(!/[\\]u[0-9a-fA-F]{4}/.test(xml), "GPP Registry.xml must not contain raw unicode-escape sequences");
-  assert.ok(!/&(?!amp;|lt;|gt;|quot;|apos;|#)/.test(xml), "GPP Registry.xml ampersands must be XML-escaped");
-  assert.ok(xml.includes("SEC-Proxy-VPN"), "sanity: target group must be embedded");
-
-  // updates.xml shipped in dist (if present from a package run) is audited too
+test("ESCAPE-1 (audit d): generated updates.xml carries no raw backslash sequences", () => {
+  // updates.xml shipped in dist (if present from a package run) is audited
   const updatesPath = path.resolve(process.env.PEC_UPDATES_DIR || "./dist/updates", "updates.xml");
   if (fs.existsSync(updatesPath)) {
     const updates = fs.readFileSync(updatesPath, "utf-8");
