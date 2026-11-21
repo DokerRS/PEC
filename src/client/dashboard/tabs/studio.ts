@@ -155,6 +155,7 @@ export let liveSimState = {
 
     let builderDebounceTimer = null;
     let codeEditorDebounceTimer = null;
+    let lastLoadedBuildConfig: any = null;
 export let activeTemplatePreset = 'self-service-pro';
 export let activeStylePreset = 'cyber-blue';
 export let activeStudioLayout = 'console';
@@ -372,6 +373,7 @@ export let isCustomIconUploaded = false;
         const res = await adminFetch('/api/builder/config');
         if (!res.ok) return;
         const cfg = await res.json();
+        lastLoadedBuildConfig = cfg;
         
         document.getElementById('bldName').value = cfg.name || 'Corp Proxy Auth & Sync';
         document.getElementById('bldShortName').value = cfg.shortName || 'CorpProxy';
@@ -558,7 +560,7 @@ export let isCustomIconUploaded = false;
         document.getElementById('bldThemeColor').value = colorMap[style];
       }
       await saveBuilderConfigOnly(false);
-      await regenerateTemplatesFromConfig();
+      await regenerateTemplatesFromConfig(true);
     }
 
     export function onConfigChangeLive() {
@@ -569,7 +571,15 @@ export let isCustomIconUploaded = false;
       }, 500);
     }
 
-    export async function regenerateTemplatesFromConfig() {
+    export async function regenerateTemplatesFromConfig(force = false) {
+      if (!force) {
+        const isRu = currentLang === 'ru';
+        const msg = isRu
+          ? 'Вы уверены, что хотите сбросить файлы шаблона к исходным? Все ваши ручные изменения в коде будут безвозвратно перезаписаны текущей конфигурацией!'
+          : 'Are you sure you want to reset template files? All manual code edits will be permanently overwritten by current configuration!';
+        const ok = await pecConfirm(msg, { isDanger: true });
+        if (!ok) return;
+      }
       try {
         const res = await adminFetch('/api/builder/regenerate', { method: 'POST' });
         const data = await res.json();
@@ -582,10 +592,174 @@ export let isCustomIconUploaded = false;
       }
     }
 
+    function escapeHtmlEntities(s: string): string {
+      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function highlightJs(code: string): string {
+      const tokenRegex = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(\b(?:const|let|var|function|return|if|else|for|while|switch|case|break|default|try|catch|finally|throw|new|class|extends|import|export|from|async|await|typeof|instanceof|void|delete|in|of)\b)|(\b(?:true|false|null|undefined|NaN|Infinity)\b)|(\b\d+(?:\.\d+)?\b)|(\b[A-Za-z_$][A-Za-z0-9_$]*(?=\s*\())/g;
+
+      let lastIdx = 0;
+      let res = '';
+      let match: RegExpExecArray | null;
+
+      while ((match = tokenRegex.exec(code)) !== null) {
+        res += escapeHtmlEntities(code.slice(lastIdx, match.index));
+        const [full, comment, stringLit, keyword, boolNull, numberLit, fnCall] = match;
+        if (comment) {
+          res += `<span style="color:#64748b;font-style:italic;">${escapeHtmlEntities(comment)}</span>`;
+        } else if (stringLit) {
+          res += `<span style="color:#34d399;">${escapeHtmlEntities(stringLit)}</span>`;
+        } else if (keyword) {
+          res += `<span style="color:#f43f5e;font-weight:600;">${escapeHtmlEntities(keyword)}</span>`;
+        } else if (boolNull) {
+          res += `<span style="color:#f59e0b;font-weight:600;">${escapeHtmlEntities(boolNull)}</span>`;
+        } else if (numberLit) {
+          res += `<span style="color:#fbbf24;">${escapeHtmlEntities(numberLit)}</span>`;
+        } else if (fnCall) {
+          res += `<span style="color:#38bdf8;">${escapeHtmlEntities(fnCall)}</span>`;
+        }
+        lastIdx = tokenRegex.lastIndex;
+      }
+      res += escapeHtmlEntities(code.slice(lastIdx));
+      return res;
+    }
+
+    function highlightHtml(code: string): string {
+      const tokenRegex = /(<!--[\s\S]*?-->)|(<\/?[a-zA-Z0-9:-]+)|(\s+[a-zA-Z0-9:-]+(?=\s*=|\s*>|\s*\/))|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(\/?>)/g;
+
+      let lastIdx = 0;
+      let res = '';
+      let match: RegExpExecArray | null;
+
+      while ((match = tokenRegex.exec(code)) !== null) {
+        res += escapeHtmlEntities(code.slice(lastIdx, match.index));
+        const [full, comment, tag, attr, strVal, tagClose] = match;
+        if (comment) {
+          res += `<span style="color:#64748b;font-style:italic;">${escapeHtmlEntities(comment)}</span>`;
+        } else if (tag) {
+          res += `<span style="color:#f43f5e;font-weight:600;">${escapeHtmlEntities(tag)}</span>`;
+        } else if (attr) {
+          res += `<span style="color:#c084fc;">${escapeHtmlEntities(attr)}</span>`;
+        } else if (strVal) {
+          res += `<span style="color:#34d399;">${escapeHtmlEntities(strVal)}</span>`;
+        } else if (tagClose) {
+          res += `<span style="color:#f43f5e;font-weight:600;">${escapeHtmlEntities(tagClose)}</span>`;
+        }
+        lastIdx = tokenRegex.lastIndex;
+      }
+      res += escapeHtmlEntities(code.slice(lastIdx));
+      return res;
+    }
+
+    function getCaretOffset(el: HTMLElement): number {
+      try {
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return 0;
+        const range = sel.getRangeAt(0);
+        const preRange = range.cloneRange();
+        preRange.selectNodeContents(el);
+        preRange.setEnd(range.endContainer, range.endOffset);
+        return preRange.toString().length;
+      } catch (_) {
+        return 0;
+      }
+    }
+
+    function setCaretOffset(el: HTMLElement, offset: number) {
+      try {
+        const sel = window.getSelection();
+        if (!sel) return;
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+        let cur = 0;
+        let node: Text | null = null;
+        while ((node = walker.nextNode() as Text | null)) {
+          const len = node.nodeValue?.length || 0;
+          if (cur + len >= offset) {
+            const range = document.createRange();
+            range.setStart(node, Math.min(offset - cur, len));
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            return;
+          }
+          cur += len;
+        }
+      } catch (_) {}
+    }
+
+    export function highlightCodeEditor(editor?: HTMLElement) {
+      const el = editor || (document.getElementById('codeEditor') as HTMLElement | null);
+      if (!el) return;
+      const fileSelect = document.getElementById('codeFileSelect') as HTMLSelectElement | null;
+      const fileName = (fileSelect?.value || '').toLowerCase();
+      const raw = (el.textContent || '').replace(/\r\n/g, '\n');
+      const isHtml = fileName.endsWith('.html') || fileName.endsWith('.htm');
+      const highlighted = isHtml ? highlightHtml(raw) : highlightJs(raw);
+
+      const caret = getCaretOffset(el);
+      el.innerHTML = highlighted;
+      setCaretOffset(el, caret);
+    }
+
+    export function initCodeEditor() {
+      const editor = document.getElementById('codeEditor') as HTMLElement | null;
+      if (!editor || (editor as any)._codeJarInitialized) return;
+      (editor as any)._codeJarInitialized = true;
+
+      editor.style.minHeight = '500px';
+      editor.style.whiteSpace = 'pre-wrap';
+
+      if (!(editor as any)._hasValueProperty) {
+        (editor as any)._hasValueProperty = true;
+        Object.defineProperty(editor, 'value', {
+          get() {
+            return (editor as HTMLElement).textContent || '';
+          },
+          set(v: string) {
+            (editor as HTMLElement).textContent = v;
+            highlightCodeEditor(editor);
+          },
+          configurable: true,
+        });
+      }
+
+      editor.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          try {
+            const sel = window.getSelection();
+            if (!sel || !sel.rangeCount) return;
+            const range = sel.getRangeAt(0);
+            range.deleteContents();
+            const tabNode = document.createTextNode('  ');
+            range.insertNode(tabNode);
+            range.setStartAfter(tabNode);
+            range.setEndAfter(tabNode);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          } catch (_) {
+            if ((document as any).execCommand) (document as any).execCommand('insertText', false, '  ');
+          }
+          onCodeEditorLiveChange();
+          highlightCodeEditor(editor);
+        }
+      });
+
+      editor.addEventListener('input', () => {
+        onCodeEditorLiveChange();
+        highlightCodeEditor(editor);
+      });
+    }
+
     export function onCodeEditorLiveChange() {
-      const fileName = document.getElementById('codeFileSelect').value;
-      const content = document.getElementById('codeEditor').value;
-      extensionFiles[fileName] = content;
+      const fileSelect = document.getElementById('codeFileSelect') as HTMLSelectElement | null;
+      const fileName = fileSelect ? fileSelect.value : '';
+      const editor = document.getElementById('codeEditor') as any;
+      const content = editor ? editor.value : '';
+      if (fileName) {
+        extensionFiles[fileName] = content;
+      }
       
       clearTimeout(codeEditorDebounceTimer);
       codeEditorDebounceTimer = setTimeout(() => {
@@ -1047,9 +1221,12 @@ export let isCustomIconUploaded = false;
     }
 
     export function loadFileContent() {
+      initCodeEditor();
       const fileName = document.getElementById('codeFileSelect').value;
       const editor = document.getElementById('codeEditor');
-      editor.value = extensionFiles[fileName] || '// File not found or empty';
+      if (editor) {
+        editor.value = extensionFiles[fileName] || '// File not found or empty';
+      }
       document.getElementById('codeStatus').textContent = 'Viewing ' + fileName;
       updateLivePreview();
     }
@@ -1101,9 +1278,15 @@ export let isCustomIconUploaded = false;
         dnsLeakProtection: document.getElementById('bldDnsGuard').checked,
         badgeIndicator: document.getElementById('bldBadge') ? document.getElementById('bldBadge').checked : true,
         autoConfigureProxy: document.getElementById('bldAutoProxy') ? document.getElementById('bldAutoProxy').checked : true,
-        allowUserBypass: document.getElementById('bldAllowBypass') ? document.getElementById('bldAllowBypass').checked : true,
-        showIpGeoChecker: document.getElementById('bldIpGeo') ? document.getElementById('bldIpGeo').checked : true,
-        showIpGeoCheck: document.getElementById('bldIpGeo') ? document.getElementById('bldIpGeo').checked : true,
+        allowUserBypass: document.getElementById('bldAllowBypass')
+          ? (document.getElementById('bldAllowBypass') as HTMLInputElement).checked
+          : (lastLoadedBuildConfig?.allowUserBypass !== undefined ? Boolean(lastLoadedBuildConfig.allowUserBypass) : true),
+        showIpGeoChecker: document.getElementById('bldIpGeo')
+          ? (document.getElementById('bldIpGeo') as HTMLInputElement).checked
+          : (lastLoadedBuildConfig?.showIpGeoChecker !== undefined ? Boolean(lastLoadedBuildConfig.showIpGeoChecker) : true),
+        showIpGeoCheck: document.getElementById('bldIpGeo')
+          ? (document.getElementById('bldIpGeo') as HTMLInputElement).checked
+          : (lastLoadedBuildConfig?.showIpGeoCheck !== undefined ? Boolean(lastLoadedBuildConfig.showIpGeoCheck) : (lastLoadedBuildConfig?.showIpGeoChecker !== undefined ? Boolean(lastLoadedBuildConfig.showIpGeoChecker) : true)),
         bypassAutoTimeoutMinutes: parseInt(document.getElementById('bldBypassTimeout').value, 10) || 15,
         bypassTimeoutMinutes: parseInt(document.getElementById('bldBypassTimeout').value, 10) || 15,
         supportUrl: document.getElementById('bldSupportUrl').value.trim(),
@@ -1123,6 +1306,7 @@ export let isCustomIconUploaded = false;
           body: JSON.stringify(payload)
         });
         if (res.ok) {
+          lastLoadedBuildConfig = { ...lastLoadedBuildConfig, ...payload };
           if (showAlert) toast('Constructor configuration saved and extension files re-rendered!', 'success');
           return true;
         } else {
@@ -2906,6 +3090,8 @@ export let currentAppLayout = 'console';
 
       const includeExt = Boolean(document.getElementById('branchAppIncludeExtensionRules')?.checked);
       const inheritProfileId = document.getElementById('branchAppInheritProfileSelect')?.value || '';
+      const inheritCheckboxes = Array.from(document.querySelectorAll('.branch-app-rule-checkbox:checked')) as HTMLInputElement[];
+      const inheritRuleIds = inheritCheckboxes.map(cb => cb.value);
 
       try {
         const res = await adminFetch('/api/app-rules', {
@@ -2914,7 +3100,8 @@ export let currentAppLayout = 'console';
           body: JSON.stringify({
             rules: currentAppRules || [],
             includeExtensionRules: includeExt,
-            inheritRoutingProfileId: inheritProfileId
+            inheritRoutingProfileId: inheritProfileId,
+            inheritRuleIds: inheritRuleIds
           })
         });
         const data = await res.json().catch(() => ({}));
@@ -2923,6 +3110,7 @@ export let currentAppLayout = 'console';
             currentAppConfig.processRules = data.rules;
             currentAppConfig.includeExtensionRules = data.includeExtensionRules;
             currentAppConfig.inheritRoutingProfileId = data.inheritRoutingProfileId;
+            currentAppConfig.inheritRuleIds = data.inheritRuleIds || inheritRuleIds;
           }
           isAppStudioDirty = false;
           toast(currentLang === 'ru' ? 'Правила десктоп-клиента успешно сохранены и применены!' : 'Desktop app rules saved and applied!', 'success');

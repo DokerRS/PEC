@@ -378,9 +378,9 @@ if (typeof window !== 'undefined') {
     if (openCreds) openCreds.addEventListener('click', api.openCredsModal);
     if (credSubmit) credSubmit.addEventListener('click', api.submitCredsChange);
     if (credCancel) credCancel.addEventListener('click', () => {
-      const modal = document.getElementById('modalChangeCreds');
-      if (modal) modal.style.display = 'none';
+      api.closeCredsModal();
     });
+    notify.registerModalCloser('credsModal', api.closeCredsModal);
     if (credPass) credPass.addEventListener('keydown', function (e: any) { if (e.key === 'Enter') api.submitCredsChange(); });
 
     // 3x-ui Panels registry modal buttons

@@ -143,7 +143,7 @@ export function openAddManualModal() {
   if (portEl) { portEl.value = '10809'; portEl.disabled = false; }
   if (userEl) userEl.value = '';
   if (passEl) { passEl.value = ''; passEl.placeholder = '••••••••'; }
-  if (activeEl) activeEl.checked = true;
+  if (activeEl) activeEl.checked = false;
   if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
   checkSocksAuthWarning();
 
@@ -284,6 +284,15 @@ export async function submitProxyForm() {
 }
 
 export async function activateProxy(id: string) {
+  const px = (state.currentProxiesList || []).find((p) => p.id === id);
+  const tag = px ? px.tag : id;
+  const isRu = (state.currentLang || '').startsWith('ru');
+  const confirmMsg = isRu
+    ? `Активировать прокси-узел "${tag}" в качестве основного для флота?`
+    : `Activate proxy node "${tag}" as the primary node for the fleet?`;
+  const ok = await pecConfirm(confirmMsg);
+  if (!ok) return;
+
   try {
     const res = await adminFetch('/api/proxies/' + encodeURIComponent(id) + '/activate', { method: 'POST' });
     const data = await res.json().catch(() => ({}));
@@ -294,7 +303,7 @@ export async function activateProxy(id: string) {
       toast(data.error || 'Failed to activate proxy', 'error');
     }
   } catch (e) {
-    toast('Error activating proxy: ' + e, 'error');
+    toast((isRu ? 'Ошибка активации прокси: ' : 'Error activating proxy: ') + e, 'error');
   }
 }
 

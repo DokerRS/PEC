@@ -21,7 +21,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-  <link rel="stylesheet" href="/dashboard.css">
+  <link rel="stylesheet" href="/dashboard.css?v=${encodeURIComponent(currentVersion)}">
 </head>
 <body data-layout="console" data-theme="cyber">
   <div class="container">
@@ -188,7 +188,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
               </div>
               <div id="hdrGhLatestInfo" style="font-size: 11.5px; margin-bottom: 8px; color: var(--text);"></div>
               <div id="hdrGhReleasesList" style="max-height: 120px; overflow-y: auto; background: var(--bg-card-subtle); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; margin-bottom: 8px; font-size: 11px;"></div>
-              <div style="display: flex; justify-content: space-between; gap: 6px; pt: 6px; border-top: 1px solid var(--border);">
+              <div style="display: flex; justify-content: space-between; gap: 6px; padding-top: 6px; border-top: 1px solid var(--border);">
                 <button type="button" onclick="refreshGitHubReleasesNow()" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; flex: 1;" data-i18n="btnCheckGhReleases">Проверить</button>
                 <a href="https://github.com/vlv-code/PEC/releases" target="_blank" rel="noopener noreferrer" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; text-decoration: none;">GitHub Релизы</a>
               </div>
@@ -387,13 +387,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             <thead>
               <tr>
                 <th style="width: 40px;" data-i18n="thStatus">Status</th>
-                <th style="width: 70px;" data-i18n="thOrder">
-                  Order
-                  <span style="display: none;">
-                    <button type="button" class="btn-reorder-up" title="Move Up">▲</button>
-                    <button type="button" class="btn-reorder-down" title="Move Down">▼</button>
-                  </span>
-                </th>
+                <th style="width: 70px;" data-i18n="thOrder">Order</th>
                 <th data-i18n="thRuleName">Rule Name</th>
                 <th data-i18n="thPattern">Pattern / Preset</th>
                 <th data-i18n="thAction">Action</th>
@@ -404,6 +398,10 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
               <tr><td colspan="6" style="text-align: center; color: var(--text-muted);" data-i18n="txtNoRules">No rules defined for this profile.</td></tr>
             </tbody>
           </table>
+          <template id="tmplRuleReorderBtns" style="display: none;">
+            <button type="button" class="btn-reorder-up" tabindex="-1" title="Move Up">▲</button>
+            <button type="button" class="btn-reorder-down" tabindex="-1" title="Move Down">▼</button>
+          </template>
         </div>
       </div>
       </div>
@@ -579,51 +577,41 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                 <th>Название</th>
                 <th>URL панели</th>
                 <th>Пользователь</th>
+                <th>Ротация</th>
                 <th>Статус TLS</th>
                 <th style="text-align: right;">Действия</th>
               </tr>
             </thead>
             <tbody id="panels3xuiBody">
-              <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Загрузка панелей 3x-ui...</td></tr>
+              <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Загрузка панелей 3x-ui...</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <!-- 3. 3x-ui Connection & Rotation Scheduler (grid-2) -->
+      <!-- 3. Fleet Rotation Scheduler (grid-2) -->
       <div class="grid-2">
         <div class="card">
-          <h2 data-i18n="title3xuiCreds">3x-ui API Credentials & Timing Scheduler</h2>
-          <label for="rotPanelUrl" data-i18n="lbl3xuiPanelUrl">3x-ui Panel URL</label>
-          <input type="text" id="rotPanelUrl" placeholder="https://3xui-host:2053/basepath" data-i18n-ph="phRotPanelUrl" />
+          <h2 data-i18n="titleFleetRotScheduler">Планировщик ротации флота / Fleet Rotation Scheduler</h2>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;" data-i18n="descFleetRotScheduler">
+            Автоматическая ротация учетных данных прокси по расписанию для всех серверов 3x-ui с активной ротацией (или локального хранилища).
+          </p>
 
-          <div class="grid-form-2col">
+          <div class="grid-form-2col" style="margin-bottom: 16px;">
             <div>
-              <label for="rotAdminUser" data-i18n="lblAdminUser">Admin Username</label>
-              <input type="text" id="rotAdminUser" placeholder="admin" data-i18n-ph="phRotAdminUser" />
-            </div>
-            <div>
-              <label for="rotAdminPass" data-i18n="lblAdminPass">Admin Password</label>
-              <input type="password" id="rotAdminPass" placeholder="••••••••" /><span id="passwordSavedBadge" class="badge badge-success" style="display: none; margin-left: 8px;">(Пароль сохранён на сервере)</span>
-            </div>
-          </div>
-
-          <label for="rotRemark" data-i18n="lblInboundRemark">Target Inbound Remark</label>
-          <input type="text" id="rotRemark" placeholder="squid-in" data-i18n-ph="phRotRemark" />
-
-          <div class="grid-form-2-1">
-            <div>
-              <label for="rotInterval" data-i18n="lblRotInterval">Rotation Interval</label>
+              <label for="rotInterval" data-i18n="lblRotInterval">Интервал ротации (минуты)</label>
               <select id="rotInterval">
-                <option value="15" data-i18n="optRot15">Every 15 minutes</option>
-                <option value="60" data-i18n="optRot60">Every 1 hour</option>
-                <option value="360" data-i18n="optRot360">Every 6 hours</option>
-                <option value="720" data-i18n="optRot720">Every 12 hours</option>
-                <option value="1440" selected data-i18n="optRot1440">Every 24 hours (Daily)</option>
+                <option value="60">1 час</option>
+                <option value="180">3 часа</option>
+                <option value="360">6 часов</option>
+                <option value="720">12 часов</option>
+                <option value="1440" selected>24 часа (1 сутки)</option>
+                <option value="2880">48 часов (2 суток)</option>
+                <option value="10080">7 дней</option>
               </select>
             </div>
             <div>
-              <label for="rotEnabled" data-i18n="lblScheduler">Scheduler</label>
+              <label for="rotEnabled" data-i18n="lblScheduler">Планировщик / Scheduler</label>
               <select id="rotEnabled">
                 <option value="true" data-i18n="optSchedEnabled">Enabled (Auto)</option>
                 <option value="false" data-i18n="optSchedDisabled">Disabled</option>
@@ -631,16 +619,10 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             </div>
           </div>
 
-          <label for="rotInsecureTls" style="display: flex; align-items: center; gap: 8px; font-size: 12px; margin-top: 8px; text-transform: none; font-weight: normal; cursor: pointer;">
-            <input type="checkbox" id="rotInsecureTls" style="width: auto; margin-bottom: 0;" />
-            <span data-i18n="lblInsecureTls">Allow Insecure / Self-Signed TLS</span>
-          </label>
-
-          <div style="display: flex; gap: 8px; margin-top: 10px;">
-            <button onclick="saveRotationConfig()" data-i18n="btnSaveScheduler">Save Scheduler Settings</button>
-            <button onclick="test3xui()" class="btn-secondary" data-i18n="btnTest3xui">Test 3x-ui Connection</button>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button onclick="saveRotationConfig()" data-i18n="btnSaveScheduler">Сохранить расписание</button>
+            <button onclick="manualRotate()" class="btn-secondary" style="font-weight: 600;" data-i18n="btnRotateNow">⚡ Ротировать сейчас</button>
           </div>
-          <div id="test3xuiResult" style="margin-top: 10px; font-size: 12px; font-family: var(--mono); color: var(--text-muted);"></div>
         </div>
 
         <div id="widgetRotationStatus" class="card">
@@ -995,7 +977,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           Live Code Editor: Edits in <code>popup.html</code> or <code>popup.js</code> update the Interactive Preview instantly.
         </p>
 
-        <textarea id="codeEditor" oninput="onCodeEditorLiveChange()" style="width: 100%; height: 320px; font-family: var(--mono); font-size: 12px; margin-bottom: 10px; white-space: pre; line-height: 1.4;"></textarea>
+        <div id="codeEditor" contenteditable="plaintext-only" spellcheck="false" oninput="onCodeEditorLiveChange()" style="min-height: 500px; max-height: 700px; width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12px; margin-bottom: 10px; white-space: pre-wrap; word-break: break-all; line-height: 1.5; background: var(--bg-card-subtle, #0f172a); color: var(--text, #f8fafc); border: 1px solid var(--border); border-radius: 6px; padding: 12px; outline: none; overflow-y: auto;"></div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
           <span id="codeStatus" style="font-size: 12px; color: var(--text-muted);" data-i18n="lblCodeReady">Ready</span>
@@ -1378,7 +1360,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                     [Sync] Periodic fleet sync scheduled every 15m<br>
                     <span style="color: #10b981;">[Ready] Transparent packet filter active.</span>
                   </div>
-                  <button type="button" class="btn-secondary" style="font-size: 10px; padding: 3px 6px; margin-top: 6px; width: 100%;">📋 Скопировать весь лог</button>
+
                 </div>
 
                 <!-- Preview Window Tab Content: Settings -->
@@ -1525,7 +1507,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           <div>
             <h2 style="margin-bottom: 4px;" data-i18n="titleGpoPackBanner">Комплексный пакет развертывания Active Directory GPO</h2>
             <p style="font-size: 13px; color: var(--text-muted); margin: 0;" data-i18n="descGpoPackBanner">
-              Включает готовые .REG файлы (HKCU и HKLM) для всех 4 браузеров (Chrome, Edge, Яндекс, Opera), PowerShell скрипты deploy/verify, JSON-политики и руководство администратора.
+              Включает готовые .REG файлы (HKCU и HKLM) для всех 4 браузеров (Chrome, Edge, Яндекс, Opera), параметры реестра для GPMC и руководство администратора.
             </p>
           </div>
           <div>
@@ -1978,10 +1960,21 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
         </div>
       </div>
 
-      <label for="panelInsecureTls" style="display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: none; font-weight: normal; cursor: pointer; margin-bottom: 16px;">
+      <label for="panelInsecureTls" style="display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: none; font-weight: normal; cursor: pointer; margin-bottom: 12px;">
         <input type="checkbox" id="panelInsecureTls" style="width: auto; margin-bottom: 0;" />
-        <span>Разрешить самоподписанный / не доверенный TLS</span>
+        <span data-i18n="lblPanelInsecureTls">Разрешить самоподписанный / не доверенный TLS</span>
       </label>
+
+      <div style="border-top: 1px solid var(--border); padding-top: 12px; margin-bottom: 16px;">
+        <label for="panelRotationEnabled" style="display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: none; font-weight: 600; cursor: pointer; margin-bottom: 8px;">
+          <input type="checkbox" id="panelRotationEnabled" style="width: auto; margin-bottom: 0;" />
+          <span data-i18n="lblPanelRotationEnabled">Включить авторотацию пароля для этой панели</span>
+        </label>
+        <div>
+          <label for="panelTargetRemark" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);" data-i18n="lblPanelTargetRemark">Целевой Remark / Inbound Tag (для ротации)</label>
+          <input type="text" id="panelTargetRemark" placeholder="squid-in" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
+        </div>
+      </div>
 
       <div id="panelModalError" style="display: none; color: var(--danger); font-size: 12px; margin-bottom: 12px;"></div>
 
@@ -2262,7 +2255,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
     </div>
   </div>
 
-  <script src="/dashboard.min.js"></script>
+  <script src="/dashboard.min.js?v=${encodeURIComponent(currentVersion)}"></script>
 </body>
 </html>`;
 }

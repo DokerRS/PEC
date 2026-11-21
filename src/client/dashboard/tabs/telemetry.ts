@@ -556,11 +556,26 @@ export let lastLoadedDesktopInstances = [];
       if (fleetListenersInitialized) return;
       fleetListenersInitialized = true;
 
-      const selectAll = document.getElementById('fleetSelectAll');
+      const selectAll = document.getElementById('fleetSelectAll') as HTMLInputElement | null;
       if (selectAll) {
         selectAll.addEventListener('change', () => {
           if (selectAll.checked) {
-            (lastLoadedInstances || []).forEach(i => { selectedFleetInstances.add(i.instanceId); });
+            let visibleList = lastLoadedInstances || [];
+            if (fleetSearchQuery) {
+              const q = fleetSearchQuery.toLowerCase();
+              visibleList = visibleList.filter(inst => {
+                const id = (inst.instanceId || '').toLowerCase();
+                const ip = (inst.ip || '').toLowerCase();
+                const u = (inst.username || '').toLowerCase();
+                const du = (inst.domainUser || '').toLowerCase();
+                const grp = (inst.group || '').toLowerCase();
+                const app = (inst.pairedAppId || '').toLowerCase();
+                const host = (inst.pairedHostname || '').toLowerCase();
+                const b = (inst.browser || '').toLowerCase();
+                return id.includes(q) || ip.includes(q) || u.includes(q) || du.includes(q) || grp.includes(q) || app.includes(q) || host.includes(q) || b.includes(q);
+              });
+            }
+            visibleList.forEach(i => { selectedFleetInstances.add(i.instanceId); });
           } else {
             selectedFleetInstances.clear();
           }
@@ -1251,17 +1266,25 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
         const data = await res.json();
         const cfg = data.config;
         
-        document.getElementById('rotPanelUrl').value = cfg.panelUrl || '';
-        document.getElementById('rotAdminUser').value = cfg.adminUser || '';
-        document.getElementById('rotRemark').value = cfg.inboundRemark || '';
-        document.getElementById('rotInterval').value = String(cfg.intervalMinutes || 1440);
-        document.getElementById('rotEnabled').value = String(cfg.enabled);
-        const rotInsecure = document.getElementById('rotInsecureTls');
+        const rotPanelUrl = document.getElementById('rotPanelUrl') as HTMLInputElement | null;
+        if (rotPanelUrl) rotPanelUrl.value = cfg.panelUrl || '';
+        const rotAdminUser = document.getElementById('rotAdminUser') as HTMLInputElement | null;
+        if (rotAdminUser) rotAdminUser.value = cfg.adminUser || '';
+        const rotRemark = document.getElementById('rotRemark') as HTMLInputElement | null;
+        if (rotRemark) rotRemark.value = cfg.inboundRemark || '';
+        const rotInterval = document.getElementById('rotInterval') as HTMLSelectElement | null;
+        if (rotInterval) rotInterval.value = String(cfg.intervalMinutes || 1440);
+        const rotEnabled = document.getElementById('rotEnabled') as HTMLSelectElement | null;
+        if (rotEnabled) rotEnabled.value = String(cfg.enabled);
+        const rotInsecure = document.getElementById('rotInsecureTls') as HTMLInputElement | null;
         if (rotInsecure) rotInsecure.checked = Boolean(cfg.insecureSkipVerify);
         
-        document.getElementById('rotStatusText').textContent = cfg.lastStatus || 'Idle';
-        document.getElementById('rotNextRun').textContent = cfg.nextRotationAt ? new Date(cfg.nextRotationAt).toLocaleString() : 'Disabled';
-        document.getElementById('rotLastRun').textContent = cfg.lastRotatedAt ? new Date(cfg.lastRotatedAt).toLocaleString() : 'None';
+        const rotStatusText = document.getElementById('rotStatusText');
+        if (rotStatusText) rotStatusText.textContent = cfg.lastStatus || 'Idle';
+        const rotNextRun = document.getElementById('rotNextRun');
+        if (rotNextRun) rotNextRun.textContent = cfg.nextRotationAt ? new Date(cfg.nextRotationAt).toLocaleString() : 'Disabled';
+        const rotLastRun = document.getElementById('rotLastRun');
+        if (rotLastRun) rotLastRun.textContent = cfg.lastRotatedAt ? new Date(cfg.lastRotatedAt).toLocaleString() : 'None';
 
         const passBadge = document.getElementById('passwordSavedBadge');
         if (passBadge) {
@@ -1279,23 +1302,29 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
     }
 
     export async function saveRotationConfig() {
-      const intervalRaw = document.getElementById('rotInterval').value.trim();
+      const intervalEl = document.getElementById('rotInterval') as HTMLSelectElement | null;
+      const intervalRaw = intervalEl ? intervalEl.value.trim() : '1440';
       const intervalNum = parseInt(intervalRaw, 10);
       if (!intervalRaw || !Number.isFinite(intervalNum) || intervalNum < 1 || String(intervalNum) !== intervalRaw) {
         toast('Rotation interval must be a whole number of minutes (>= 1).', 'error');
         return;
       }
-      const rotInsecure = document.getElementById('rotInsecureTls');
+      const rotEnabled = document.getElementById('rotEnabled') as HTMLSelectElement | null;
+      const rotInsecure = document.getElementById('rotInsecureTls') as HTMLInputElement | null;
+      const rotPanelUrl = document.getElementById('rotPanelUrl') as HTMLInputElement | null;
+      const rotAdminUser = document.getElementById('rotAdminUser') as HTMLInputElement | null;
+      const rotRemark = document.getElementById('rotRemark') as HTMLInputElement | null;
+      const rotAdminPass = document.getElementById('rotAdminPass') as HTMLInputElement | null;
+
       const payload: any = {
-        panelUrl: document.getElementById('rotPanelUrl').value.trim(),
-        adminUser: document.getElementById('rotAdminUser').value.trim(),
-        inboundRemark: document.getElementById('rotRemark').value.trim(),
         intervalMinutes: intervalNum,
-        enabled: document.getElementById('rotEnabled').value === 'true',
-        insecureSkipVerify: rotInsecure ? rotInsecure.checked : false,
+        enabled: rotEnabled ? rotEnabled.value === 'true' : true,
       };
-      const pass = document.getElementById('rotAdminPass').value;
-      if (pass) payload.adminPass = pass;
+      if (rotPanelUrl) payload.panelUrl = rotPanelUrl.value.trim();
+      if (rotAdminUser) payload.adminUser = rotAdminUser.value.trim();
+      if (rotRemark) payload.inboundRemark = rotRemark.value.trim();
+      if (rotInsecure) payload.insecureSkipVerify = rotInsecure.checked;
+      if (rotAdminPass && rotAdminPass.value) payload.adminPass = rotAdminPass.value;
 
       const btn = document.querySelector('button[onclick*="saveRotationConfig"]') || document.querySelector('[data-i18n="btnSaveScheduler"]');
       let origHtml = '';
@@ -1424,21 +1453,28 @@ export let currentPanelsList = [];
       const tbody = document.getElementById('panels3xuiBody');
       if (tbody) {
         if (!panels || !panels.length) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Панели 3x-ui не настроены' : 'No 3x-ui panels configured') + '</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Панели 3x-ui не настроены' : 'No 3x-ui panels configured') + '</td></tr>';
         } else {
-          tbody.innerHTML = panels.map(p => `<tr>
-            <td><strong>${esc(p.name)}</strong></td>
-            <td style="font-family: var(--mono);">${esc(p.panelUrl)}</td>
-            <td><code>${esc(p.adminUser)}</code></td>
-            <td><span class="badge ${p.insecureTls ? 'badge-warning' : 'badge-success'}">${p.insecureTls ? (isRu ? 'Self-signed TLS' : 'Insecure TLS') : (isRu ? 'Строгий TLS' : 'Valid TLS')}</span></td>
-            <td style="text-align: right;">
-              <div style="display: inline-flex; gap: 6px;">
-                <button type="button" class="btn btn-sm btn-secondary btn-test-panel" data-id="${esc(p.id)}">${isRu ? 'Проверить' : 'Test'}</button>
-                <button type="button" class="btn btn-sm btn-secondary btn-edit-panel" data-id="${esc(p.id)}" title="${isRu ? 'Редактировать' : 'Edit'}">✏️</button>
-                <button type="button" class="btn btn-sm btn-danger btn-delete-panel" data-id="${esc(p.id)}" title="${isRu ? 'Удалить' : 'Delete'}"><img src="/icons/trash.png" class="icon-inline-sm" alt="del"></button>
-              </div>
-            </td>
-          </tr>`).join('');
+          tbody.innerHTML = panels.map(p => {
+            const rotBadge = p.rotationEnabled
+              ? `<span class="badge badge-success" title="${isRu ? 'Авторотация включена' : 'Auto-rotation active'}">⚡ ${isRu ? 'ВКЛ' : 'ON'}</span>${p.targetRemark ? `<div style="font-size:10px; color:var(--text-muted);">${esc(p.targetRemark)}</div>` : ''}`
+              : `<span class="badge badge-secondary">${isRu ? 'ВЫКЛ' : 'OFF'}</span>`;
+
+            return `<tr>
+              <td><strong>${esc(p.name)}</strong></td>
+              <td style="font-family: var(--mono);">${esc(p.panelUrl)}</td>
+              <td><code>${esc(p.adminUser)}</code></td>
+              <td>${rotBadge}</td>
+              <td><span class="badge ${p.insecureTls ? 'badge-warning' : 'badge-success'}">${p.insecureTls ? (isRu ? 'Self-signed TLS' : 'Insecure TLS') : (isRu ? 'Строгий TLS' : 'Valid TLS')}</span></td>
+              <td style="text-align: right;">
+                <div style="display: inline-flex; gap: 6px;">
+                  <button type="button" class="btn btn-sm btn-secondary btn-test-panel" data-id="${esc(p.id)}">${isRu ? 'Проверить' : 'Test'}</button>
+                  <button type="button" class="btn btn-sm btn-secondary btn-edit-panel" data-id="${esc(p.id)}" title="${isRu ? 'Редактировать' : 'Edit'}">✏️</button>
+                  <button type="button" class="btn btn-sm btn-danger btn-delete-panel" data-id="${esc(p.id)}" title="${isRu ? 'Удалить' : 'Delete'}"><img src="/icons/trash.png" class="icon-inline-sm" alt="del"></button>
+                </div>
+              </td>
+            </tr>`;
+          }).join('');
         }
       }
 
@@ -1451,12 +1487,14 @@ export let currentPanelsList = [];
     }
 
     export function openAdd3xuiPanelModal(panel?: any) {
-      const idInp = document.getElementById('panelIdInput');
-      const nameInp = document.getElementById('panelName');
-      const urlInp = document.getElementById('panelUrl');
-      const userInp = document.getElementById('panelUser');
-      const passInp = document.getElementById('panelPass');
-      const tlsInp = document.getElementById('panelInsecureTls');
+      const idInp = document.getElementById('panelIdInput') as HTMLInputElement | null;
+      const nameInp = document.getElementById('panelName') as HTMLInputElement | null;
+      const urlInp = document.getElementById('panelUrl') as HTMLInputElement | null;
+      const userInp = document.getElementById('panelUser') as HTMLInputElement | null;
+      const passInp = document.getElementById('panelPass') as HTMLInputElement | null;
+      const tlsInp = document.getElementById('panelInsecureTls') as HTMLInputElement | null;
+      const rotInp = document.getElementById('panelRotationEnabled') as HTMLInputElement | null;
+      const remarkInp = document.getElementById('panelTargetRemark') as HTMLInputElement | null;
       const errEl = document.getElementById('panelModalError');
 
       if (idInp) idInp.value = panel ? panel.id : '';
@@ -1465,6 +1503,8 @@ export let currentPanelsList = [];
       if (userInp) userInp.value = panel ? panel.adminUser : '';
       if (passInp) passInp.value = '';
       if (tlsInp) tlsInp.checked = panel ? Boolean(panel.insecureTls) : false;
+      if (rotInp) rotInp.checked = panel ? Boolean(panel.rotationEnabled) : false;
+      if (remarkInp) remarkInp.value = panel ? (panel.targetRemark || '') : '';
       if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
 
       const modal = document.getElementById('modal3xuiPanel');
@@ -1479,12 +1519,14 @@ export let currentPanelsList = [];
 
     export async function save3xuiPanelAction() {
       const isRu = currentLang === 'ru';
-      const id = document.getElementById('panelIdInput')?.value;
-      const name = document.getElementById('panelName')?.value?.trim();
-      const panelUrl = document.getElementById('panelUrl')?.value?.trim();
-      const adminUser = document.getElementById('panelUser')?.value?.trim();
-      const adminPass = document.getElementById('panelPass')?.value;
-      const insecureTls = document.getElementById('panelInsecureTls')?.checked;
+      const id = (document.getElementById('panelIdInput') as HTMLInputElement | null)?.value;
+      const name = (document.getElementById('panelName') as HTMLInputElement | null)?.value?.trim();
+      const panelUrl = (document.getElementById('panelUrl') as HTMLInputElement | null)?.value?.trim();
+      const adminUser = (document.getElementById('panelUser') as HTMLInputElement | null)?.value?.trim();
+      const adminPass = (document.getElementById('panelPass') as HTMLInputElement | null)?.value;
+      const insecureTls = (document.getElementById('panelInsecureTls') as HTMLInputElement | null)?.checked;
+      const rotationEnabled = Boolean((document.getElementById('panelRotationEnabled') as HTMLInputElement | null)?.checked);
+      const targetRemark = ((document.getElementById('panelTargetRemark') as HTMLInputElement | null)?.value || '').trim();
       const errEl = document.getElementById('panelModalError');
 
       if (!name || !panelUrl || !adminUser) {
@@ -1506,7 +1548,7 @@ export let currentPanelsList = [];
         const res = await adminFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, panelUrl, adminUser, adminPass, insecureTls })
+          body: JSON.stringify({ name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetRemark })
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {

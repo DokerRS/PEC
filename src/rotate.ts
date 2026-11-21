@@ -825,6 +825,58 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
   const timeoutMs = 10000;
   const credsStorePath = getCredsStorePath();
 
+  // Multi-server 3x-ui rotation: rotate only panels where rotationEnabled === true
+  const enabledPanels = getAll3xuiPanels(false).filter((p) => p.rotationEnabled);
+  if (enabledPanels.length > 0) {
+    let primaryUser = "corp-user";
+    let primaryPass = "";
+    for (const p of enabledPanels) {
+      const pTag = p.targetRemark || targetTag || "squid-in";
+      const syncResult = await sync3xuiInboundByTag({
+        panelUrl: p.panelUrl,
+        adminUser: p.adminUser,
+        adminPass: p.adminPass,
+        tag: pTag,
+        targetUsername: activeProxy?.username,
+        rotatePassword: true,
+        timeoutSec: Math.floor(timeoutMs / 1000),
+        insecureTls: p.insecureTls,
+      });
+
+      if (!syncResult.ok) {
+        recordRotation("3x-ui", "failure");
+        throw new Error(`3x-ui rotation failed on panel '${p.name || p.id}': ${syncResult.message}`);
+      }
+
+      primaryUser = syncResult.username || primaryUser;
+      primaryPass = syncResult.password!;
+
+      try {
+        const { getAllProxies, updateProxy } = await import("./proxies.js");
+        const matchingProxy = getAllProxies(false).find(
+          (px) => px.type === "3x-ui" && (px.panelId === p.id || px.host === new URL(p.panelUrl).hostname)
+        );
+        if (matchingProxy) {
+          updateProxy(matchingProxy.id, {
+            password: primaryPass,
+            username: primaryUser,
+            lastSync: new Date().toISOString(),
+          });
+        }
+      } catch (_) {}
+    }
+
+    atomicWriteCredsWithRetries(credsStorePath, { user: primaryUser, pass: primaryPass });
+    recordRotation("3x-ui", "success");
+    return {
+      id: crypto.randomBytes(4).toString("hex"),
+      timestamp: new Date().toISOString(),
+      source: "3x-ui",
+      user: primaryUser,
+      success: true,
+    };
+  }
+
   // 3x-ui mode: only when the panel is explicitly configured (non-placeholder).
   const panelConfigured = Boolean(
     panel && xuiUser && xuiPass && !panel.includes("3xui-host") && panel.startsWith("http")
@@ -1026,6 +1078,9 @@ export function save3xuiPanel(
         adminUser: panelData.adminUser.trim(),
         adminPass: shouldKeepPass ? existing.adminPass : (panelData.adminPass?.trim() || existing.adminPass),
         insecureTls: panelData.insecureTls !== undefined ? panelData.insecureTls : existing.insecureTls,
+        rotationEnabled: panelData.rotationEnabled !== undefined ? Boolean(panelData.rotationEnabled) : Boolean(existing.rotationEnabled),
+        targetRemark: panelData.targetRemark !== undefined ? String(panelData.targetRemark).trim() : (existing.targetRemark || ""),
+        rotationIntervalMinutes: typeof panelData.rotationIntervalMinutes === "number" ? panelData.rotationIntervalMinutes : existing.rotationIntervalMinutes,
         updatedAt: now,
       };
       list[existingIndex] = savedPanel;
@@ -1037,6 +1092,9 @@ export function save3xuiPanel(
         adminUser: panelData.adminUser.trim(),
         adminPass: panelData.adminPass || "",
         insecureTls: Boolean(panelData.insecureTls),
+        rotationEnabled: Boolean(panelData.rotationEnabled),
+        targetRemark: panelData.targetRemark ? String(panelData.targetRemark).trim() : "",
+        rotationIntervalMinutes: typeof panelData.rotationIntervalMinutes === "number" ? panelData.rotationIntervalMinutes : undefined,
         createdAt: now,
         updatedAt: now,
       };
@@ -1051,6 +1109,9 @@ export function save3xuiPanel(
       adminUser: panelData.adminUser.trim(),
       adminPass: panelData.adminPass || "",
       insecureTls: Boolean(panelData.insecureTls),
+      rotationEnabled: Boolean(panelData.rotationEnabled),
+      targetRemark: panelData.targetRemark ? String(panelData.targetRemark).trim() : "",
+      rotationIntervalMinutes: typeof panelData.rotationIntervalMinutes === "number" ? panelData.rotationIntervalMinutes : undefined,
       createdAt: now,
       updatedAt: now,
     };

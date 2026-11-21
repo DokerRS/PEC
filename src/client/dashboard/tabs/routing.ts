@@ -652,7 +652,7 @@ export function updateInspectorCounters() {
   }
 }
 
-export function addSelectedToProfile(action: string = 'proxy') {
+export function addSelectedToProfile(action?: string) {
   if (!state.currentProfile) {
     toast('No profile selected', 'error');
     return;
@@ -661,6 +661,9 @@ export function addSelectedToProfile(action: string = 'proxy') {
     toast(state.currentLang === 'ru' ? 'Не выбрано ни одной записи' : 'No entries selected', 'error');
     return;
   }
+
+  const inspectorSel = (document.getElementById('inspectorActionSelect') as HTMLSelectElement | null)?.value;
+  const effectiveAction = (inspectorSel || action || 'proxy') as 'proxy' | 'direct' | 'block';
 
   const isRu = state.currentLang === 'ru';
   const entries = Array.from(inspectorSelectedSet);
@@ -674,13 +677,13 @@ export function addSelectedToProfile(action: string = 'proxy') {
       name: `${presetName} [${entry}]`,
       targetType: isCidr ? 'cidr' : 'wildcard',
       pattern: entry,
-      action: action,
+      action: effectiveAction,
       enabled: true
     });
     added++;
   }
 
-  toast((isRu ? `Добавлено правил: ${added}` : `Added ${added} rules`) + ` (${action.toUpperCase()})`, 'success');
+  toast((isRu ? `Добавлено правил: ${added}` : `Added ${added} rules`) + ` (${effectiveAction.toUpperCase()})`, 'success');
   setUnsavedRouting(true);
   renderRules(state.currentProfile.rules);
   closeGeobaseInspector();
@@ -695,7 +698,7 @@ export function openImportPresetsModal() {
   modal.style.display = 'flex';
   const errBox = document.getElementById('importPresetError');
   if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
-  const urlInp = document.getElementById('importPresetUrlInput') as HTMLInputElement | null;
+  const urlInp = (document.getElementById('importPresetUrl') || document.getElementById('importPresetUrlInput')) as HTMLInputElement | null;
   if (urlInp) urlInp.value = '';
   const fileInp = document.getElementById('importPresetFileInput') as HTMLInputElement | null;
   if (fileInp) fileInp.value = '';
@@ -713,19 +716,19 @@ export function closeImportPresetsModal() {
 
 export function switchImportTab(tab: string) {
   currentImportTab = tab;
-  const tabUrl = document.getElementById('tabImportUrl');
-  const tabFile = document.getElementById('tabImportFile');
-  const secUrl = document.getElementById('sectionImportUrl');
-  const secFile = document.getElementById('sectionImportFile');
+  const tabUrl = document.getElementById('tabImportUrlBtn') || document.getElementById('tabImportUrl');
+  const tabFile = document.getElementById('tabImportFileBtn') || document.getElementById('tabImportFile');
+  const secUrl = document.getElementById('panelImportUrl') || document.getElementById('sectionImportUrl');
+  const secFile = document.getElementById('panelImportFile') || document.getElementById('sectionImportFile');
 
   if (tab === 'url') {
-    if (tabUrl) tabUrl.className = 'btn-primary';
-    if (tabFile) tabFile.className = 'btn-secondary';
+    if (tabUrl) tabUrl.className = tabUrl.classList.contains('tab-btn') ? 'tab-btn active' : 'btn-primary';
+    if (tabFile) tabFile.className = tabFile.classList.contains('tab-btn') ? 'tab-btn' : 'btn-secondary';
     if (secUrl) secUrl.style.display = 'block';
     if (secFile) secFile.style.display = 'none';
   } else {
-    if (tabUrl) tabUrl.className = 'btn-secondary';
-    if (tabFile) tabFile.className = 'btn-primary';
+    if (tabUrl) tabUrl.className = tabUrl.classList.contains('tab-btn') ? 'tab-btn' : 'btn-secondary';
+    if (tabFile) tabFile.className = tabFile.classList.contains('tab-btn') ? 'tab-btn active' : 'btn-primary';
     if (secUrl) secUrl.style.display = 'none';
     if (secFile) secFile.style.display = 'block';
   }
@@ -759,7 +762,7 @@ export async function submitImportPreset() {
   const submitBtn = document.getElementById('btnSubmitImportPreset') as HTMLButtonElement | null;
 
   if (currentImportTab === 'url') {
-    const url = ((document.getElementById('importPresetUrlInput') as HTMLInputElement)?.value || '').trim();
+    const url = (((document.getElementById('importPresetUrl') || document.getElementById('importPresetUrlInput')) as HTMLInputElement)?.value || '').trim();
     if (!url) {
       if (errBox) {
         errBox.textContent = isRu ? 'Укажите прямой URL источника' : 'Specify source URL';

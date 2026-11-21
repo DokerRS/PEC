@@ -76,11 +76,11 @@ export function createRotationRouter(): Router {
 
   router.post("/api/3xui/panels", (req: Request, res: Response) => {
     try {
-      const { name, panelUrl, adminUser, adminPass, insecureTls } = req.body || {};
+      const { name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetRemark, rotationIntervalMinutes } = req.body || {};
       if (!name || !panelUrl || !adminUser) {
         return res.status(400).json({ error: "Missing required fields: name, panelUrl, adminUser" });
       }
-      const saved = save3xuiPanel({ name, panelUrl, adminUser, adminPass, insecureTls });
+      const saved = save3xuiPanel({ name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetRemark, rotationIntervalMinutes });
       res.json({ ...saved, adminPass: "••••••••" });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -90,7 +90,7 @@ export function createRotationRouter(): Router {
 
   router.put("/api/3xui/panels/:id", (req: Request, res: Response) => {
     try {
-      const { name, panelUrl, adminUser, adminPass, insecureTls } = req.body || {};
+      const { name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetRemark, rotationIntervalMinutes } = req.body || {};
       const saved = save3xuiPanel({
         id: req.params.id,
         name,
@@ -98,6 +98,9 @@ export function createRotationRouter(): Router {
         adminUser,
         adminPass,
         insecureTls,
+        rotationEnabled,
+        targetRemark,
+        rotationIntervalMinutes,
       });
       res.json({ ...saved, adminPass: "••••••••" });
     } catch (err: unknown) {

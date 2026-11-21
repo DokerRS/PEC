@@ -47,7 +47,7 @@ window.switchPopupTab = function(tabId) {
   }
 };
 
-const isRu = ${t.isRu ? "true" : "false"};
+const isRu = typeof navigator === "undefined" || (navigator.language || "").toLowerCase().startsWith("ru");
 let currentProxyState = { enabled: true, online: false, bypassActive: false };
 let bypassCountdownTimer = null;
 
@@ -143,7 +143,7 @@ function showToast(msg, type) {
 // Global state applier - reactive to simulator and chrome.runtime
 window.applyPopupState = function(response) {
   if (!response) return;
-  const isRu = ${t.isRu ? "true" : "false"};
+  const isRu = typeof navigator === "undefined" || (navigator.language || "").toLowerCase().startsWith("ru");
   currentProxyState = Object.assign({}, currentProxyState, response);
 
   const statusText = document.getElementById("statusText");
@@ -729,6 +729,12 @@ function initPopup() {
       if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
         chrome.runtime.sendMessage({ action: "SET_ENABLED", type: "SET_ENABLED", enabled: nextEnabled }, (res) => {
           btnPowerToggle.disabled = false;
+          if (res && (res.ok === false || res.error)) {
+            const errMsg = res.error || (isRu ? "Действие заблокировано политикой безопасности" : "Action blocked by security policy");
+            showToast(errMsg, "error");
+            window.applyPopupState(currentProxyState);
+            return;
+          }
           if (res) {
             currentProxyState.enabled = res.enabled !== undefined ? res.enabled : nextEnabled;
             window.applyPopupState(currentProxyState);

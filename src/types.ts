@@ -139,6 +139,9 @@ export interface Panel3xuiConfig {
   adminUser: string;
   adminPass: string;
   insecureTls?: boolean;
+  rotationEnabled?: boolean;
+  targetRemark?: string;
+  rotationIntervalMinutes?: number;
   createdAt?: string;
   updatedAt?: string;
 }
