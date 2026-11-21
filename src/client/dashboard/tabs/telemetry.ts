@@ -249,10 +249,6 @@ export function filterFleetTable() {
 
         const browserBadge = `<span class="badge badge-info" style="font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">${esc(browserName)}</span>`;
 
-        const pairedBadge = inst.pairedAppId
-          ? `<span class="badge badge-success" title="${isRu ? 'Связано с десктоп-агентом (' + esc(inst.pairedHostname || '') + ')' : 'Paired with desktop app (' + esc(inst.pairedHostname || '') + ')'}">🔗 ${isRu ? 'Десктоп' : 'Desktop'}</span>`
-          : '';
-
         let userDisplay = '';
         if (inst.domainUser) {
           userDisplay = `<span class="badge badge-ad-user" title="${esc(inst.domainUser)}">${esc(inst.domainUser)}</span>`;
@@ -260,9 +256,6 @@ export function filterFleetTable() {
           userDisplay = `<span style="font-weight: 600; font-family: var(--mono); font-size: 11px;">${esc(inst.username)}</span> <span class="badge badge-warning" style="margin-left: 4px;" title="${isRu ? 'Старая версия расширения без поддержки AD. Работает в режиме мягкой миграции.' : 'Legacy extension without AD support. Operating in soft migration mode.'}">⚠️ Legacy (без AD)</span>`;
         } else {
           userDisplay = `<span class="badge badge-warning" title="${isRu ? 'Старая версия расширения без поддержки AD. Работает в режиме мягкой миграции.' : 'Legacy extension without AD support. Operating in soft migration mode.'}">⚠️ Legacy (без AD)</span>`;
-        }
-        if (pairedBadge) {
-          userDisplay += `<div style="margin-top: 3px;">${pairedBadge}</div>`;
         }
 
         return `<tr>

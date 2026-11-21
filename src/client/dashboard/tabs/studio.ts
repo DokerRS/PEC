@@ -100,6 +100,59 @@ export let liveSimState = {
       status: 'Active'
     };
 
+    export function syncLiveSimStateWithFleet() {
+      const proxies = (currentProxiesList && currentProxiesList.length > 0)
+        ? currentProxiesList
+        : (state.currentProxiesList || []);
+      const activeProxy = proxies.find((p: any) => p.isActive || p.active) || proxies[0];
+      if (activeProxy && activeProxy.host && activeProxy.port) {
+        liveSimState.protocol = (activeProxy.type || activeProxy.protocol || 'socks5').toLowerCase();
+        liveSimState.host = activeProxy.host;
+        liveSimState.port = activeProxy.port;
+        (liveSimState as any).activeProxyId = activeProxy.id;
+      }
+      if (Array.isArray(proxies) && proxies.length > 0) {
+        (liveSimState as any).availableProxies = proxies.map((p: any) => ({
+          id: p.id,
+          name: p.name || `${p.host}:${p.port}`,
+          host: p.host,
+          port: p.port,
+          protocol: p.type || p.protocol || 'socks5'
+        }));
+      }
+      if (state.currentProfile && state.currentProfile.name) {
+        liveSimState.profileName = state.currentProfile.name;
+        liveSimState.appliedProfileId = state.currentProfile.id || 'prof_default';
+        (liveSimState as any).profileDefaultPolicy = state.currentProfile.defaultPolicy || 'direct';
+      }
+      const switchEl = document.getElementById('builderAllowUserProxySwitch') as HTMLInputElement | null;
+      if (switchEl) {
+        (liveSimState as any).allowUserProxySwitch = switchEl.checked;
+      }
+      const bypassEl = document.getElementById('builderAllowUserBypass') as HTMLInputElement | null;
+      if (bypassEl) {
+        (liveSimState as any).allowUserBypass = bypassEl.checked;
+      }
+      const versionEl = document.getElementById('bldVersion') as HTMLInputElement | null;
+      if (versionEl && versionEl.value) {
+        (liveSimState as any).version = versionEl.value.trim();
+      }
+      const effectivePalette = isThemeSyncEnabled()
+        ? (document.body.getAttribute('data-theme') || activeStudioPalette)
+        : activeStudioPalette;
+      const effectiveThemeMode = isThemeSyncEnabled()
+        ? (document.body.getAttribute('data-theme-mode') || activeStudioThemeMode)
+        : activeStudioThemeMode;
+
+      (liveSimState as any).uiLayout = activeStudioLayout;
+      (liveSimState as any).colorPalette = effectivePalette;
+      (liveSimState as any).serverTheme = {
+        source: isThemeSyncEnabled() ? 'dashboard' : 'constructor',
+        mode: effectiveThemeMode,
+        palette: effectivePalette
+      };
+    }
+
     let builderDebounceTimer = null;
     let codeEditorDebounceTimer = null;
 export let activeTemplatePreset = 'self-service-pro';
@@ -649,13 +702,18 @@ export let isCustomIconUploaded = false;
     }
 
     export function updateLivePreview() {
-      const uiMode = document.getElementById('bldUiMode').value;
+      try {
+        syncLiveSimStateWithFleet();
+      } catch (_) {}
+
+      const uiModeEl = document.getElementById('bldUiMode') as HTMLSelectElement | null;
+      const uiMode = (uiModeEl && uiModeEl.value) || 'popup';
       const previewBox = document.getElementById('popupFrameBox');
       const stealthNotice = document.getElementById('stealthNotice');
       const badgeEl = document.getElementById('browserBadge');
       const iconGlyphEl = document.getElementById('browserIconGlyph');
-      const themeColor = document.getElementById('bldThemeColor').value || '#0284c7';
-      const iconEmoji = document.getElementById('bldEmoji').value || '🛡️';
+      const themeColor = (document.getElementById('bldThemeColor') as HTMLInputElement | null)?.value || '#0284c7';
+      const iconEmoji = (document.getElementById('bldEmoji') as HTMLInputElement | null)?.value || '🛡️';
 
       if (iconGlyphEl) {
         if (currentCustomIconDataUrl) {
@@ -703,13 +761,20 @@ export let isCustomIconUploaded = false;
         jsContent = document.getElementById('codeEditor').value;
       }
 
+      const effectivePalette = isThemeSyncEnabled()
+        ? (document.body.getAttribute('data-theme') || activeStudioPalette)
+        : activeStudioPalette;
+      const effectiveThemeMode = isThemeSyncEnabled()
+        ? (document.body.getAttribute('data-theme-mode') || activeStudioThemeMode)
+        : activeStudioThemeMode;
+
       const scriptOpen = '<' + 'script>';
       const scriptClose = '<' + '/script>';
 
       const mockScript = scriptOpen +
         'window.__simState = ' + JSON.stringify(liveSimState) + ';' +
         'var __simStorage = {' +
-          'pecThemeMode: ' + JSON.stringify(activeStudioThemeMode || 'dark') + ',' +
+          'pecThemeMode: ' + JSON.stringify(effectiveThemeMode || 'dark') + ',' +
           'pecUserRules: []' +
         '};' +
         'var _simStorageGet = function(keys, cb) {' +
@@ -770,6 +835,18 @@ export let isCustomIconUploaded = false;
               '} else if (action === "SAVE_USER_RULES") {' +
                 '__simStorage.pecUserRules = Array.isArray(msg.rules) ? msg.rules : [];' +
                 'res = { ok: true, count: __simStorage.pecUserRules.length };' +
+              '} else if (action === "SET_ACTIVE_PROXY") {' +
+                'if (!window.__simState) window.__simState = ' + JSON.stringify(liveSimState) + ';' +
+                'window.__simState.activeProxyId = msg.proxyId;' +
+                'if (Array.isArray(window.__simState.availableProxies)) {' +
+                  'var sel = window.__simState.availableProxies.find(function(p) { return p.id === msg.proxyId; });' +
+                  'if (sel) {' +
+                    'window.__simState.host = sel.host;' +
+                    'window.__simState.port = sel.port;' +
+                    'window.__simState.protocol = sel.protocol || "socks5";' +
+                  '}' +
+                '}' +
+                'res = { ok: true, activeProxyId: msg.proxyId };' +
               '} else if (action === "GET_LOGS") {' +
                 'res = { ok: true, logs: [' +
                   '{ time: new Date().toLocaleTimeString(), level: "info", message: "Live simulator initialized" },' +
@@ -865,24 +942,51 @@ export let isCustomIconUploaded = false;
 
       try {
         let doc = htmlContent;
-        const currentVersionVal = (document.getElementById('bldVersion') && document.getElementById('bldVersion').value.trim()) || '1.0.0';
+        const currentVersionVal = (document.getElementById('bldVersion') && (document.getElementById('bldVersion') as HTMLInputElement).value.trim()) || '1.0.0';
         doc = doc.replace(/<span class="version-tag">[^<]*<\/span>/i, '<span class="version-tag">v' + currentVersionVal + '</span>');
         doc = doc.replace(/<html([^>]*)>/i, function(match, attrs) {
-          let clean = attrs.replace(/\s*data-theme="[^"]*"/g, '');
-          return '<html' + clean + ' data-theme="' + activeStudioThemeMode + '">';
+          let clean = attrs.replace(/\s*data-theme="[^"]*"/g, '').replace(/\s*data-layout="[^"]*"/g, '');
+          return '<html' + clean + ' data-theme="' + effectiveThemeMode + '" data-layout="' + activeStudioLayout + '">';
         });
         doc = doc.replace(/<body([^>]*)>/i, function(match, attrs) {
           let clean = attrs.replace(/\s*data-palette="[^"]*"/g, '')
                            .replace(/\s*data-layout="[^"]*"/g, '')
                            .replace(/\s*data-theme="[^"]*"/g, '');
-          return '<body' + clean + ' data-palette="' + activeStudioPalette + '" data-layout="' + activeStudioLayout + '" data-theme="' + activeStudioThemeMode + '">';
+          return '<body' + clean + ' data-palette="' + effectivePalette + '" data-layout="' + activeStudioLayout + '" data-theme="' + effectiveThemeMode + '">';
         });
-        // Override the early inline theme detection script in <head> so preview always uses activeStudioThemeMode
-        doc = doc.replace(/var m = localStorage\.getItem\("pec_theme_mode"\)[^;]*;/gi, 'var m = ' + JSON.stringify(activeStudioThemeMode) + ';');
-        if (activeStudioThemeMode === 'light') {
-          doc = doc.replace(/--bg:\s*#0b1120\s*!important;?/gi, '')
-                   .replace(/--card:\s*#131d36\s*!important;?/gi, '');
+
+        // Inline theme bootstrap script to avoid 404 on popupTheme.js in sandbox srcdoc
+        const themeScriptRegex = new RegExp('<script[^>]*src="popupTheme\\.js"[^>]*>\\s*</script>', 'i');
+        const inlineThemeBootstrap = scriptOpen +
+          'try {' +
+            'var m = ' + JSON.stringify(effectiveThemeMode) + ';' +
+            'var p = ' + JSON.stringify(effectivePalette) + ';' +
+            'var l = ' + JSON.stringify(activeStudioLayout) + ';' +
+            'if (m) {' +
+              'document.documentElement.setAttribute("data-theme", m);' +
+              'document.documentElement.setAttribute("data-layout", l);' +
+              'if (document.body) {' +
+                'document.body.setAttribute("data-theme", m);' +
+                'document.body.setAttribute("data-palette", p);' +
+                'document.body.setAttribute("data-layout", l);' +
+              '} else {' +
+                'document.addEventListener("DOMContentLoaded", function() {' +
+                  'if (document.body) {' +
+                    'document.body.setAttribute("data-theme", m);' +
+                    'document.body.setAttribute("data-palette", p);' +
+                    'document.body.setAttribute("data-layout", l);' +
+                  '}' +
+                '});' +
+              '}' +
+            '}' +
+          '} catch(e) {}' +
+          scriptClose;
+        if (doc.includes('popupTheme.js')) {
+          doc = doc.replace(themeScriptRegex, inlineThemeBootstrap);
+        } else {
+          doc = doc.replace(/<\/head>/i, inlineThemeBootstrap + '</head>');
         }
+
         // NB: built with RegExp so that \s and \. are real regex escapes - a
         // plain string literal would turn '\s' into 's' and never match.
         const popupScriptRegex = new RegExp('<script[^>]*src="popup\\.js"[^>]*>\\s*</script>', 'i');
@@ -2343,10 +2447,11 @@ export let currentAppLayout = 'console';
         previewWin.setAttribute('data-app-theme-mode', isLight ? 'light' : 'dark');
       }
 
-      const nameEl = document.getElementById('appBuildName');
+      const nameEl = document.getElementById('appBuildName') as HTMLInputElement | null;
       const titleEl = document.getElementById('appPreviewTitle');
       if (titleEl) {
-        titleEl.textContent = (nameEl && nameEl.value.trim()) || 'PEC - Proxy Client';
+        const rawName = (nameEl && nameEl.value != null) ? String(nameEl.value).trim() : '';
+        titleEl.textContent = rawName || 'PEC - Proxy Client';
       }
 
       const iconEl = document.getElementById('appIconType');
@@ -2387,34 +2492,95 @@ export let currentAppLayout = 'console';
       previewWin.style.setProperty('--app-card', card);
       previewWin.style.setProperty('--app-text', isLight ? '#0f172a' : '#f8fafc');
 
-      const autoStart = document.getElementById('appAutoStart');
-      const minTray = document.getElementById('appStartMinimized');
-      const srv = document.getElementById('appInstallService');
+      const isRu = (typeof state !== 'undefined' && state.currentLang === 'ru') || (typeof window !== 'undefined' && (window as any).currentLang === 'ru');
+      const autoStart = document.getElementById('appAutoStart') as HTMLInputElement | null;
+      const minTray = document.getElementById('appStartMinimized') as HTMLInputElement | null;
+      const srv = document.getElementById('appInstallService') as HTMLInputElement | null;
 
       const prevAuto = document.getElementById('prevAutoStartVal');
       const prevMin = document.getElementById('prevMinimizeVal');
       const prevSrv = document.getElementById('prevServiceVal');
+      const prevSyncVal = document.getElementById('prevSyncIntervalVal');
+
+      const onText = isRu ? 'ВКЛ' : 'ON';
+      const offText = isRu ? 'ВЫКЛ' : 'OFF';
 
       if (prevAuto) {
         const on = autoStart ? autoStart.checked : true;
-        prevAuto.textContent = on ? 'ВКЛ' : 'ВЫКЛ';
+        prevAuto.textContent = on ? onText : offText;
         prevAuto.style.color = on ? '#10b981' : '#64748b';
       }
       if (prevMin) {
         const on = minTray ? minTray.checked : true;
-        prevMin.textContent = on ? 'ВКЛ' : 'ВЫКЛ';
+        prevMin.textContent = on ? onText : offText;
         prevMin.style.color = on ? '#10b981' : '#64748b';
       }
       if (prevSrv) {
         const on = srv ? srv.checked : false;
-        prevSrv.textContent = on ? 'ВКЛ' : 'ВЫКЛ';
+        prevSrv.textContent = on ? onText : offText;
         prevSrv.style.color = on ? '#10b981' : '#64748b';
+      }
+
+      const syncIntervalInput = document.getElementById('appSyncIntervalMinutes') as HTMLInputElement | null;
+      const syncIntervalVal = (syncIntervalInput && syncIntervalInput.value != null && String(syncIntervalInput.value).trim())
+        ? String(syncIntervalInput.value).trim()
+        : '15';
+      if (prevSyncVal) {
+        prevSyncVal.textContent = isRu ? `${syncIntervalVal} мин` : `${syncIntervalVal} min`;
+      }
+
+      const logConsole = document.getElementById('mockupLogConsole');
+      if (logConsole) {
+        const rulesCount = currentAppRules ? currentAppRules.length : 0;
+        logConsole.innerHTML = `[PEC-App] WinDivert driver initialized (x64)<br>` +
+          `[Engine] Rules loaded: ${rulesCount} filter${rulesCount === 1 ? '' : 's'} active<br>` +
+          `[Engine] ProxyBridge listening on localhost:34010<br>` +
+          `[Sync] Periodic fleet sync scheduled every ${syncIntervalVal}m<br>` +
+          `<span style="color: #10b981;">[Ready] Transparent packet filter active.</span>`;
+      }
+
+      const trafficListEl = document.getElementById('mockupTrafficList');
+      if (trafficListEl) {
+        const headerRow = `<div class="grid-preview-traffic-row" style="border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600; color: var(--text-muted);">
+          <span>${isRu ? 'Время' : 'Time'}</span>
+          <span>${isRu ? 'Процесс' : 'Process'}</span>
+          <span>${isRu ? 'Назначение' : 'Destination'}</span>
+          <span>${isRu ? 'Действие' : 'Action'}</span>
+        </div>`;
+        let rowsHtml = '';
+        if (Array.isArray(currentAppRules) && currentAppRules.length > 0) {
+          rowsHtml = currentAppRules.slice(0, 5).map((r: any, idx: number) => {
+            const act = (r.action || 'proxy').toLowerCase();
+            const badgeColor = act === 'proxy' ? 'var(--app-accent, #0284c7)' : act === 'direct' ? '#10b981' : '#ef4444';
+            const sec = (10 + idx * 6).toString().padStart(2, '0');
+            const target = (r.targetDomains && r.targetDomains !== '*')
+              ? (r.targetDomains.split(/[,;\s]+/)[0] + ':' + (r.targetPorts && r.targetPorts !== '*' ? r.targetPorts.split(/[,;\s]+/)[0] : '443'))
+              : 'api.corp.internal:443';
+            return `<div class="grid-preview-traffic-row" style="border-bottom: 1px solid rgba(255,255,255,0.03); align-items: center;">
+              <span style="color: #64748b;">13:40:${sec}</span>
+              <span>${esc(r.processName || 'app.exe')}</span>
+              <span style="overflow:hidden; text-overflow:ellipsis;">${esc(target)}</span>
+              <span style="color: ${badgeColor}; font-weight: 600;">${act.toUpperCase()}</span>
+            </div>`;
+          }).join('');
+        } else {
+          rowsHtml = `<div class="grid-preview-traffic-row" style="border-bottom: 1px solid rgba(255,255,255,0.03); align-items: center;">
+            <span style="color: #64748b;">13:40:02</span><span>curl.exe</span><span style="overflow:hidden; text-overflow:ellipsis;">api.github.com:443</span><span style="color: var(--app-accent); font-weight: 600;">PROXY</span>
+          </div>
+          <div class="grid-preview-traffic-row" style="border-bottom: 1px solid rgba(255,255,255,0.03); align-items: center;">
+            <span style="color: #64748b;">13:40:08</span><span>git.exe</span><span style="overflow:hidden; text-overflow:ellipsis;">github.com:22</span><span style="color: var(--app-accent); font-weight: 600;">PROXY</span>
+          </div>
+          <div class="grid-preview-traffic-row" style="border-bottom: 1px solid rgba(255,255,255,0.03); align-items: center;">
+            <span style="color: #64748b;">13:40:15</span><span>msedge.exe</span><span style="overflow:hidden; text-overflow:ellipsis;">internal.corp:80</span><span style="color: #10b981; font-weight: 600;">DIRECT</span>
+          </div>`;
+        }
+        trafficListEl.innerHTML = headerRow + rowsHtml;
       }
 
       const rulesListEl = document.getElementById('mockupRulesList');
       if (rulesListEl) {
         if (!currentAppRules || currentAppRules.length === 0) {
-          rulesListEl.innerHTML = '<div style="font-size: 11px; color: #64748b; font-style: italic;">Правила не заданы (весь трафик DIRECT)</div>';
+          rulesListEl.innerHTML = '<div style="font-size: 11px; color: #64748b; font-style: italic;">' + (isRu ? 'Правила не заданы (весь трафик DIRECT)' : 'No rules configured (all traffic DIRECT)') + '</div>';
         } else {
           rulesListEl.innerHTML = currentAppRules.map(r => {
             const act = (r.action || 'proxy').toLowerCase();
@@ -2437,14 +2603,21 @@ export let currentAppLayout = 'console';
       const activeProxy = (currentProxiesList || []).find(p => p.isActive || p.active) || (currentProxiesList && currentProxiesList[0]);
       const nodeTagEl = document.getElementById('appPreviewNodeTag');
       const detailsEl = document.getElementById('prevActiveProxyDetails');
+      const svcStateEl = document.getElementById('appPreviewServiceState');
+      const tunnelBtnEl = document.getElementById('appPreviewTunnelBtn');
+
       if (activeProxy && activeProxy.host && activeProxy.port) {
         const proto = (activeProxy.type || activeProxy.protocol || 'SOCKS5').toUpperCase();
         const hostPort = activeProxy.host + ':' + activeProxy.port;
         if (nodeTagEl) nodeTagEl.textContent = `${proto} ${hostPort}`;
         if (detailsEl) detailsEl.textContent = `${proto} • ${hostPort}${activeProxy.name ? ' (' + activeProxy.name + ')' : ''}`;
+        if (svcStateEl) svcStateEl.textContent = `● ${activeProxy.name || hostPort} (${isRu ? 'Активен' : 'Active'})`;
+        if (tunnelBtnEl) tunnelBtnEl.textContent = `⚡ ${isRu ? 'Туннель активен' : 'Tunnel Active'} (${proto})`;
       } else {
         if (nodeTagEl) nodeTagEl.textContent = 'DIRECT';
-        if (detailsEl) detailsEl.textContent = currentLang === 'ru' ? 'Прямое подключение (DIRECT)' : 'Direct Connection (DIRECT)';
+        if (detailsEl) detailsEl.textContent = isRu ? 'Прямое подключение (DIRECT)' : 'Direct Connection (DIRECT)';
+        if (svcStateEl) svcStateEl.textContent = isRu ? '● DIRECT (прямой доступ)' : '● DIRECT (direct access)';
+        if (tunnelBtnEl) tunnelBtnEl.textContent = `⚡ ${isRu ? 'Прямое подключение (DIRECT)' : 'Direct Connection (DIRECT)'}`;
       }
     }
 

@@ -73,14 +73,16 @@ test("Dashboard UI: fleet table includes username column and pairing display", a
     assert.equal(rollbackCall.method, "POST");
     assert.deepEqual(JSON.parse(rollbackCall.body), { type: "extension", version: "1.2.0" });
 
-    // Fleet rows must render the paired desktop badge from pairedAppId/pairedHostname.
+    // Fleet rows must render instances cleanly without redundant desktop badges in extension table.
     await env.window.loadInstances();
     await waitFor(
       () => (env.document.getElementById("fleetTableBody")?.innerHTML || "").includes("inst-paired-01"),
       { label: "loadInstances to render fleet rows" }
     );
     const fleetHtml = env.document.getElementById("fleetTableBody")?.innerHTML || "";
-    assert.ok(fleetHtml.includes("OPERATOR-PC") || fleetHtml.includes("🔗"), "paired desktop badge must render for pairedAppId instances");
+    assert.ok(fleetHtml.includes("inst-paired-01"), "fleet row must render instanceId");
+    assert.ok(fleetHtml.includes("operator@corp.local"), "fleet row must render username");
+    assert.strictEqual(fleetHtml.includes("🔗"), false, "paired desktop badge must not render in extensions table");
   } finally {
     env.teardown();
   }

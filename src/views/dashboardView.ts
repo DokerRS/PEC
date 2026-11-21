@@ -1318,11 +1318,11 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
 
                 <!-- Preview Window Navigation Tabs -->
                 <div class="mockup-tabs">
-                  <button type="button" class="mockup-tab-btn active" id="btnPrevTabMain" onclick="switchPreviewWindowTab('main')">Главная</button>
-                  <button type="button" class="mockup-tab-btn" id="btnPrevTabTraffic" onclick="switchPreviewWindowTab('traffic')">Трафик</button>
-                  <button type="button" class="mockup-tab-btn" id="btnPrevTabRules" onclick="switchPreviewWindowTab('rules')">Правила</button>
-                  <button type="button" class="mockup-tab-btn" id="btnPrevTabLog" onclick="switchPreviewWindowTab('log')">Журнал</button>
-                  <button type="button" class="mockup-tab-btn" id="btnPrevTabSettings" onclick="switchPreviewWindowTab('settings')">Настройки</button>
+                  <button type="button" class="mockup-tab-btn active" id="btnPrevTabMain" onclick="switchPreviewWindowTab('main')" data-i18n="tabPrevMain">Главная</button>
+                  <button type="button" class="mockup-tab-btn" id="btnPrevTabTraffic" onclick="switchPreviewWindowTab('traffic')" data-i18n="tabPrevTraffic">Трафик</button>
+                  <button type="button" class="mockup-tab-btn" id="btnPrevTabRules" onclick="switchPreviewWindowTab('rules')" data-i18n="tabPrevRules">Правила</button>
+                  <button type="button" class="mockup-tab-btn" id="btnPrevTabLog" onclick="switchPreviewWindowTab('log')" data-i18n="tabPrevLog">Журнал</button>
+                  <button type="button" class="mockup-tab-btn" id="btnPrevTabSettings" onclick="switchPreviewWindowTab('settings')" data-i18n="tabPrevSettings">Настройки</button>
                 </div>
 
                 <!-- Preview Window Tab Content: Main -->
@@ -1330,9 +1330,9 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                   <div style="background: var(--app-card); border-radius: 6px; padding: 10px; margin-bottom: 8px; border: 1px solid var(--border);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                       <span style="font-size: 11px; color: var(--text-muted);">Состояние службы:</span>
-                      <span class="mockup-proxy-pill" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4);">● Сервер: Активен (18 ms)</span>
+                      <span class="mockup-proxy-pill" id="appPreviewServiceState" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4);">● Сервер: Активен (18 ms)</span>
                     </div>
-                    <button type="button" style="width: 100%; padding: 8px; font-size: 12px; font-weight: 700; background: var(--app-accent); color: #fff; border: none; border-radius: 4px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px;">
+                    <button type="button" id="appPreviewTunnelBtn" style="width: 100%; padding: 8px; font-size: 12px; font-weight: 700; background: var(--app-accent); color: #fff; border: none; border-radius: 4px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px;">
                       ⚡ Туннель активен (PROXY)
                     </button>
                     <div class="grid-form-2col" style="margin-top: 8px; font-size: 10.5px; color: var(--text-muted); gap: 4px;">
@@ -1345,7 +1345,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                 <!-- Preview Window Tab Content: Traffic -->
                 <div id="prevTabTraffic" class="mockup-tab-content" style="display: none;">
                   <div style="font-size: 10.5px; color: var(--text-muted); margin-bottom: 4px;">Активные перехваты соединений L3/L4:</div>
-                  <div style="max-height: 140px; overflow-y: auto; background: var(--app-card); border: 1px solid var(--border); border-radius: 4px; font-size: 10.5px;">
+                  <div id="mockupTrafficList" style="max-height: 140px; overflow-y: auto; background: var(--app-card); border: 1px solid var(--border); border-radius: 4px; font-size: 10.5px;">
                     <div class="grid-preview-traffic-row" style="border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600; color: var(--text-muted);">
                       <span>Время</span><span>Процесс</span><span>Назначение</span><span>Действие</span>
                     </div>
@@ -1375,7 +1375,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                     [PEC-App] WinDivert driver initialized (x64)<br>
                     [Engine] Rules loaded: 4 filters active<br>
                     [Engine] ProxyBridge listening on localhost:34010<br>
-                    [Sync] Periodic fleet sync scheduled every 30s<br>
+                    [Sync] Periodic fleet sync scheduled every 15m<br>
                     <span style="color: #10b981;">[Ready] Transparent packet filter active.</span>
                   </div>
                   <button type="button" class="btn-secondary" style="font-size: 10px; padding: 3px 6px; margin-top: 6px; width: 100%;">📋 Скопировать весь лог</button>
@@ -1390,8 +1390,11 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                     <div style="font-size: 11px; display: flex; justify-content: space-between; margin-bottom: 4px;">
                       <span>Сворачивать в трей:</span> <strong id="prevMinimizeVal" style="color: #10b981;">ВКЛ</strong>
                     </div>
-                    <div style="font-size: 11px; display: flex; justify-content: space-between;">
+                    <div style="font-size: 11px; display: flex; justify-content: space-between; margin-bottom: 4px;">
                       <span>Служба Windows:</span> <strong id="prevServiceVal" style="color: #64748b;">ВЫКЛ</strong>
+                    </div>
+                    <div style="font-size: 11px; display: flex; justify-content: space-between;">
+                      <span>Интервал синхронизации:</span> <strong id="prevSyncIntervalVal" style="color: var(--app-accent);">15 мин</strong>
                     </div>
                   </div>
                 </div>
