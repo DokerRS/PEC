@@ -2,6 +2,14 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [0.9.15-alpha] - 2026-11-22
+### Fixed
+- **THEME-APP-PREVIEW-2** (layer 2 of THEME-APP-PREVIEW-1): preview now renders the RESOLVED build theme — preview == artifact:
+  - Root cause (user evidence): the App Studio preview stayed purple (`#c084fc`, constructor Dark Obsidian era) while the panel was cyber — the locked inputs carried stale constructor hex and `updateAppLivePreview` painted from them, while the shipped artifacts resolve the panel theme via `applyDashboardThemeToClientConfig`.
+  - `applyResolvedPanelThemeToAppInputs()` in `studio.ts`: while sync is ON, the locked Accent/Window-Background/Card inputs display the resolved panel surfaces (`APP_PALETTES[panel]`, panel mode drives the dark/light split); the preview-theme subscriber additionally re-resolves and repaints; the boot path `loadAppStudioConfig` resolves the panel theme.
+  - Unlock safety: when sync is turned OFF, the inputs return to the saved constructor config values without loss; a config save during ON does not leak panel values into the constructor config.
+  - Verified by vm-tests (`appPreviewResolvedTheme.test.ts` 5/5): user case ON+cyber against a `#c084fc` config → inputs `#38bdf8`/`#0b1120`/`#131d36`; light panel → light surfaces; OFF → constructor colors preserved; panel switch (cyber→emerald) re-resolves.
+
 ## [0.9.14-alpha] - 2026-11-22
 ### Fixed
 - **THEME-APP-PREVIEW-1**: Panel palette/mode changes now drive the App Studio live preview:
