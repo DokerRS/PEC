@@ -76,22 +76,22 @@ test("Domain 4.2: README.ru.md contains packaging section matching English READM
 test("Domain 4.3: Root SECURITY.md has correct supported versions and Linux config directory", () => {
   const sec = fs.readFileSync("SECURITY.md", "utf-8");
 
-  // Supported versions (monorepo pre-release line, matches package.json 0.9.0-alpha)
+  // Supported versions (official release line, matches package.json 1.0.0)
   assert.ok(
-    sec.includes("| Server | 0.9.x-alpha | Да |") || sec.includes("| Server | 0.9.x-alpha |"),
-    "SECURITY.md must support Server 0.9.x-alpha"
+    sec.includes("| Server | 1.0 | Да |") || sec.includes("| Server | 1.0 |"),
+    "SECURITY.md must support Server 1.0"
   );
   assert.ok(
-    sec.includes("| Extension | 0.9.x-alpha | Да |") || sec.includes("| Extension | 0.9.x-alpha |"),
-    "SECURITY.md must support Extension 0.9.x-alpha"
+    sec.includes("| Extension | 1.0 | Да |") || sec.includes("| Extension | 1.0 |"),
+    "SECURITY.md must support Extension 1.0"
   );
   assert.ok(
-    sec.includes("| Windows Client | 0.9.x-alpha | Да |") || sec.includes("| Windows Client | 0.9.x-alpha |"),
-    "SECURITY.md must support Windows Client 0.9.x-alpha"
+    sec.includes("| Windows Client | 1.0 | Да |") || sec.includes("| Windows Client | 1.0 |"),
+    "SECURITY.md must support Windows Client 1.0"
   );
   assert.ok(
-    sec.includes("| Linux Client | 0.9.x-alpha | Да |") || sec.includes("| Linux Client | 0.9.x-alpha |"),
-    "SECURITY.md must support Linux Client 0.9.x-alpha"
+    sec.includes("| Linux Client | 1.0 | Да |") || sec.includes("| Linux Client | 1.0 |"),
+    "SECURITY.md must support Linux Client 1.0"
   );
 
   // Linux config path

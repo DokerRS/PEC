@@ -61,6 +61,8 @@ test("OpenAPI 3.1: covers all required endpoints and operations", () => {
     "/api/ad/config",
     "/api/ad/test",
     "/api/ad/sync-now",
+    "/api/server-theme",
+    "/api/instances/{id}/unrevoke-token",
     "/metrics",
   ];
 

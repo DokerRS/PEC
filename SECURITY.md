@@ -4,10 +4,10 @@
 
 | Компонент | Версия | Поддержка |
 |-----------|--------|-----------|
-| Server | 0.9.x-alpha | Да |
-| Extension | 0.9.x-alpha | Да |
-| Windows Client | 0.9.x-alpha | Да |
-| Linux Client | 0.9.x-alpha | Да |
+| Server | 1.0 | Да |
+| Extension | 1.0 | Да |
+| Windows Client | 1.0 | Да |
+| Linux Client | 1.0 | Да |
 
 ---
 
@@ -20,7 +20,7 @@
    - Пользователи, не входящие в группу, не получают расширение и ключ доступа.
 2. **Аутентификация management-API (двухтокенная модель и матрица доступов):**
    - Fleet-токен `EXT_SHARED_TOKEN` (заголовок `X-Fleet-Token` или `X-Ext-Token`) — низкопривилегированный идентификатор парка: предназначен строго для синхронизации расширения и десктопного клиента (`/creds`, `/api/sync`, `/api/app/sync`), bootstrap-регистрации инстансов и скачивания релизов расширения (`GET /api/releases/download/extension/:version`). Намеренно зашивается в артефакты развертывания (CRX, GPO `.reg`, дефолтный профиль клиента). Компрометация fleet-токена НЕ даёт доступа к админке и НЕ позволяет скачивать десктопные бинарные дистрибутивы приложения или MSI-установщики.
-   - Админ-токен `ADMIN_TOKEN` (заголовок `X-Admin-Token` или сессионная cookie) открывает все management-API (`/api/builder/*`, `/api/routing/*`, `/api/rotation/*`, `/api/instances/*`, `/api/config`, `/api/status`, управление релизами `/api/releases/*`), а также скачивание десктопных пакетов (`GET /api/releases/download/app/:version` и `/api/releases/download/msi/:version`). Не покидает сервер и никогда не попадает в публичные артефакты. Обязателен при `NODE_ENV=production`; должен отличаться от fleet-токена.
+   - Админ-токен `ADMIN_TOKEN` (заголовок `X-Admin-Token` или сессионная cookie) открывает все management-API (`/api/builder/*`, `/api/routing/*`, `/api/rotation/*`, `/api/instances/*`, `/api/config`, `/api/status`, `/api/server-theme`, управление релизами `/api/releases/*`), а также скачивание десктопных пакетов (`GET /api/releases/download/app/:version` и `/api/releases/download/msi/:version`). Не покидает сервер и никогда не попадает в публичные артефакты. Обязателен при `NODE_ENV=production`; должен отличаться от fleet-токена.
    - Строгая изоляция: fleet-токен на админ-роутах → 401; admin-токен на fleet-роутах → 403; fleet-токен на скачивании app/msi пакетов → 401.
    - Публичными остаются только `/healthz`, `/proxy.pac`, `/updates/*` (для автообновлений Chrome через GPO), `/api/ip-echo` и `/api/sync` (последний проверяет fleet-токен внутри роутера со своим rate limiter'ом), а также `/metrics` (если разрешено флагом `PEC_METRICS_PUBLIC=true`; по умолчанию требует `X-Admin-Token`). Скачивание ZIP-архива расширения (`/api/extension/download-zip`) требует аутентификации администратора (сессионная кука + CSRF или `X-Admin-Token`) и ограничено rate limiter'ом (10 запросов в минуту).
    - Веб-панель не передает токен в браузер: аутентификация по логину и паролю (scrypt-хеш на сервере) с сессионной cookie (`HttpOnly`, `SameSite=Strict`).
@@ -40,6 +40,7 @@
 | `GET /api/releases`, `POST /api/releases/*` | ❌ | ❌ (401) | ✅ | Управление каталогом релизов и откат версий |
 | `/api/builder/*`, `/api/app-builder/*` | ❌ | ❌ (401) | ✅ | Конструкторы расширения и десктопного приложения |
 | `/api/rotation/*`, `/api/instances/*`, `/api/routing/*` | ❌ | ❌ (401) | ✅ | Управление прокси-узлами, ротацией и инстансами |
+| `/api/server-theme` (GET, POST) | ❌ | ❌ (401) | ✅ | Хранилище темы панели «Внешний вид» (dashboard-as-source); чтение также закрыто Admin-токеном (строже необходимого) |
 | `GET /metrics`, `/api/metrics` | ⚠️ (`PEC_METRICS_PUBLIC=true`) | ❌ (401) | ✅ | Prometheus-экспозиция метрик (по умолчанию закрыта Admin-токеном) |
 3. **Защита от Timing Attacks:**
    - Токен сравнивается по SHA-256-дайджестам через `crypto.timingSafeEqual` (без утечки длины).

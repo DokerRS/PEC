@@ -2,6 +2,26 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [v1.0.0] - 2026-11-22 — Official Release
+
+Первый официальный релиз платформы PEC. Активная разработка функциональности завершена; дальнейшая поддержка — исправления и улучшения по обратной связи пользователей.
+
+### 🚀 Путь 0.9.x → 1.0.0 (сводка за 15 альфа-релизов, 2026-11-11 … 2026-11-22)
+
+- **AUDIT-2026-11-16 (v0.9.1)**: устранение находок глубокого аудита (0×P0 / 3×P1 / 19×P2 / ~50×P3) — verified-pipeline обновлений `update_core.h` (схема-гейт → SHA-256 → WinVerifyTrust → единственный ShellExecuteW), пустой дефолт fleet-токена в 5×`version_gen.h`, SSRF TOCTOU-pinning (`createSsrfPinnedFetch`), подпись Authenticode без пароля в argv, транзакционная ротация, Kill-Switch-гейты расширения, токен-нейтральные бинарники (bytescan 0/0), OpenAPI по реальным эндпоинтам, AGPL-лицензия в спеке.
+- **THEME-2026-11-16 (v0.9.2)**: E2E-тумблер синка тем (strict-boolean whitelist в оба builder-конфига), перцептивные luminance-клампы вместо leaky-регекса, конвергенция палитр к канону с hex-parity тестом, PecProfileLock в C-сборке, light-гвард ImGui↔GDI, три верификационные регрессии (popover-close, amber-chip, emerald-lightBg) пойманы новыми тестами до релиза.
+- **THEME-SRC-2026-11-17 (v0.9.3–v0.9.5)**: dashboard-as-source — тема панели «Внешний вид» как источник тем для всех клиентов (`/api/server-theme`, admin-only стор, пуш из дашборда, dashboard-as-source на `/api/sync` + `/api/app/sync` + buildAppProfile без пересборки, extension-билд запекает панельную тему, boot-reconciliation, resolved theme на лочёных инпутах студии, приоритет серверного режима с source-маркером, корень «пересборка не меняет вставки» — гейт `!exists` устранён).
+- **AD-контур (v0.9.7–v0.9.10)**: интеграция AD/LDAPS флота, честные user/identifier-счётчики, browser telemetry, Zero-Trust Kill-Switch auto-recovery & unrevoke (`POST /api/instances/:id/unrevoke-token`), фикс ECONNRESET (tlsOptions только для `ldaps://`, бисекция на проде).
+- **Update-channel integrity (v0.9.6)**: невалидный JSON-escape в `managed_schema.json` (P1-блокер установки обновлений, воспроизведён на проде) устранён + новый гарант strict JSON.parse всех `.json`-артефактов CRX-зипа.
+- **Multi-server rotation & Studio (v0.9.13–v0.9.14)**: per-panel ротация (`rotationEnabled`/`targetRemark`/`rotationIntervalMinutes`), CodeJar+Prism редактор в студии, превью App Studio водится панельной палитрой и рендерит resolved-тему (превью == артефакт).
+- **GPO-канонизация (v0.9.11 + v0.9.15-pre)**: канонический деплой через чистые `.reg` + `ExtensionInstallAllowlist`/`ExtensionInstallSources` в GPMC (GPP XML и PS-скрипты удалены), indexed Allowlist/Sources.
+- **CI/CD-гигиена**: drift-гейт `dashboard.min.js`, docker-build job, gitleaks SHA-пиннинг + PEC-правила (full-history 0 findings), version-proof npm audit гейт, корректная экстракция release-notes (heading-стили + portability).
+
+### 📌 Совместимость и примечания
+- Конфигурация через `.env` и `docker-compose` совместима с 0.9.x; все store-файлы `data/` наследуются без миграций.
+- Инвариант детерминированного extension ID сохранён: `extension/key.pem` не менялся с первого релиза — GPO-политики и установленные расширения продолжают работать.
+- Fleet-токен остаётся низкопривилегированным; двухтокенная модель и матрица доступов — см. [SECURITY.md](SECURITY.md).
+
 ## [0.9.15-alpha] - 2026-11-22
 ### Fixed
 - **THEME-APP-PREVIEW-2** (layer 2 of THEME-APP-PREVIEW-1): preview now renders the RESOLVED build theme — preview == artifact:
