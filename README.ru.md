@@ -19,6 +19,38 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Boosty](https://img.shields.io/badge/Donate-Boosty-F15F2C.svg)](https://boosty.to/oovlvoo)
 [![USDT TON](https://img.shields.io/badge/Donate-USDT%20TON-26A17B.svg)](#поддержать-проект)
+<!-- META-PROJECT:ENTRY:BEGIN -->
+[![Built with Meta-Project](https://img.shields.io/badge/Built%20with-Meta--Project-blueviolet)](https://github.com/vlv-code/meta-project)
+
+Agent instructions: [AGENTS.md](AGENTS.md) | Policy: [.agents/project_knowledge/boundaries.md](\.agents\project_knowledge\boundaries.md)
+*To inspect, configure, or adapt your environment, run `python scripts\inspect_meta_project.py` or invoke the `init-meta-project` skill.*
+<!-- META-PROJECT:ENTRY:END -->
+
+## 👋 Что такое PEC?
+
+PEC — **self-hosted платформа для управления корпоративным прокси**: сервер, брендированные расширения Chrome/Edge и десктопные клиенты — всё собирается и настраивается из одной веб-панели. Без SaaS, без облаков, без ручной настройки браузеров на каждом рабочем месте.
+
+> ⚠️ **Только для закрытого контура.** Сервер предназначен для частной сети (LAN или корпоративный VPN). Публичная экспозиция не поддерживается и не тестируется.
+
+### Для чего это нужно
+
+- Управляемый корпоративный прокси без сторонних сервисов и ручной настройки на каждом устройстве
+- Доступ ограничен доменными группами Active Directory / LDAP
+- Свой бренд: название, значок и цвета расширения настраиваются из веб-панели
+
+### Как это работает
+
+1. Разверните **Docker-сервер** на хосте в корпоративной сети
+2. Соберите **подписанные расширения и десктопные клиенты** из встроенной студии (имя, значок, цвета, логотип)
+3. Разверните через **GPO/GPP** на все рабочие станции (Allowlist + Sources, политика ExtensionSettings)
+4. Настройте **PAC-профили маршрутизации** — какие сайты через прокси, какие напрямую
+5. Ограничьте доступ через членство в **доменных группах Active Directory / LDAP** с Kill-Switch для мгновенного отключения всего флота
+6. Включите **автоматическую ротацию паролей** на панелях 3x-ui / Xray по расписанию
+
+### Статус
+
+Официальный релиз. Развитие завершено; поддержка — только исправления по обратной связи.
+
 
 **PEC - Proxy Extension Corp** — открытая платформа для централизованного управления парком прокси, сборки и кастомизации браузерных расширений (Chrome Manifest V3), распространения через Active Directory GPO и автоматической ротации учетных данных в панелях Xray / 3x-ui.
 

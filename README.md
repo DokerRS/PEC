@@ -27,6 +27,32 @@ Agent instructions: [AGENTS.md](AGENTS.md) | Policy: [.agents/project_knowledge/
 *To inspect, configure, or adapt your environment, run `python scripts/inspect_meta_project.py` or invoke the `init-meta-project` skill.*
 <!-- META-PROJECT:ENTRY:END -->
 
+## 👋 What is PEC?
+
+PEC is a **self-hosted platform for corporate proxy management**: a server, branded Chrome/Edge browser extensions, and desktop clients — all built and configured from a single web dashboard. No SaaS, no cloud, no manual browser setup on each workstation.
+
+> ⚠️ **Closed network only.** This server is designed for private networks (LAN or corporate VPN). Public internet exposure is not supported and has not been tested.
+
+### Why use it?
+
+- Controlled corporate proxy without third-party services or per-device manual configuration
+- Access restricted to specific Active Directory / LDAP domain groups
+- Your own branding: extension name, icon, and colors configured from the web panel
+
+### How it works
+
+1. Deploy the **Docker server** on a host in your corporate network
+2. Build **signed browser extensions and desktop clients** from the built-in Studio (name, icon, colors, logo)
+3. Deploy via **GPO/GPP** to all workstations (Allowlist + Sources, ExtensionSettings policy)
+4. Configure **PAC routing profiles** — which sites go through the proxy, which go direct
+5. Restrict access via **Active Directory / LDAP** group membership with a Kill-Switch for instant fleet-wide revocation
+6. Enable **automatic credential rotation** on your 3x-ui / Xray panels on a schedule
+
+### Status
+
+Official release. Development is complete; maintenance is limited to fixes based on user feedback.
+
+
 **PEC - Proxy Extension Corp** is an open-source platform for central proxy fleet management, browser extension construction & packaging (Chrome Manifest V3), Windows Active Directory GPO distribution, and automated credential rotation with Xray / 3x-ui panels.
 
 ---
