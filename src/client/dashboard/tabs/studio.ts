@@ -275,7 +275,38 @@ export let activeStudioThemeMode = 'dark';
         if (pal && APP_THEME_PRESETS[pal.style]) return pal.style;
       }
       return cfgPresetKey;
+    }
+
+    // THEME-APP-PREVIEW-1 (layer 2): the locked App Studio inputs show the
+    // RESOLVED panel surfaces while sync is ON (preview == artifact); when
+    // sync is OFF the saved constructor values return without loss. The
+    // config itself is never written here — inputs are display-only in the
+    // locked state.
+    export function applyResolvedPanelThemeToAppInputs() {
+      const colorEl = document.getElementById('appThemeColor');
+      const bgEl = document.getElementById('appThemeBackground');
+      const cardEl = document.getElementById('appThemeCard');
+      if (isThemeSyncEnabled()) {
+        const panel = document.body.getAttribute('data-theme') || 'cyber';
+        const pal = APP_PALETTES[panel];
+        if (!pal) return;
+        // The panel mode rules the resolved surfaces while sync is ON
+        // (preview == artifact: buildAppProfile pushes the panel mode too).
+        const isLight = (document.body.getAttribute('data-theme-mode') || currentAppThemeMode) === 'light';
+        if (colorEl) colorEl.value = pal.accent;
+        if (bgEl) bgEl.value = isLight ? (pal.lightBg || '#f1f5f9') : pal.bg;
+        if (cardEl) cardEl.value = isLight ? (pal.lightCard || '#ffffff') : pal.card;
+      } else {
+        const saved = currentAppConfig || {};
+        if (colorEl) colorEl.value = saved.themeColor || colorEl.value;
+        if (bgEl) bgEl.value = saved.themeBackground || bgEl.value;
+        if (cardEl) cardEl.value = saved.themeCard || cardEl.value;
+      }
     }    registerPreviewThemeListener(() => {
+      try {
+        applyResolvedPanelThemeToAppInputs();
+        updateAppLivePreview();
+      } catch (_) {}
       try {
         updateLivePreviewThemeAndLayout();
       } catch (_) {}
@@ -1738,6 +1769,10 @@ export let currentAppLayout = 'console';
         }
         if (presetEl) presetEl.value = cfg.presetStyle || 'cyber-blue';
         if (colorEl) colorEl.value = cfg.themeColor || '#0284c7';
+        // THEME-APP-PREVIEW-1 (layer 2): resolve the panel theme layer over the
+        // constructor values right after the form is filled (preview == artifact).
+        applyResolvedPanelThemeToAppInputs();
+        updateAppLivePreview();
         if (bgEl) bgEl.value = cfg.themeBackground || '#0b1120';
         if (cardEl) cardEl.value = cfg.themeCard || '#131d36';
 
@@ -2121,6 +2156,17 @@ export let currentAppLayout = 'console';
         btn.innerHTML = '<span class="loading-spinner"></span> ' + (btn.textContent || '').trim();
       }
       const config = collectAppConfigFromForm();
+
+      // THEME-APP-PREVIEW-1 (layer 2): while sync is ON the theme inputs show
+      // the resolved panel surfaces — the constructor config must keep its own
+      // saved theme so turning sync OFF restores it without loss.
+      if (isThemeSyncEnabled()) {
+        const saved = currentAppConfig || {};
+        if (saved.themeColor) config.themeColor = saved.themeColor;
+        if (saved.themeBackground) config.themeBackground = saved.themeBackground;
+        if (saved.themeCard) config.themeCard = saved.themeCard;
+        if (saved.presetStyle) config.presetStyle = saved.presetStyle;
+      }
 
       try {
         const res = await adminFetch('/api/app-builder/config', {
