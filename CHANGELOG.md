@@ -2,6 +2,15 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [0.9.14-alpha] - 2026-11-22
+### Fixed
+- **THEME-APP-PREVIEW-1**: Panel palette/mode changes now drive the App Studio live preview:
+  - Root cause (user-confirmed): a panel palette switch never poked the App Studio preview — `updateLivePreviewThemeAndLayout()` fired only from the locked studio editors (zero postMessages on a panel change).
+  - Neutral preview-theme listener registry in `state.ts` (`registerPreviewThemeListener` / `notifyPreviewThemeChanged`): `theme.ts` publishes after applying the appearance, `studio.ts` subscribes at module scope — no theme↔studio import cycle; throwing subscribers are swallowed, duplicates collapse to one entry.
+  - `setServerTheme` / `setServerThemeMode` publish after applying the appearance — panel palette and mode changes reach the preview immediately; no workaround needed.
+  - App Studio card badge shows the panel preset (from `APP_PALETTES`) while the studio is locked, at both write sites.
+  - Verified by vm-tests: sync ON + panel cyber → preview frame receives `UPDATE_STUDIO_THEME palette=cyber`; panel switch (nord→emerald) → repeat postMessage; mode rides along; sync OFF → constructor fallback without panel leakage.
+
 ## [0.9.13-alpha] - 2026-11-22
 ### Added
 - **UI-LOGIC-ROTATION-CLEAN-1**: Multi-server 3x-ui rotation architecture, in-studio code editor, and dashboard logic hardening:
