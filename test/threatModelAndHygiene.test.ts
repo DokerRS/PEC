@@ -8,7 +8,7 @@ test("Task 1.1: README.md contains Enterprise Threat Model & Architectural Bound
   const readme = fs.readFileSync("README.md", "utf-8").replace(/\r\n/g, "\n");
   const expectedEnglishAlert = `> [!IMPORTANT]
 > **Enterprise Threat Model & Architectural Boundaries**
-> PEC is strictly designed for on-premise deployment in closed corporate intranets and enterprise VPNs. Chrome extensions and desktop clients are distributed via Active Directory Group Policies (GPO: ExtensionInstallForcelist, Registry). Security is enforced through perimeter network isolation, AD Security Filtering, and dynamic credential rotation — not via client-side secret obfuscation.`;
+> PEC is strictly designed for on-premise deployment in closed corporate intranets and enterprise VPNs. Chrome extensions and desktop clients are distributed via Active Directory Group Policies (GPO: ExtensionInstallAllowlist + ExtensionInstallSources, Registry). Security is enforced through perimeter network isolation, AD Security Filtering, and dynamic credential rotation — not via client-side secret obfuscation.`;
 
   assert.ok(
     readme.includes(expectedEnglishAlert),
@@ -23,7 +23,7 @@ test("Task 1.1: README.ru.md contains Russian Enterprise Threat Model alert", ()
   const readmeRu = fs.readFileSync("README.ru.md", "utf-8").replace(/\r\n/g, "\n");
   const expectedRussianAlert = `> [!IMPORTANT]
 > **Корпоративная модель угроз и архитектурные границы**
-> PEC разработан строго для on-premise развертывания в закрытых корпоративных интрасетях и корпоративных VPN. Расширения Chrome и десктопные клиенты доставляются через групповые политики Active Directory (GPO: ExtensionInstallForcelist, реестр). Безопасность обеспечивается сетевой изоляцией периметра, фильтрацией безопасности AD и динамической ротацией учетных данных, а не сокрытием секретов на стороне клиента.`;
+> PEC разработан строго для on-premise развертывания в закрытых корпоративных интрасетях и корпоративных VPN. Расширения Chrome и десктопные клиенты доставляются через групповые политики Active Directory (GPO: ExtensionInstallAllowlist + ExtensionInstallSources, реестр). Безопасность обеспечивается сетевой изоляцией периметра, фильтрацией безопасности AD и динамической ротацией учетных данных, а не сокрытием секретов на стороне клиента.`;
 
   assert.ok(
     readmeRu.includes(expectedRussianAlert),

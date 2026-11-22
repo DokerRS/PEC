@@ -57,7 +57,7 @@ test("GPO API routes deliver pack and reg files, and reject obsolete scripts", a
     const infoRes = await fetch(`${baseUrl}/api/extension/info`);
     assert.equal(infoRes.status, 200);
     const infoJson = await infoRes.json() as any;
-    assert.ok(infoJson.gpo.forcelistEntries.chrome);
+    assert.ok(infoJson.gpo.allowlistEntry);
     assert.ok(infoJson.gpo.regContentUser);
     assert.ok(infoJson.gpo.regContentMachine);
   } finally {

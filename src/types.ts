@@ -106,8 +106,9 @@ export interface ExtensionInstance {
 }
 
 export interface GpoConfig {
-  forcelistEntry: string;
-  forcelistEntries: Record<string, string>;
+  allowlistEntry: string;
+  allowlistIndex: number;
+  installSourcesEntry: string;
   extensionSettingsJson: Record<string, any>;
   extensionSettingsEntries: Record<string, Record<string, any>>;
   regContent: string;

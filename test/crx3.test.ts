@@ -144,7 +144,7 @@ test("artifacts ship the fleet token and never the admin token", () => {
 
   // GPO registry export: extension workstations receive the fleet token only
   const gpo = generateGpoConfig("a".repeat(32), "https://pec.example.corp", TEST_TOKEN);
-  const regBlob = `${gpo.regContent}${JSON.stringify(gpo.extensionSettingsJson)}${gpo.forcelistEntry}`;
+  const regBlob = `${gpo.regContent}${JSON.stringify(gpo.extensionSettingsJson)}${gpo.allowlistEntry}${gpo.installSourcesEntry}`;
   assert.ok(regBlob.includes(TEST_TOKEN), "GPO config must carry the fleet token");
   assert.ok(!regBlob.includes(TEST_ADMIN_TOKEN), "GPO config must never contain the admin token");
 });

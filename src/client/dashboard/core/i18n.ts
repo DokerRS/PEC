@@ -258,7 +258,7 @@ export const I18N: Record<string, Record<string, string>> = {
         btnDownloadCrxPkg: 'Download .CRX Package',
         btnDownloadZipPkg: 'Download .ZIP',
         titleAdGpoSettings: 'Active Directory GPO Settings',
-        lblGpoForcelist: '1. ExtensionInstallForcelist Entry',
+        lblGpoForcelist: '1. ExtensionInstallAllowlist + Sources',
         lblGpoSettings: '2. ExtensionSettings (JSON)',
         btnDownloadReg: 'Download Windows .REG Policy File',
         titleGpoPackBanner: 'Comprehensive Active Directory GPO Deployment Pack',

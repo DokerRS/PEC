@@ -32,11 +32,15 @@ test("generateGpoConfig generates multi-browser policies for HKCU and HKLM", () 
   assert.ok(gpo.regContentUser.includes('"targetGroup"="VIP-Users"'), "targetGroup must be present in HKCU");
   assert.ok(gpo.regContentUser.includes('"autoConfigureProxy"=dword:00000001'), "autoConfigureProxy must be dword in HKCU");
 
-  // Verify multi-browser forcelist and allowlist
-  assert.ok(gpo.forcelistEntries.chrome.includes(extId));
-  assert.ok(gpo.forcelistEntries.edge.includes(extId));
-  assert.ok(gpo.forcelistEntries.yandex.includes(extId));
-  assert.ok(gpo.forcelistEntries.opera.includes(extId));
+  // EXT-GPO-ALLOWLIST-1: allowlist entry with the default index; NO forcelist
+  assert.ok(gpo.allowlistEntry.includes(extId), "allowlist must carry the extension id");
+  assert.equal(gpo.allowlistIndex, 100, "default index must be 100");
+  assert.ok(gpo.installSourcesEntry.includes("/*"), "install sources must carry the star wildcard");
+  assert.ok(!gpo.regContentUser.includes("ExtensionInstallForcelist"), "forcelist must be dropped from the .reg output");
+  for (const browser of ["Google" + String.fromCharCode(92) + "Chrome", "Microsoft" + String.fromCharCode(92) + "Edge", "YandexBrowser", "Opera Software" + String.fromCharCode(92) + "Opera"]) {
+    assert.ok(gpo.regContentUser.includes(browser), browser + " must appear in the .reg output");
+  }
+  assert.ok(gpo.regContentUser.includes('"100"='), "indexed Allowlist value names must be present");
 
   // Verify ExtensionSettings JSON
   assert.ok(gpo.extensionSettingsJson[extId]);
@@ -76,7 +80,9 @@ test("renders README-GPO.txt with GPMC instructions and registry parameters", ()
   assert.ok(gpo.readmeContent, "readmeContent must be defined");
   assert.ok(gpo.readmeContent.includes("Active Directory"), "readmeContent must explain AD deployment");
   assert.ok(gpo.readmeContent.includes("GPMC"), "readmeContent must mention GPMC");
-  assert.ok(gpo.readmeContent.includes("ExtensionInstallForcelist"), "readmeContent must describe ExtensionInstallForcelist");
+  assert.ok(gpo.readmeContent.includes("ExtensionInstallAllowlist"), "readmeContent must describe ExtensionInstallAllowlist");
+  assert.ok(gpo.readmeContent.includes("ExtensionInstallSources"), "readmeContent must describe ExtensionInstallSources");
+  assert.ok(gpo.readmeContent.includes("Legacy"), "readmeContent must mark Forcelist as legacy");
   assert.ok(gpo.readmeContent.includes("ExtensionSettings"), "readmeContent must describe ExtensionSettings");
   assert.ok(gpo.readmeContent.includes("domainUser"), "readmeContent must describe domainUser");
   assert.ok(gpo.readmeContent.includes("normal_installed"), "readmeContent must explain Yandex normal_installed");

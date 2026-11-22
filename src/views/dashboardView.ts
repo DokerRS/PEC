@@ -1580,7 +1580,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             <code id="gpoActiveRegKey" style="color: var(--primary); font-size: 11px; word-break: break-all;">HKEY_CURRENT_USER\Software\Policies\Google\Chrome</code>
           </div>
 
-          <label for="gpoForcelist" data-i18n="lblGpoForcelist">1. ExtensionInstallForcelist Entry</label>
+          <label for="gpoForcelist" data-i18n="lblGpoForcelist">1. ExtensionInstallAllowlist + Sources</label>
           <div style="display: flex; gap: 6px; align-items: stretch; margin-bottom: 10px;">
             <pre id="gpoForcelist" style="flex: 1; margin: 0; white-space: pre-wrap; word-break: break-all;">Loading...</pre>
             <button class="btn-secondary" style="font-size: 11px; padding: 0 10px;" onclick="copyGpoForcelist()" data-i18n="btnCopy">Copy</button>

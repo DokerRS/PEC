@@ -75,13 +75,15 @@ test("Wave 3: renderBackgroundJs substitutes placeholders in custom overridden s
   assert.ok(rendered.includes("Custom operator script logic here"));
 });
 
-test("Wave 3: generated .reg file includes warning about ExtensionInstallForcelist index 1 collision", () => {
+test("Wave 3 (updated by EXT-GPO-ALLOWLIST-1): .reg uses indexed Allowlist/Sources, no Forcelist", () => {
   const gpo = generateGpoConfig(
     "abcdefghijklmnopabcdefghijklmnop",
     "https://pec.corp.local",
     "ext-tok-test",
     { targetGroup: "Finance" }
   );
-  assert.ok(gpo.regContentMachine.includes("ExtensionInstallForcelist"), "Must have ExtensionInstallForcelist");
-  assert.ok(gpo.regContentMachine.includes("deploy-pec-extension.ps1"), ".reg must recommend deploy-pec-extension.ps1 to avoid index collisions");
+  assert.ok(gpo.regContentMachine.includes("ExtensionInstallAllowlist"), "Must have ExtensionInstallAllowlist");
+  assert.ok(gpo.regContentMachine.includes("ExtensionInstallSources"), "Must have ExtensionInstallSources");
+  assert.ok(!gpo.regContentMachine.includes("ExtensionInstallForcelist"), "Forcelist must be dropped");
+  assert.ok(gpo.regContentMachine.includes('"100"='), "indexed value names must be present");
 });

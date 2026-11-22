@@ -88,20 +88,22 @@ export function renderGpoReadme(
 \`Конфигурация пользователя (или Компьютера) → Настройка → Конфигурация Windows → Реестр\`
 *(Preferences → Windows Settings → Registry)*
 
-Для каждого целевого браузера задаются ровно три ключевых параметра:
+Для каждого целевого браузера задаются следующие ключевые параметры (статический .REG-экспорт использует индекс \`100\` для пары Allowlist/Sources):
 
-#### 1. ExtensionInstallForcelist (Принудительная установка)
-- **Куст:** \`HKEY_CURRENT_USER\` (или \`HKEY_LOCAL_MACHINE\`)
+#### 1. ExtensionInstallAllowlist + ExtensionInstallSources (Разрешение и источник установки)
+- **Куст:** \`HKEY_CURRENT_USER\` (пользовательская конфигурация; для машинной — \`HKEY_LOCAL_MACHINE\`)
 - **Путь к разделу:**
-  - Chrome: \`Software\\Policies\\Google\\Chrome\\ExtensionInstallForcelist\`
-  - Edge: \`Software\\Policies\\Microsoft\\Edge\\ExtensionInstallForcelist\`
-  - Яндекс.Браузер: \`Software\\Policies\\YandexBrowser\\ExtensionInstallForcelist\`
-  - Opera: \`Software\\Policies\\Opera Software\\Opera\\ExtensionInstallForcelist\`
-- **Имя параметра:** \`1\`
+  - Chrome: \`Software\\Policies\\Google\Chrome\\ExtensionInstallAllowlist\` и \`...\\ExtensionInstallSources\`
+  - Edge: \`Software\\Policies\\Microsoft\Edge\\ExtensionInstallAllowlist\` и \`...\\ExtensionInstallSources\`
+  - Яндекс.Браузер: \`Software\\Policies\\YandexBrowser\\ExtensionInstallAllowlist\` и \`...\\ExtensionInstallSources\`
+  - Opera: \`Software\\Policies\\Opera Software\Opera\\ExtensionInstallAllowlist\` и \`...\\ExtensionInstallSources\`
+- **Имя параметра:** настраиваемый индекс (по умолчанию \`100\`; номера могут конфликтовать с чужими корпоративными расширениями)
 - **Тип:** \`REG_SZ\`
-- **Значение:** \`${extensionId};${safeServerUrl}/updates/updates.xml\`
+- **Значения:** Allowlist — \`\${extensionId}\`; Sources — \`\${safeServerUrl}/*\` (со звёздочкой)
+- **Канал установки:** параметр \`ExtensionSettings\` (ниже) с \`normal_installed\` + \`update_url\` + \`override_update_url\` — обновления расширения доказанно работают через него.
+> **Legacy-вариант:** \`ExtensionInstallForcelist\` (принудительная установка по ID) больше не генерируется: в доменной среде номера значений Forcelist конфликтуют с чужими корпоративными расширениями. При необходимости принудительной установки включите её вручную, назначив свободный индекс.
 
-#### 2. ExtensionSettings (Источник обновлений и режим)
+#### 2. ExtensionSettings (Источник обновлений и режим)#### 2. ExtensionSettings (Источник обновлений и режим)
 - **Куст:** \`HKEY_CURRENT_USER\` (или \`HKEY_LOCAL_MACHINE\`)
 - **Путь к разделу:**
   - Chrome: \`Software\\Policies\\Google\\Chrome\`

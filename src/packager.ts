@@ -221,6 +221,8 @@ export interface GpoConfigOptions {
   targetGroup?: string;
   autoConfigureProxy?: boolean;
   updateUrl?: string;
+  /** EXT-GPO-ALLOWLIST-1: GPP value-name index for Allowlist/Sources (default 100). */
+  installIndex?: number;
 }
 
 export interface ExtensionSettingsItem {
@@ -253,14 +255,13 @@ export function generateGpoConfig(
   const autoConfigDword =
     options?.autoConfigureProxy !== false ? "dword:00000001" : "dword:00000000";
 
-  const forcelistEntry = `${regEscape(extensionId)};${regEscape(updateUrl)}`;
-
-  const forcelistEntries = {
-    chrome: forcelistEntry,
-    edge: forcelistEntry,
-    yandex: forcelistEntry,
-    opera: forcelistEntry,
-  };
+  // EXT-GPO-ALLOWLIST-1: the deploy strategy relies on ExtensionSettings
+  // (normal_installed + update_url) — ExtensionInstallForcelist is legacy and
+  // no longer generated. Allowlist + Sources ride a configurable value-name
+  // index (default 100) so corporate deployments can avoid collisions.
+  const allowlistIndex = Math.max(1, Math.floor(Number(options?.installIndex ?? 100)) || 100);
+  const allowlistEntry = regEscape(extensionId);
+  const installSourcesEntry = regEscape(serverBaseUrl + '/*');
 
   const installSources = [`${serverBaseUrl}/*`];
 
@@ -321,12 +322,6 @@ export function generateGpoConfig(
       content += `[${root}\\${b.key}]\n`;
       content += `"ExtensionSettings"="${regEscape(JSON.stringify(browserSettings))}"\n\n`;
 
-      // Force install extension via GPO (ExtensionInstallForcelist)
-      content += `; NOTE: Static .reg files use index "1" for ExtensionInstallForcelist.\n`;
-      content += `; For AD domain deployments, use deploy-pec-extension.ps1 to avoid index collisions.\n`;
-      content += `[${root}\\${b.key}\\ExtensionInstallForcelist]\n`;
-      content += `"1"="${forcelistEntry}"\n\n`;
-
       // Configure managed settings (token & URLs)
       content += `[${root}\\${b.key}\\3rdparty\\extensions\\${regEscape(extensionId)}\\policy]\n`;
       content += `"extToken"="${regEscape(token)}"\n`;
@@ -338,9 +333,15 @@ export function generateGpoConfig(
       }
       content += `"autoConfigureProxy"=${autoConfigDword}\n\n`;
 
-      // Allowlist for manual install and activation
-      content += `[${root}\\${b.key}\\ExtensionInstallAllowlist]\n`;
-      content += `"1"="${regEscape(extensionId)}"\n\n`;
+      // Allowlist for manual install and activation (EXT-GPO-ALLOWLIST-1:
+      // value-name index is configurable to avoid collisions with other
+      // corporate extensions; ExtensionSettings drives the install channel).
+      content += `[${root}\\${b.key}\\ExtensionInstallAllowlist]`;
+      content += `"${allowlistIndex}"="${allowlistEntry}"\n\n`;
+
+      // ExtensionInstallSources with the same index (server URL + star)
+      content += `[${root}\\${b.key}\\ExtensionInstallSources]`;
+      content += `"${allowlistIndex}"="${installSourcesEntry}"\n\n`;
     }
 
     return content;
@@ -355,8 +356,9 @@ export function generateGpoConfig(
   const readmeContent = renderGpoReadme(extensionId, serverBaseUrl);
 
   return {
-    forcelistEntry,
-    forcelistEntries,
+    allowlistEntry,
+    allowlistIndex,
+    installSourcesEntry,
     extensionSettingsJson,
     extensionSettingsEntries,
     regContent,

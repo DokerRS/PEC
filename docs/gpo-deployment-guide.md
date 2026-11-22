@@ -89,17 +89,18 @@ flowchart TD
 
 Для каждого целевого браузера задаются ровно три ключевых параметра:
 
-#### 1. ExtensionInstallForcelist (Принудительная установка)
-- **Куст:** `HKEY_CURRENT_USER` (или `HKEY_LOCAL_MACHINE`)
+#### 1. ExtensionInstallAllowlist + ExtensionInstallSources (Разрешение и источник установки)
+- **Куст:** `HKEY_CURRENT_USER` (пользовательская конфигурация; для машинной — `HKEY_LOCAL_MACHINE`)
 - **Путь к разделу:**
-  - Chrome: `Software\Policies\Google\Chrome\ExtensionInstallForcelist`
-  - Edge: `Software\Policies\Microsoft\Edge\ExtensionInstallForcelist`
-  - Яндекс.Браузер: `Software\Policies\YandexBrowser\ExtensionInstallForcelist`
-  - Opera: `Software\Policies\Opera Software\Opera\ExtensionInstallForcelist`
-- **Имя параметра:** `1` (или следующий свободный индекс)
+  - Chrome: `Software\\Policies\\Google\\Chrome\\ExtensionInstallAllowlist` и `...\\ExtensionInstallSources`
+  - Edge: `Software\\Policies\\Microsoft\\Edge\\ExtensionInstallAllowlist` и `...\\ExtensionInstallSources`
+  - Яндекс.Браузер: `Software\\Policies\\YandexBrowser\\ExtensionInstallAllowlist` и `...\\ExtensionInstallSources`
+  - Opera: `Software\\Policies\\Opera Software\\Opera\\ExtensionInstallAllowlist` и `...\\ExtensionInstallSources`
+- **Имя параметра:** настраиваемый индекс (по умолчанию `100`; номера могут конфликтовать с чужими корпоративными расширениями)
 - **Тип:** `REG_SZ`
-- **Значение:** `<ID_расширения>;https://<serverBaseUrl>/updates/updates.xml`
-
+- **Значения:** Allowlist — `${extensionId}`; Sources — `${serverUrl}/*` (со звёздочкой)
+- **Канал установки:** параметр `ExtensionSettings` (ниже) с `normal_installed` + `update_url` + `override_update_url` — обновления расширения доказанно работают через него.
+> **Legacy-вариант:** `ExtensionInstallForcelist` (принудительная установка по ID) больше не генерируется: в доменной среде номера значений Forcelist конфликтуют с чужими корпоративными расширениями. При необходимости принудительной установки включите её вручную, назначив свободный индекс.
 #### 2. ExtensionSettings (Источник обновлений и режим)
 - **Куст:** `HKEY_CURRENT_USER` (или `HKEY_LOCAL_MACHINE`)
 - **Путь к разделу:**
@@ -192,7 +193,7 @@ reg query "HKCU\Software\Policies\Google\Chrome\3rdparty\extensions\<ID_РАСШ
    - **Opera:** `opera://policy`
 3. Нажмите кнопку **«Перезагрузить политики» (Reload policies)**.
 4. В таблице политик должны отображаться:
-   - `ExtensionInstallForcelist` со статусом **OK**.
+   - `ExtensionInstallAllowlist` и `ExtensionInstallSources` со статусом **OK**.
    - `ExtensionSettings` со статусом **OK**.
    - В блоке управляемых расширений (Managed Storage): параметры `domainUser`, `extToken`, `syncUrl`, `credsUrl`.
 
