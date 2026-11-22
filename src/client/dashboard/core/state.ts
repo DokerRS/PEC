@@ -117,3 +117,30 @@ export function stopDashboardTimers() {
     (window as any).__pecTimers = null;
   }
 }
+
+// THEME-APP-PREVIEW-1: neutral listener registry for dashboard appearance
+// changes. theme.ts (setServerTheme/setServerThemeMode) publishes; studio.ts
+// subscribes with updateLivePreviewThemeAndLayout — no theme<->studio import
+// cycle. Fire-and-forget listeners: a throwing subscriber never breaks the
+// appearance toggle.
+type PreviewThemeListener = () => void;
+const previewThemeListeners: PreviewThemeListener[] = [];
+
+export function registerPreviewThemeListener(fn: PreviewThemeListener): void {
+  if (typeof fn === "function" && !previewThemeListeners.includes(fn)) {
+    previewThemeListeners.push(fn);
+  }
+}
+
+export function notifyPreviewThemeChanged(): void {
+  for (const fn of previewThemeListeners) {
+    try {
+      fn();
+    } catch (_) {}
+  }
+}
+
+// Test access: the current number of registered preview-theme listeners.
+export function _previewThemeListenerCountForTesting(): number {
+  return previewThemeListeners.length;
+}

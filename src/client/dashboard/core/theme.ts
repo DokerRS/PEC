@@ -1,6 +1,6 @@
 // Themes, Layouts & Localization Module for PEC Dashboard
 // Theme Invariant: 100% parity with client/Windows/gui/pec_imgui_theme.h
-import { state } from './state.js';
+import { state, notifyPreviewThemeChanged } from './state.js';
 import { I18N } from './i18n.js';
 import { adminFetch } from './api.js';
 import { toast } from './notify.js';
@@ -63,6 +63,8 @@ export function setServerTheme(theme: string) {
   // THEME-SRC-2: the dashboard appearance is the fleet theme source —
   // propagate palette changes to the server store.
   pushAppearancePatch({ palette: theme });
+  // THEME-APP-PREVIEW-1: the App Studio live preview follows the panel theme.
+  notifyPreviewThemeChanged();
 }
 
 export function setServerThemeMode(mode: string) {
@@ -75,6 +77,8 @@ export function setServerThemeMode(mode: string) {
   if (isThemeSyncEnabled()) {
     applyThemeSyncToConstructors();
   }
+  // THEME-APP-PREVIEW-1: mode changes propagate to the App preview too.
+  notifyPreviewThemeChanged();
 }
 
 export function updateModalActiveState() {

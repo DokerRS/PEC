@@ -1,5 +1,5 @@
 // Extension Constructor Studio & App Studio Tab Module for PEC Dashboard
-import { state } from '../core/state.js';
+import { state, registerPreviewThemeListener } from '../core/state.js';
 import { adminFetch, esc, escapeHtml, extractError } from '../core/api.js';
 import { toast, pecConfirm, pecPrompt, registerModalCloser } from '../core/notify.js';
 import { t, applyThemeSyncToConstructors, closeCustomizationPopover, isThemeSyncEnabled } from '../core/theme.js';
@@ -260,6 +260,26 @@ export let activeStudioThemeMode = 'dark';
         } catch (e) {}
       }
     }
+
+    // THEME-APP-PREVIEW-1: the App Studio preview frame follows the dashboard
+    // appearance - a panel palette/mode change re-posts UPDATE_STUDIO_THEME
+    // into the iframe (module-scope one-shot subscription; the callback is a
+    // no-op while the studio tab/iframe is absent).
+
+    // THEME-APP-PREVIEW-1 (d): while sync is ON the badge shows the PANEL preset
+    // (dashboard-as-source), not the constructor one.
+    function getEffectivePresetKey(cfgPresetKey) {
+      if (isThemeSyncEnabled()) {
+        const panel = document.body.getAttribute('data-theme') || 'cyber';
+        const pal = APP_PALETTES[panel];
+        if (pal && APP_THEME_PRESETS[pal.style]) return pal.style;
+      }
+      return cfgPresetKey;
+    }    registerPreviewThemeListener(() => {
+      try {
+        updateLivePreviewThemeAndLayout();
+      } catch (_) {}
+    });
 
     window.setStudioLayout = setStudioLayout;
     window.setStudioPalette = setStudioPalette;
@@ -1790,7 +1810,7 @@ export let currentAppLayout = 'console';
           'minimal-light': 'Minimal Light'
         };
         const badgeEl = document.getElementById('appPresetBadge');
-        if (badgeEl) badgeEl.textContent = presetTitles[presetKey] || presetKey;
+        if (badgeEl) badgeEl.textContent = presetTitles[getEffectivePresetKey(presetKey)] || presetKey;
 
         try {
           const infoRes = await adminFetch('/api/app-builder/info');
@@ -2520,7 +2540,7 @@ export let currentAppLayout = 'console';
         'minimal-light': 'Minimal Light'
       };
       const badgeEl = document.getElementById('appPresetBadge');
-      if (badgeEl) badgeEl.textContent = presetTitles[presetKey] || presetKey;
+      if (badgeEl) badgeEl.textContent = presetTitles[getEffectivePresetKey(presetKey)] || presetKey;
 
       const chips = {
         'cyber-blue': document.getElementById('chipAppPresetCyber'),
