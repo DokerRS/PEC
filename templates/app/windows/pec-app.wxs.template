@@ -10,7 +10,7 @@
     <Package InstallerVersion="200"
              Compressed="yes"
              InstallScope="perMachine"
-             Platform="x64"
+            
              Comments="PEC-App Windows Enterprise Client" />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of {{APP_NAME}} is already installed." />
@@ -23,7 +23,7 @@
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="PEC-App">
           <Component Id="C_PECAppExe" Guid="*" Win64="yes">
-            <File Id="F_PECAppExe" Source="{{SOURCE_DIR}}/PEC-App.exe" KeyPath="yes">
+            <File Id="F_PECAppExe" Source="PEC-App.exe" KeyPath="yes">
               <Shortcut Id="S_PECAppMenu"
                         Directory="ProgramMenuDir"
                         Name="PEC-App"
@@ -35,7 +35,7 @@
           </Component>
 
           <Component Id="C_PECAppSvc" Guid="*" Win64="yes">
-            <File Id="F_PECAppSvc" Source="{{SOURCE_DIR}}/PECAppSvc.exe" KeyPath="yes" />
+            <File Id="F_PECAppSvc" Source="PECAppSvc.exe" KeyPath="yes" />
             <ServiceInstall Id="SvcInstall"
                             Type="ownProcess"
                             Name="PECAppSvc"
@@ -54,23 +54,23 @@
           </Component>
 
           <Component Id="C_PECCliExe" Guid="*" Win64="yes">
-            <File Id="F_PECCliExe" Source="{{SOURCE_DIR}}/PEC-CLI.exe" KeyPath="yes" />
+            <File Id="F_PECCliExe" Source="PEC-CLI.exe" KeyPath="yes" />
           </Component>
 
           <Component Id="C_PECAppCoreDll" Guid="*" Win64="yes">
-            <File Id="F_PECAppCoreDll" Source="{{SOURCE_DIR}}/PECAppCore.dll" KeyPath="yes" />
+            <File Id="F_PECAppCoreDll" Source="PECAppCore.dll" KeyPath="yes" />
           </Component>
 
           <Component Id="C_WinDivertDll" Guid="*" Win64="yes">
-            <File Id="F_WinDivertDll" Source="{{SOURCE_DIR}}/WinDivert.dll" KeyPath="yes" />
+            <File Id="F_WinDivertDll" Source="WinDivert.dll" KeyPath="yes" />
           </Component>
 
           <Component Id="C_WinDivert64Sys" Guid="*" Win64="yes">
-            <File Id="F_WinDivert64Sys" Source="{{SOURCE_DIR}}/WinDivert64.sys" KeyPath="yes" />
+            <File Id="F_WinDivert64Sys" Source="WinDivert64.sys" KeyPath="yes" />
           </Component>
 
           <Component Id="C_Profile" Guid="*" Win64="yes">
-            <File Id="F_Profile" Source="{{SOURCE_DIR}}/pec_profile.pbprofile" KeyPath="yes" />
+            <File Id="F_Profile" Source="pec_profile.pbprofile" KeyPath="yes" />
           </Component>
 
           <Component Id="C_RegistryConfig" Guid="*" Win64="yes">
@@ -94,7 +94,7 @@
       </Directory>
     </Directory>
 
-    <Icon Id="AppIcon.ico" SourceFile="{{SOURCE_DIR}}/AppIcon.ico" />
+    <Icon Id="AppIcon.ico" SourceFile="AppIcon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
 
     <Feature Id="ProductFeature" Title="PEC-App" Level="1">

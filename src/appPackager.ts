@@ -837,7 +837,7 @@ export function renderWxsManifest(cfg: AppBuildConfig, baseUrl: string, sourceDi
     templateContent = `<?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="{{APP_NAME}}" Language="1033" Version="{{VERSION}}" Manufacturer="{{PUBLISHER}}" UpgradeCode="{{UPGRADE_CODE}}">
-    <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" Platform="x64" Comments="PEC-App Windows Enterprise Client" />
+    <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" Comments="PEC-App Windows Enterprise Client" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of {{APP_NAME}} is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <Property Id="SERVER_URL" Value="{{SERVER_URL}}" />
@@ -846,29 +846,29 @@ export function renderWxsManifest(cfg: AppBuildConfig, baseUrl: string, sourceDi
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="PEC-App">
           <Component Id="C_PECAppExe" Guid="*" Win64="yes">
-            <File Id="F_PECAppExe" Source="{{SOURCE_DIR}}/PEC-App.exe" KeyPath="yes">
+            <File Id="F_PECAppExe" Source="PEC-App.exe" KeyPath="yes">
               <Shortcut Id="S_PECAppMenu" Directory="ProgramMenuDir" Name="PEC-App" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon.ico" IconIndex="0" Advertise="yes" />
             </File>
           </Component>
           <Component Id="C_PECAppSvc" Guid="*" Win64="yes">
-            <File Id="F_PECAppSvc" Source="{{SOURCE_DIR}}/PECAppSvc.exe" KeyPath="yes" />
+            <File Id="F_PECAppSvc" Source="PECAppSvc.exe" KeyPath="yes" />
             <ServiceInstall Id="SvcInstall" Type="ownProcess" Name="PECAppSvc" DisplayName="PEC-App Service" Description="Privileged traffic-redirection engine for PEC-App." Start="auto" Account="LocalSystem" ErrorControl="normal" Vital="yes" />
             <ServiceControl Id="SvcControl" Name="PECAppSvc" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
           </Component>
           <Component Id="C_PECCliExe" Guid="*" Win64="yes">
-            <File Id="F_PECCliExe" Source="{{SOURCE_DIR}}/PEC-CLI.exe" KeyPath="yes" />
+            <File Id="F_PECCliExe" Source="PEC-CLI.exe" KeyPath="yes" />
           </Component>
           <Component Id="C_PECAppCoreDll" Guid="*" Win64="yes">
-            <File Id="F_PECAppCoreDll" Source="{{SOURCE_DIR}}/PECAppCore.dll" KeyPath="yes" />
+            <File Id="F_PECAppCoreDll" Source="PECAppCore.dll" KeyPath="yes" />
           </Component>
           <Component Id="C_WinDivertDll" Guid="*" Win64="yes">
-            <File Id="F_WinDivertDll" Source="{{SOURCE_DIR}}/WinDivert.dll" KeyPath="yes" />
+            <File Id="F_WinDivertDll" Source="WinDivert.dll" KeyPath="yes" />
           </Component>
           <Component Id="C_WinDivert64Sys" Guid="*" Win64="yes">
-            <File Id="F_WinDivert64Sys" Source="{{SOURCE_DIR}}/WinDivert64.sys" KeyPath="yes" />
+            <File Id="F_WinDivert64Sys" Source="WinDivert64.sys" KeyPath="yes" />
           </Component>
           <Component Id="C_Profile" Guid="*" Win64="yes">
-            <File Id="F_Profile" Source="{{SOURCE_DIR}}/pec_profile.pbprofile" KeyPath="yes" />
+            <File Id="F_Profile" Source="pec_profile.pbprofile" KeyPath="yes" />
           </Component>
           <Component Id="C_RegistryConfig" Guid="*" Win64="yes">
             <RegistryKey Root="HKLM" Key="Software\\PEC-App">
@@ -889,7 +889,7 @@ export function renderWxsManifest(cfg: AppBuildConfig, baseUrl: string, sourceDi
         </Directory>
       </Directory>
     </Directory>
-    <Icon Id="AppIcon.ico" SourceFile="{{SOURCE_DIR}}/AppIcon.ico" />
+    <Icon Id="AppIcon.ico" SourceFile="AppIcon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
     <Feature Id="ProductFeature" Title="PEC-App" Level="1">
       <ComponentRef Id="C_PECAppExe" />
@@ -1233,7 +1233,11 @@ export function assembleAppPackage(
       fs.copyFileSync(fallbackMsi, finalMsiPath);
       fs.copyFileSync(fallbackMsi, versionedMsiPath);
       winZip.addLocalFile(finalMsiPath, "", "PEC-App.msi");
-      log(`[MSI] Used pre-compiled verified release template for PEC-App.msi (${Math.round(fs.statSync(fallbackMsi).size / 1024)} KB)`);
+      const fallbackMsg = `[MSI] Used pre-compiled verified release template for PEC-App.msi (${Math.round(fs.statSync(fallbackMsi).size / 1024)} KB)`;
+      log(fallbackMsg);
+      // MSI-SILENT-1 (e): the route-level logger may not reach stdout when
+      // called from a route — mirror to console so docker logs show it.
+      console.log(`[MSI WARN] ${fallbackMsg} (fallback: on-demand build unavailable)`);
     } else {
       log(`[MSI WARN] MSI build failed (${msiBuildRes.error || "WiX not available"}) and no pre-compiled fallback found`);
     }
@@ -3002,9 +3006,16 @@ export function buildAppBinaries(customVersion?: string): BuildAppBinariesResult
     fs.writeFileSync(defaultProfile, JSON.stringify(buildAppProfile(cfg, "http://127.0.0.1:3000"), null, 2));
   } catch {}
 
+    // MSI-SILENT-1 (a): never skip silently — log when wixl is unavailable.
+  if (!toolchain.hasWixl) {
+    log("[MSI WARN] MSI build skipped: wixl not found (install msitools/wixl in the container)");
+  }
   if (toolchain.hasWixl) {
     try {
-      const msiRes = buildMsiPackage(cfg, "http://127.0.0.1:3000", winTemplatesDir, destMsi);
+      // MSI-SILENT-1 (c): real effective server URL instead of the 127.0.0.1 stub
+      const envPublic = (process.env.PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+      const msiBaseUrl = envPublic || cfg.defaultServerUrl || "http://127.0.0.1:3000";
+      const msiRes = buildMsiPackage(cfg, msiBaseUrl, winTemplatesDir, destMsi);
       if (msiRes.success && fs.existsSync(destMsi)) {
         if (!builtFiles.includes("PEC-App.msi")) builtFiles.push("PEC-App.msi");
         if (!process.env.PEC_TEMPLATES_DIR) {
@@ -3013,7 +3024,7 @@ export function buildAppBinaries(customVersion?: string): BuildAppBinariesResult
             try { fs.copyFileSync(destMsi, rootMsi); } catch {}
           }
         }
-        log(`[MSI] Enterprise MSI installer package built successfully (${Math.round(fs.statSync(destMsi).size / 1024)} KB)`);
+        log(`[MSI] Enterprise MSI installer package built successfully (${Math.round(fs.statSync(destMsi).size / 1024)} KB, serverUrl=${msiBaseUrl})`);
       }
     } catch (msiErr: any) {
       log(`[MSI WARN] On-demand MSI compilation skipped: ${msiErr?.message || msiErr}`);

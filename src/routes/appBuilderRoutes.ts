@@ -628,6 +628,15 @@ export function createAppBuilderRouter(
         }
 
         if (msiPath) {
+          // MSI-SILENT-1 (e): mark a fallback to the static template artifact
+          if (msiPath.includes("templates")) {
+            console.warn(
+              "[MSI WARN] Serving the pre-compiled template PEC-App.msi - on-demand build did not produce a fresh versioned MSI. Run build-binaries with wixl available (msitools) to get a real installer."
+            );
+            res.setHeader("X-PEC-MSI-Source", "template-fallback");
+          } else {
+            res.setHeader("X-PEC-MSI-Source", "on-demand-build");
+          }
           return res.download(msiPath, `PEC-App-${ver}.msi`);
         }
         return res.status(404).json({
