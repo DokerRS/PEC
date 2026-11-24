@@ -2,6 +2,20 @@
 
 Все заметные изменения в проекте **PEC - Proxy Extension Corp** документируются в этом файле.
 
+## [v1.0.2] - 2026-11-25
+
+Второй патч официального релиза (fixes-by-feedback).
+
+### ✨ Добавлено
+- **REL-OBS-1 (observability канала обновлений)**: закрывает час путаницы «собрал ≠ опубликовано ≠ установлено» (инцидент 1.0.19→1.0.20).
+  - API `GET /api/releases/update-channel` (admin): версия из живого `/updates/updates.xml` (updatecheck-anchored parse — декларационный `version='1.0'` больше не матчится), `crxSha256`/`crxSize` из байт CRX на диске, `publishedAt`, `updatesXmlUrl` (+absolute), флаг `matchesRecorded` — сверка с записанным релизом (`releases_meta.json`, без дублирования источника).
+  - Панель, вкладка Релизы: карточка «Канал обновлений расширения» — версия, дата публикации, SHA-256/размер CRX, curl-линк с копированием, MISMATCH-баннер + бейдж «matches recorded» (RU/EN).
+  - Golden-тест `updateChannel.test.ts` 5/5: API-схема, mismatch/match, 401, DOM-карточка + i18n-паритет словарей.
+
+### 🔧 Исправления
+- **GEO-PRESET-EDIT-1(+1b)**: редактирование geo-пресетов — модальное окно редактирования, delete/confirm, remote refresh; инспектор delete-selected; покрытие тестами 5/5.
+- **Документация GPO**: шпаргалка восстановления канала обновления в README-GPO (EXT-PREF-DEPLOY-1 part b/c/d) + Edge policy-channel наблюдение.
+
 ## [v1.0.1] - 2026-11-24
 
 Первый патч официального релиза (fixes-by-feedback).
