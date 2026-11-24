@@ -63,8 +63,16 @@ export async function loadAdStatus() {
         badgeStatus.className = 'badge badge-danger';
         badgeStatus.textContent = isRu ? 'Ошибка синхронизации' : 'Sync Error';
         badgeStatus.title = data.lastSyncError;
+        // AD-DX-1: show the classified error (phase/kind/data + hint) inline
+        const errDetail = document.getElementById('adErrorDetail');
+        if (errDetail) {
+          errDetail.textContent = data.lastSyncError;
+          errDetail.style.display = 'block';
+        }
       } else {
         badgeStatus.className = 'badge badge-online';
+        const errDetailHide = document.getElementById('adErrorDetail');
+        if (errDetailHide) errDetailHide.style.display = 'none';
         badgeStatus.textContent = isRu ? 'Активно / В сети' : 'Active / Online';
         badgeStatus.title = '';
       }

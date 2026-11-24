@@ -1646,6 +1646,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
               <span id="lblAdUsersCount" class="badge" style="margin-left: 4px;" title="Идентификаторы = логин + UPN + почта для матчинга входа">0</span>
             </div>
           </div>
+          <div id="adErrorDetail" style="display: none; margin-top: 8px; padding: 8px 10px; background: rgba(224, 82, 82, 0.08); border: 1px solid rgba(224, 82, 82, 0.3); border-radius: 6px; font-size: 12px; color: var(--danger); white-space: pre-wrap;"></div>
         </div>
 
         <div style="background: rgba(16, 185, 129, 0.08); border-left: 3px solid #10b981; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 11px; line-height: 1.5;">

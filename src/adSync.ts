@@ -147,6 +147,47 @@ export class AdSyncService {
    * tlsOptions are present — reproduced on production via three-variant
    * bisection. See observations.md [runtime].
    */
+  /**
+   * AD-DX-1: classify an AD error into {phase, kind, code, data, hint}.
+   * phase: connect (TLS/socket) | bind (auth) | search (query execution).
+   * kind: network (transport-level) vs ldap (server-returned diagnostic).
+   * data: AD win32 data suffix (52e/533/532/775/525) extracted from the
+   * message; hint: human-readable remediation.
+   */
+  public classifyAdError(err: any, phase: "connect" | "bind" | "search"): {
+    phase: "connect" | "bind" | "search";
+    kind: "network" | "ldap";
+    code?: string;
+    data?: string;
+    hint?: string;
+    message: string;
+  } {
+    const message = err instanceof Error ? err.message : String(err || "");
+    const code = String(err?.code || err?.larCode || "").trim();
+    const isNetwork =
+      /ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENOTFOUND|socket|timeout|TLS|certificate/i.test(message) ||
+      /^E[0-9A-Z]+$/.test(code);
+    const kind: "network" | "ldap" = isNetwork ? "network" : "ldap";
+    const dataMatch = message.match(/data ([0-9a-f]{3,4})/i);
+    const data = dataMatch ? dataMatch[1] : undefined;
+    const HINTS: Record<string, string> = {
+      "52e": "Неверный пароль или блокировка политикой паролей AD — проверьте bindPassword / парольную политику DC",
+      "533": "Учётная запись отключена в AD — проверьте bindDn в Active Directory Users and Computers",
+      "532": "Пароль учётной записи истёк — обновите bindPassword",
+      "775": "Учётная запись заблокирована — разблокируйте в AD",
+      "525": "Учётная запись не найдена — проверьте bindDn (должен быть DN, а не логин)",
+    };
+    const hint = data ? HINTS[data.toLowerCase()] : undefined;
+    return { phase, kind, code: code || undefined, data, hint, message };
+  }
+
+  /**
+   * AD-DX-1 (b): safe query-parameter digest for logs — NO password fields.
+   */
+  public describeQuery(base: string, scope: string, filter: string, attributes: string[]): string {
+    return `base=${base || "<empty>"}, scope=${scope}, filter=${filter}, attributes=[${attributes.join(", ")}]`;
+  }
+
   public buildClientOptions(url: string, tlsRejectUnauthorized: boolean, timeoutMs: number) {
     const options: {
       url: string;
@@ -183,7 +224,14 @@ export class AdSyncService {
 
       return { ok: true, message: "Connected successfully" };
     } catch (err: any) {
-      const msg = err instanceof Error ? err.message : String(err);
+      // AD-DX-1: classify the failure — bind phase (test = connect + bind only)
+      const cls = this.classifyAdError(err, "bind");
+      const msg = cls.hint
+        ? `${cls.message} [phase=${cls.phase}, kind=${cls.kind}${cls.data ? ", data=" + cls.data : ""}] — ${cls.hint}`
+        : (cls.kind === "network"
+          ? `${cls.message} [phase=connect, kind=network] — проверьте URL/порт и сетевую доступность DC`
+          : cls.message);
+      logger.warn(`[adSync] testConnection failed: ${msg}`);
       return { ok: false, error: msg };
     } finally {
       if (client) {
@@ -243,16 +291,20 @@ export class AdSyncService {
         filter = `(&(objectCategory=person)(objectClass=user)(memberOf:1.2.840.113556.1.4.1941:=${escapeLdapFilter(groupDn)}))`;
       }
 
+      const searchAttrs = [
+        "sAMAccountName",
+        "userPrincipalName",
+        "userAccountControl",
+        "mail",
+        "displayName",
+      ];
+      // AD-DX-1 (b): log what exactly goes to AD (no passwords here)
+      logger.info(`[adSync] Query: ${this.describeQuery(this.config.searchBase || "", "sub", filter, searchAttrs)}`);
+
       const searchResults = await client.search(this.config.searchBase || "", {
         scope: "sub",
         filter,
-        attributes: [
-          "sAMAccountName",
-          "userPrincipalName",
-          "userAccountControl",
-          "mail",
-          "displayName",
-        ],
+        attributes: searchAttrs,
       });
 
       const newSet = new Set<string>();
@@ -311,7 +363,13 @@ export class AdSyncService {
       logger.info(`[adSync] AD sync complete: ${this.allowedUsersSet.size} active users allowed.`);
       return { success: true, count: this.allowedUsersSet.size };
     } catch (err: any) {
-      const msg = err instanceof Error ? err.message : String(err);
+      // AD-DX-1: classify the failure (client.bind already succeeded -> search;
+      // network errors surface as connect/bind phases by message shape)
+      const cls = this.classifyAdError(err, "search");
+      const phase = cls.kind === "network" ? "connect" : "bind";
+      const msg = cls.hint
+        ? `${cls.message} [phase=${phase}, kind=${cls.kind}${cls.data ? ", data=" + cls.data : ""}] — ${cls.hint}`
+        : cls.message;
       this.lastSyncError = msg;
       logger.error("[adSync] Active Directory sync failure (keeping previous cache active):", msg);
       // Fault tolerance: do NOT wipe out existing cache upon DC failure
