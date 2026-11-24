@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { getReleasesDir } from "../storage.js";
 import {
   getAllReleases,
+  getActiveRelease,
   setActiveRelease,
   deleteRelease,
 } from "../releases.js";
@@ -109,6 +110,70 @@ export function createReleasesRouter(
       activeExtensionVersion: store.activeExtensionVersion,
       activeAppVersion: store.activeAppVersion,
       releases: store.releases,
+    });
+  });
+
+  // REL-OBS-1: observability of the extension update channel — kills the
+  // "built != published != installed" confusion by reporting the LIVE facts
+  // from /updates/updates.xml + the CRX bytes on disk, cross-checked against
+  // the recorded release metadata (data/releases_meta.json).
+  router.get("/api/releases/update-channel", adminAuthMiddleware, (_req: Request, res: Response) => {
+    const updatesDir = path.resolve(process.env.PEC_UPDATES_DIR || "./dist/updates");
+    const xmlPath = path.join(updatesDir, "updates.xml");
+    const crxPath = path.join(updatesDir, "extension.crx");
+    const crxPathAlt = path.join(updatesDir, "pec-extension.crx");
+
+    const crxFinal = fs.existsSync(crxPath) ? crxPath : fs.existsSync(crxPathAlt) ? crxPathAlt : null;
+    const xmlExists = fs.existsSync(xmlPath);
+    if (!xmlExists || !crxFinal) {
+      return res.json({
+        ok: true,
+        exists: false,
+        reason: !xmlExists ? "updates.xml not found in the updates directory" : "extension.crx not found in the updates directory",
+      });
+    }
+
+    // Parse the live gupdate manifest: version + codebase the browsers actually see.
+    // Anchored to <updatecheck ...> so the XML declaration's version='1.0'
+    // never matches first.
+    let extensionVersion = "";
+    let codebase = "";
+    try {
+      const xml = fs.readFileSync(xmlPath, "utf-8");
+      extensionVersion = xml.match(/updatecheck[^>]*\bversion=['"]([^'"]+)['"]/)?.[1] || "";
+      codebase = xml.match(/updatecheck[^>]*\bcodebase=['"]([^'"]+)['"]/)?.[1] || "";
+    } catch {}
+
+    const crxBuffer = fs.readFileSync(crxFinal);
+    const crxSha256 = crypto.createHash("sha256").update(crxBuffer).digest("hex");
+    const crxSize = crxBuffer.length;
+    const publishedAt = fs.statSync(xmlPath).mtime.toISOString();
+
+    // Cross-check against the recorded release (built artifact), when present.
+    const recorded = getActiveRelease("extension");
+    const matchesRecorded = recorded ? recorded.sha256 === crxSha256 : null;
+
+    const envPublicBase = (process.env.PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+    const updatesXmlUrl = "/updates/updates.xml";
+    const updatesXmlAbsUrl = (envPublicBase || codebase.replace(/\/updates\/extension\.crx$/, "") || "") + updatesXmlUrl;
+
+    res.json({
+      ok: true,
+      exists: true,
+      channel: {
+        extensionVersion,
+        crxSha256,
+        crxSize,
+        publishedAt,
+        updatesXmlUrl,
+        updatesXmlAbsUrl,
+        codebase,
+        crxUrl: updatesXmlAbsUrl.replace(/updates\.xml$/, "extension.crx"),
+        matchesRecorded,
+      },
+      recorded: recorded
+        ? { version: recorded.version, sha256: recorded.sha256, builtAt: recorded.builtAt }
+        : null,
     });
   });
 

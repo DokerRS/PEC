@@ -1790,6 +1790,25 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
         </div>
       </div>
 
+      <div class="card" id="updateChannelCard" style="margin-bottom: 20px; border-left: 4px solid var(--success, #10b981); background: var(--card-bg);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div>
+            <h2 style="margin-bottom: 4px;" data-i18n="titleUpdateChannel">Канал обновлений расширения</h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin: 0;" data-i18n="descUpdateChannel">
+              Живые факты из /updates/updates.xml — что реально получают управляемые браузеры, сверено с записанным релизом.
+            </p>
+          </div>
+          <div>
+            <button onclick="loadUpdateChannel()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 8px; font-weight: 600;">
+              🔄 Обновить канал
+            </button>
+          </div>
+        </div>
+        <div id="updateChannelBody" style="margin-top: 14px; font-size: 13px; color: var(--text-muted);">
+          <span style="color: var(--text-muted);">…</span>
+        </div>
+      </div>
+
       <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
           <h2>

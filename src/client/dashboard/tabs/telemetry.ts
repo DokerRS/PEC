@@ -1839,8 +1839,77 @@ export let currentReleasesList = [];
 export let currentActiveExtVer = '';
 export let currentActiveAppVer = '';
 
+    // REL-OBS-1: live facts of the extension update channel (what managed
+    // browsers actually receive from /updates/updates.xml, cross-checked
+    // with the recorded release) - kills the "built != published" confusion.
+    export async function loadUpdateChannel() {
+      const body = document.getElementById('updateChannelBody');
+      if (!body) return;
+      const isRu = currentLang === 'ru';
+      try {
+        const res = await adminFetch('/api/releases/update-channel');
+        const data = await res.json();
+        if (!data.ok) {
+          body.innerHTML = `<span style="color: var(--danger, #ef4444);">HTTP ${res.status}</span>`;
+          return;
+        }
+        if (!data.exists) {
+          body.innerHTML = `<span style="color: var(--warning, #f59e0b);">${isRu
+            ? 'Канал обновлений не найден: ' + esc(data.reason || '') + '. Соберите и опубликуйте расширение в Конструкторе.'
+            : 'Update channel not found: ' + esc(data.reason || '') + '. Build and publish the extension in the Builder.'}</span>`;
+          return;
+        }
+        const ch = data.channel;
+        const recordedRows = data.recorded
+          ? `<div style="margin-top: 10px; font-size: 12px;">
+               <span style="color: var(--text-muted);">${isRu ? 'Записанный релиз' : 'Recorded release'}:</span>
+               v${esc(data.recorded.version)} · ${esc(String(data.recorded.builtAt || ''))} · sha256 ${esc(String(data.recorded.sha256 || '')).slice(0, 16)}…
+             </div>`
+          : '';
+        const mismatchBanner = ch.matchesRecorded === false
+          ? `<div class="badge" style="margin-top: 10px; padding: 8px 12px; background: rgba(239, 68, 68, 0.12); color: var(--danger, #ef4444); border: 1px solid var(--danger, #ef4444); border-radius: 6px; white-space: normal;" data-i18n="lblChMismatch">${isRu ? 'РАСХОЖДЕНИЕ: опубликованный CRX отличается от записанной сборки — пересоберите и опубликуйте заново.' : 'MISMATCH: the published CRX differs from the recorded build — rebuild and republish.'}</div>`
+          : '';
+        const okBadge = ch.matchesRecorded === true
+          ? `<span class="badge badge-success" style="margin-left: 8px;">✓ ${isRu ? 'совпадает с записанным' : 'matches recorded'}</span>`
+          : '';
+        body.innerHTML = `
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px;">
+            <div><span style="color: var(--text-muted);" data-i18n="lblChVer">${isRu ? 'Версия в updates.xml' : 'Version in updates.xml'}</span>
+              <div style="font-weight: 600; color: var(--text); margin-top: 2px;">v${esc(ch.extensionVersion) || '—'}${okBadge}</div></div>
+            <div><span style="color: var(--text-muted);" data-i18n="lblChPublished">${isRu ? 'Опубликовано' : 'Published'}</span>
+              <div style="font-weight: 600; color: var(--text); margin-top: 2px;">${esc(String(ch.publishedAt || '').replace('T', ' ').slice(0, 19))}</div></div>
+            <div><span style="color: var(--text-muted);" data-i18n="lblChSha">${isRu ? 'SHA-256 CRX' : 'CRX SHA-256'}</span>
+              <div style="font-weight: 600; color: var(--text); margin-top: 2px; word-break: break-all; font-family: monospace; font-size: 12px;">${esc(ch.crxSha256)}</div></div>
+            <div><span style="color: var(--text-muted);" data-i18n="lblChSize">${isRu ? 'Размер CRX' : 'CRX size'}</span>
+              <div style="font-weight: 600; color: var(--text); margin-top: 2px;">${Number(ch.crxSize || 0).toLocaleString()} ${isRu ? 'байт' : 'bytes'}</div></div>
+          </div>
+          <div style="margin-top: 10px;">
+            <span style="color: var(--text-muted);" data-i18n="lblChXmlUrl">${isRu ? 'URL updates.xml' : 'updates.xml URL'}</span>
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px; flex-wrap: wrap;">
+              <a id="updateChannelXmlUrl" href="${esc(ch.updatesXmlAbsUrl || ch.updatesXmlUrl)}" target="_blank" rel="noopener noreferrer" style="font-family: monospace; font-size: 12px; word-break: break-all; color: var(--primary);">${esc(ch.updatesXmlAbsUrl || ch.updatesXmlUrl)}</a>
+              <button class="btn btn-secondary" style="font-size: 11px; padding: 2px 10px;" onclick="copyUpdateChannelUrl()" data-i18n="btnChCopy">${isRu ? 'Копировать URL updates.xml' : 'Copy updates.xml URL'}</button>
+            </div>
+            <div style="margin-top: 4px; font-size: 11px; color: var(--text-muted); font-family: monospace;">curl -s &lt;URL&gt; | grep version</div>
+          </div>
+          ${recordedRows}
+          ${mismatchBanner}
+        `;
+      } catch (err) {
+        body.innerHTML = `<span style="color: var(--danger, #ef4444);">${isRu ? 'Ошибка загрузки канала обновлений: ' : 'Failed to load the update channel: '}${esc(String(err))}</span>`;
+      }
+    }
+
+    export async function copyUpdateChannelUrl() {
+      const el = document.getElementById('updateChannelXmlUrl');
+      const url = el ? (el as HTMLAnchorElement).href : '';
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch {}
+    }
+
     export async function loadReleases() {
       try {
+        await loadUpdateChannel();
         const res = await adminFetch('/api/releases');
         if (!res.ok) {
           console.warn('Failed to load releases:', res.status);
