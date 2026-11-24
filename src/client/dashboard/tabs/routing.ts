@@ -67,6 +67,9 @@ export async function loadPresets() {
         <div>
           <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin-bottom: 4px;">
             <h4 style="margin: 0; font-size: 13px; font-weight: 600;">${esc(p.name)}</h4>
+            ${p.source !== 'builtin' ? '<button type="button" class="btn-icon btn-edit-preset" data-id="' + esc(p.id) + '" style="font-size: 11px; padding: 2px 5px; line-height: 1;">✏️</button>' : ''}
+            ${p.source === 'remote' ? '<button type="button" class="btn-icon btn-refresh-preset" data-id="' + esc(p.id) + '" style="font-size: 11px; padding: 2px 5px; line-height: 1;">🔄</button>' : ''}
+            ${p.source !== 'builtin' ? '<button type="button" class="btn-icon btn-delete-preset" data-id="' + esc(p.id) + '" style="font-size: 11px; padding: 2px 5px; line-height: 1;">🗑</button>' : ''}
             <button type="button" class="btn-icon btn-inspect-geobase" data-id="${esc(p.id)}" title="${isRu ? 'Инспектор пресета' : 'Inspect Preset'}" style="font-size: 11px; padding: 2px 5px; line-height: 1;"><img src="/icons/search.png" class="icon-inline-sm" alt="inspect"></button>
           </div>
           <p style="margin: 0 0 6px 0;">${esc(p.description)} (${count} ${isRu ? 'записей' : 'entries'})</p>
@@ -918,3 +921,160 @@ export async function deleteCurrentProfile() {
 registerModalCloser('modalEditRule', closeEditRuleModal);
 registerModalCloser('modalGeobaseInspector', closeGeobaseInspector);
 registerModalCloser('modalImportPresets', closeImportPresetsModal);
+
+// ============================================================================
+// GEO-PRESET-EDIT-1: editing / deletion / refresh of geo-presets in the UI.
+// POST /api/routing/presets is an upsert keyed by id — the payload MUST
+// re-send the existing source/sourceUrl/sourceTag, otherwise the server
+// resets them to the default 'file' source (routingRoutes source merge).
+// ============================================================================
+
+let editingPreset: any = null;
+
+function isBuiltinPreset(p: any): boolean {
+  return p && p.source === 'builtin';
+}
+
+export function openPresetEditModal(presetId: string) {
+  const preset = (lastLoadedPresets || []).find((p: any) => p.id === presetId);
+  if (!preset) { toast('Пресет не найден', 'error'); return; }
+  if (isBuiltinPreset(preset)) {
+    toast(isRuGlobal() ? 'Builtin-пресеты нельзя редактировать' : 'Built-in presets cannot be edited', 'error');
+    return;
+  }
+  editingPreset = preset;
+
+  const modal = document.getElementById('modalPresetEdit');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  const nameEl = document.getElementById('presetEditName') as HTMLInputElement | null;
+  const descEl = document.getElementById('presetEditDescription') as HTMLTextAreaElement | null;
+  const typeBadge = document.getElementById('presetEditTypeBadge');
+  const typeInput = document.getElementById('presetEditType') as HTMLInputElement | null;
+  const entriesEl = document.getElementById('presetEditEntries') as HTMLTextAreaElement | null;
+  const errEl = document.getElementById('presetEditError');
+
+  if (nameEl) nameEl.value = preset.name || '';
+  if (descEl) descEl.value = preset.description || '';
+  if (typeBadge) typeBadge.textContent = preset.type || 'domain';
+  if (typeInput) typeInput.value = preset.type || 'domain';
+  if (entriesEl) entriesEl.value = (preset.entries || preset.domains || []).join('\n');
+  if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
+}
+
+export function closePresetEditModal() {
+  const modal = document.getElementById('modalPresetEdit');
+  if (modal) modal.style.display = 'none';
+  editingPreset = null;
+}
+
+export async function savePresetEdit() {
+  if (!editingPreset) return;
+  const isRu = state.currentLang === 'ru';
+  const nameEl = document.getElementById('presetEditName') as HTMLInputElement | null;
+  const descEl = document.getElementById('presetEditDescription') as HTMLTextAreaElement | null;
+  const entriesEl = document.getElementById('presetEditEntries') as HTMLTextAreaElement | null;
+  const errEl = document.getElementById('presetEditError');
+
+  const showErr = (msg: string) => {
+    if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+    toast(msg, 'error');
+  };
+
+  const name = (nameEl?.value || '').trim();
+  if (!name) { showErr(isRu ? 'Укажите название пресета' : 'Preset name is required'); return; }
+
+  const entries = (entriesEl?.value || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (!entries.length) { showErr(isRu ? 'Список записей пуст' : 'Entries list is empty'); return; }
+
+  // ⚠️ GEO-PRESET-EDIT-1: re-send the original source fields — POST resets
+  // missing source/sourceUrl/sourceTag to the default 'file'.
+  const payload: Record<string, any> = {
+    id: editingPreset.id,
+    name,
+    description: (descEl?.value || '').trim(),
+    type: editingPreset.type || 'domain',
+    entries,
+    domains: entries,
+  };
+  for (const k of ['source', 'sourceUrl', 'sourceTag']) {
+    if (editingPreset[k] !== undefined && editingPreset[k] !== null) payload[k] = editingPreset[k];
+  }
+
+  try {
+    const res = await adminFetch('/api/routing/presets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // 400 = MAX_ROUTING_PRESET_ENTRIES exceeded or validation error
+      showErr(data.error || ('HTTP ' + res.status));
+      return;
+    }
+    closePresetEditModal();
+    toast(isRu ? 'Пресет сохранён' : 'Preset saved', 'success');
+    await loadPresets();
+  } catch (e: any) {
+    showErr(e?.message || 'Save failed');
+  }
+}
+
+export async function deletePresetWithConfirm(presetId: string) {
+  const preset = (lastLoadedPresets || []).find((p: any) => p.id === presetId);
+  if (!preset) return;
+  if (isBuiltinPreset(preset)) {
+    toast(isRuGlobal() ? 'Builtin-пресеты нельзя удалять' : 'Built-in presets cannot be deleted', 'error');
+    return;
+  }
+  const isRu = state.currentLang === 'ru';
+  const ok = await pecConfirm({
+    title: isRu ? 'Удалить пресет?' : 'Delete preset?',
+    message: (isRu ? 'Пресет «' : 'Preset "') + (preset.name || presetId) + (isRu ? '" будет удалён безвозвратно.' : '" will be deleted permanently.'),
+    isDanger: true,
+    confirmText: isRu ? 'Удалить' : 'Delete',
+  });
+  if (!ok) return;
+
+  try {
+    const res = await adminFetch('/api/routing/presets/' + encodeURIComponent(presetId), { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      toast(data.error || ('HTTP ' + res.status), 'error');
+      return;
+    }
+    toast(isRu ? 'Пресет удалён' : 'Preset deleted', 'success');
+    await loadPresets();
+  } catch (e: any) {
+    toast(e?.message || 'Delete failed', 'error');
+  }
+}
+
+export async function refreshRemotePreset(presetId: string) {
+  const preset = (lastLoadedPresets || []).find((p: any) => p.id === presetId);
+  if (!preset || preset.source !== 'remote') return;
+  const isRu = state.currentLang === 'ru';
+  toast(isRu ? 'Обновление пресета...' : 'Refreshing preset...', 'info');
+  try {
+    const res = await adminFetch('/api/routing/presets/' + encodeURIComponent(presetId) + '/refresh', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast(data.error || ('HTTP ' + res.status), 'error');
+      return;
+    }
+    toast(isRu ? 'Пресет обновлён' : 'Preset refreshed', 'success');
+    await loadPresets();
+  } catch (e: any) {
+    toast(e?.message || 'Refresh failed', 'error');
+  }
+}
+
+let lastLoadedPresets: any[] = [];
+
+function isRuGlobal(): boolean { return state.currentLang === 'ru'; }

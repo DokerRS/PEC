@@ -2144,6 +2144,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           </select>
         </div>
         <div style="display: flex; gap: 8px;">
+          <button type="button" id="btnDeleteSelectedEntries" onclick="deleteInspectorSelectedEntries()" style="font-size: 12px;" data-i18n="btnDeleteSelectedEntries">🗑 Удалить выбранные записи</button>
           <button type="button" id="btnAddSelectedToProfile" onclick="addSelectedToProfile()" style="font-size: 12px;">Добавить выбранные в профиль</button>
           <button type="button" onclick="closeGeobaseInspector()" class="btn-secondary" style="font-size: 12px;">Закрыть</button>
         </div>
@@ -2152,7 +2153,40 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
   </div>
 
   <!-- Modal: Import Presets -->
-  <div id="modalImportPresets" class="modal-import-presets" style="display: none;">
+  
+  <!-- Modal: Edit Preset (GEO-PRESET-EDIT-1) -->
+  <div id="modalPresetEdit" class="modal-import-presets" style="display: none;">
+    <div class="modal-import-presets-content" style="background: var(--card-inner); color: var(--text);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+        <h2 style="margin: 0; font-size: 17px;" data-i18n="titleEditPreset">Edit Preset</h2>
+        <button type="button" onclick="closePresetEditModal()" class="btn-icon" title="Close" style="font-size: 18px; line-height: 1;">&times;</button>
+      </div>
+      <div id="presetEditError" style="display: none; margin-bottom: 12px; padding: 8px 10px; background: rgba(224, 82, 82, 0.08); border: 1px solid rgba(224, 82, 82, 0.3); border-radius: 6px; font-size: 12px; color: var(--danger);"></div>
+      <div style="margin-bottom: 12px;">
+        <label for="presetEditName" style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;" data-i18n="lblPresetEditName">Название пресета</label>
+        <input type="text" id="presetEditName" style="width: 100%; box-sizing: border-box;" />
+      </div>
+      <div style="margin-bottom: 12px;">
+        <span style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;" data-i18n="lblPresetEditType">Тип (read-only)</span>
+        <span id="presetEditTypeBadge" class="badge badge-action-proxy" style="font-size: 11px;"></span>
+        <input type="hidden" id="presetEditType" />
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label for="presetEditDescription" style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;" data-i18n="lblPresetEditDescription">Описание</label>
+        <input type="text" id="presetEditDescription" style="width: 100%; box-sizing: border-box;" />
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label for="presetEditEntries" style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;" data-i18n="lblPresetEditEntries">Записи (по одной на строку)</label>
+        <textarea id="presetEditEntries" rows="14" style="width: 100%; box-sizing: border-box; font-family: var(--mono, monospace); font-size: 12px; white-space: pre; resize: vertical;"></textarea>
+      </div>
+      <div style="display: flex; gap: 8px; justify-content: flex-end;">
+        <button type="button" id="btnCancelPresetEdit" class="btn-secondary" onclick="closePresetEditModal()" style="font-size: 12px;" data-i18n="btnCancel">Отмена</button>
+        <button type="button" id="btnSavePresetEdit" class="btn" style="font-size: 12px;" onclick="savePresetEdit()" data-i18n="btnSave">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+<div id="modalImportPresets" class="modal-import-presets" style="display: none;">
     <div class="modal-import-presets-content" style="background: var(--card-inner); color: var(--text);">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
         <div>
