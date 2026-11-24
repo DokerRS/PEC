@@ -342,6 +342,23 @@ export function generateGpoConfig(
       // ExtensionInstallSources with the same index (server URL + star)
       content += `[${root}\\${b.key}\\ExtensionInstallSources]`;
       content += `"${allowlistIndex}"="${installSourcesEntry}"\n\n`;
+
+      // EXT-PREF-DEPLOY-1: restore the browser's own per-extension update
+      // channel (Extensions\<id>\updateurl) — a deleted/missing branch
+      // breaks auto-update even when all policies are valid. Edge + Chrome
+      // policy hives, with WOW6432Node mirrors for 32-bit views.
+      content += `[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Edge\\Extensions\\${regEscape(extensionId)}]\n`;
+      content += `"updateurl"="${regEscape(updateUrl)}"\n\n`;
+
+      content += `[HKEY_LOCAL_MACHINE\\SOFTWARE\\Google\\Chrome\\Extensions\\${regEscape(extensionId)}]\n`;
+      content += `"updateurl"="${regEscape(updateUrl)}"\n\n`;
+
+      content += `[HKEY_LOCAL_MACHINE\\SOFTWARE\\WOW6432Node\\Microsoft\\Edge\\Extensions\\${regEscape(extensionId)}]\n`;
+      content += `"updateurl"="${regEscape(updateUrl)}"\n\n`;
+
+      content += `[HKEY_LOCAL_MACHINE\\SOFTWARE\\WOW6432Node\\Google\\Chrome\\Extensions\\${regEscape(extensionId)}]\n`;
+      content += `"updateurl"="${regEscape(updateUrl)}"\n\n`;
+
     }
 
     return content;

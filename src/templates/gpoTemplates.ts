@@ -103,7 +103,7 @@ export function renderGpoReadme(
 - **Канал установки:** параметр \`ExtensionSettings\` (ниже) с \`normal_installed\` + \`update_url\` + \`override_update_url\` — обновления расширения доказанно работают через него.
 > **Legacy-вариант:** \`ExtensionInstallForcelist\` (принудительная установка по ID) больше не генерируется: в доменной среде номера значений Forcelist конфликтуют с чужими корпоративными расширениями. При необходимости принудительной установки включите её вручную, назначив свободный индекс.
 
-#### 2. ExtensionSettings (Источник обновлений и режим)#### 2. ExtensionSettings (Источник обновлений и режим)
+#### 2. ExtensionSettings (Источник обновлений и режим)
 - **Куст:** \`HKEY_CURRENT_USER\` (или \`HKEY_LOCAL_MACHINE\`)
 - **Путь к разделу:**
   - Chrome: \`Software\\Policies\\Google\\Chrome\`
@@ -154,6 +154,29 @@ export function renderGpoReadme(
 
 После выполнения \`gpupdate /force\` проверьте статус применения в браузере:
 - **Chrome:** \`chrome://policy\` → кнопка *«Перезагрузить политики»*
+
+### Восстановление канала обновления (Extensions\\\\<ID>\\\\updateurl)
+
+Если политики валидны, но расширение перестало обновляться — проверьте наличие ветки **per-extension update channel** (может быть удалена сторонним ПО или ручной чисткой реестра):
+
+\`\`\`powershell
+reg query "HKEY_LOCAL_MACHINE\\\\SOFTWARE\\\\Microsoft\\\\Edge\\\\Extensions\\\\<ID>"
+reg query "HKEY_LOCAL_MACHINE\\\\SOFTWARE\\\\Google\\\\Chrome\\\\Extensions\\\\<ID>"
+\`\`\`
+
+Ожидаемое значение \`updateurl\` — \`<server>/updates/updates.xml\`. Если ветка отсутствует — пересоздайте её импортом готового \`.REG\` файла (значение \`updateurl\` включено в генерацию) или вручную:
+
+\`\`\`powershell
+reg add "HKEY_LOCAL_MACHINE\\\\SOFTWARE\\\\Microsoft\\\\Edge\\\\Extensions\\\\<ID>" /v updateurl /t REG_SZ /d "<server>/updates/updates.xml" /f
+reg add "HKEY_LOCAL_MACHINE\\\\SOFTWARE\\\\Google\\\\Chrome\\\\Extensions\\\\<ID>" /v updateurl /t REG_SZ /d "<server>/updates/updates.xml" /f
+\`\`\`
+
+При полном отзыве расширения удалите ветку (кроме обычной чистки политик):
+
+\`\`\`powershell
+reg delete "HKEY_LOCAL_MACHINE\\\\SOFTWARE\\\\Microsoft\\\\Edge\\\\Extensions\\\\<ID>" /f
+reg delete "HKEY_LOCAL_MACHINE\\\\SOFTWARE\\\\Google\\\\Chrome\\\\Extensions\\\\<ID>" /f
+\`\`\`
 - **Edge:** \`edge://policy\` → кнопка *«Перезагрузить политики»*
 - **Яндекс.Браузер:** \`browser://policy\` → кнопка *«Перезагрузить политики»*
 `;
