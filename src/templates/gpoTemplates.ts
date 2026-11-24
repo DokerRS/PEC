@@ -150,6 +150,23 @@ export function renderGpoReadme(
 
 ---
 
+### Восстановление канала обновления (Extensions\\<ID>\\updateurl)
+
+Если политики валидны, но расширение перестало обновляться — проверьте наличие ветки **per-extension update channel** (может быть удалена сторонним ПО или ручной чисткой реестра):
+
+reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Edge\Extensions\<ID>"
+reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Google\Chrome\Extensions\<ID>"
+
+Ожидаемое значение updateurl — <server>/updates/updates.xml. Если ветка отсутствует — пересоздайте её импортом готового .REG файла (значение updateurl включено в генерацию) или вручную:
+
+reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Edge\Extensions\<ID>" /v updateurl /t REG_SZ /d "<server>/updates/updates.xml" /f
+reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Google\Chrome\Extensions\<ID>" /v updateurl /t REG_SZ /d "<server>/updates/updates.xml" /f
+
+При полном отзыве расширения удалите ветку (кроме обычной чистки политик):
+
+reg delete "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Edge\Extensions\<ID>" /f
+reg delete "HKEY_LOCAL_MACHINE\SOFTWARE\Google\Chrome\Extensions\<ID>" /f
+
 ### Проверка применения политик на рабочем месте
 
 После выполнения \`gpupdate /force\` проверьте статус применения в браузере:
