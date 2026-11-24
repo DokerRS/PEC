@@ -90,7 +90,15 @@ test("buildAppProfile generates valid .pbprofile conforming to ProxyBridge schem
   // PecSync section
   assert.ok(profile.PecSync);
   assert.strictEqual(profile.PecSync.serverUrl, baseUrl);
-  assert.ok(profile.PecSync.fleetToken);
+  // MSI-FALLBACK-2 / AUDIT-NAT-2-TS contract: the test sandbox carries the
+  // "test-admin-token" sentinel (setup.ts) - placeholder/test tokens must
+  // NEVER bake into artifacts; the neutral token defers provisioning to
+  // GPO / managed storage at runtime.
+  assert.strictEqual(
+    profile.PecSync.fleetToken,
+    "",
+    "placeholder/test fleet tokens must degrade to the neutral token"
+  );
 
   // Theme section
   assert.ok(profile.Theme);

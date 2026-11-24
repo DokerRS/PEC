@@ -358,6 +358,12 @@ npm run build
 
 ---
 
+### Desktop client MSI installer
+
+When building desktop client binaries (`build-binaries` / release archive), the MSI installer is built **on demand** via msitools/wixl (Linux container) or WiX Toolset (Windows): the package embeds the current binaries and the `pec_profile.pbprofile` from the build config (name, server, theme, fleet token per the two-token model), with the version taken from the single version source. The `X-PEC-MSI-Source: on-demand-build` response header distinguishes a fresh build from the fallback.
+
+If the MSI compiler is unavailable, a **deliberately neutral emergency fallback** `templates/app/windows/PEC-App.msi` is served (`X-PEC-MSI-Source: template-fallback`): a token-neutral package (fleet token provisioning via GPO / managed storage), current as of CLOSURE-4C; it is only used as a reserve when the on-demand build is unavailable.
+
 ## 🧩 Extension Packaging & Testing
 
 ### Packaging via CLI

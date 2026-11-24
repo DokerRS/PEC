@@ -360,6 +360,12 @@ npm run build
 
 ---
 
+### MSI-установщик десктопного клиента
+
+При сборке десктопного клиента (`build-binaries` / релиз-архив) MSI-установщик собирается **on-demand** через msitools/wixl (Linux-контейнер) или WiX Toolset (Windows): в пакет встраиваются актуальные бинарники и профиль `pec_profile.pbprofile` из build-конфига (имя, сервер, тема, fleet-токен по двухтокенной модели), версия берётся из единого источника. Заголовок ответа `X-PEC-MSI-Source: on-demand-build` отличает свежую сборку от резервной копии.
+
+Если компилятор MSI недоступен — отдаётся **намеренно нейтральный emergency-fallback** `templates/app/windows/PEC-App.msi` (`X-PEC-MSI-Source: template-fallback`): токен-нейтральный пакет (fleet-токен provisioning через GPO/managed storage), актуальный на момент CLOSURE-4C; используется только как резерв при недоступной on-demand сборке.
+
 ## 🧩 Упаковка и тестирование расширения
 
 ### Сборка пакета через CLI

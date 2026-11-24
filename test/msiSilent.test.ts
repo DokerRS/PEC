@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { buildMsiPackage, renderWxsManifest, getAppBuildConfig } from "../src/appPackager.js";
+import { buildMsiPackage, renderWxsManifest, getAppBuildConfig, buildAppProfile } from "../src/appPackager.js";
 import { TEST_TMP_DIR } from "./helpers/setup.js";
 
 /**
@@ -84,4 +84,65 @@ test("MSI-1 (e): committed template artifact uses bare Source names (no SOURCE_D
   assert.ok(!/<Package[^>]*Platform=/.test(tpl), "committed template must not carry the Package Platform attribute");
   const syncCopy = path.resolve("templates/app/windows/pec-app.wxs.template");
   assert.ok(fs.existsSync(syncCopy), "synced template copy must exist");
+});
+
+// ---------------------------------------------------------------------------
+// MSI-FALLBACK-2 (a): CLOSURE-4C criteria ported into the canonical
+// buildMsiPackage/renderWxsManifest path (no separate build script).
+// ---------------------------------------------------------------------------
+
+test("MSI-FALLBACK-2: neutral token renders FLEET_TOKEN Property without @Value (CNDL0006 parity)", () => {
+  for (const token of ["", "corp-proxy-secret-token-change-me", "test-admin-token", "********"]) {
+    const wxs = renderWxsManifest({ defaultToken: token } as any, "https://pec.corp.local", "/tmp/staging");
+    assert.ok(
+      wxs.includes('<Property Id="FLEET_TOKEN" Secure="yes" />'),
+      `placeholder/empty token (${JSON.stringify(token)}) must render the neutral Property`
+    );
+    assert.ok(!/Id="FLEET_TOKEN" Value=""/.test(wxs), "empty @Value is forbidden by WiX/wixl (CNDL0006)");
+    if (token) {
+      assert.ok(!wxs.includes(token), "placeholder must not appear anywhere in the wxs");
+    }
+  }
+});
+
+test("MSI-FALLBACK-2: a real configured token is baked into FLEET_TOKEN (two-token model)", () => {
+  const wxs = renderWxsManifest(
+    { defaultToken: "live-fleet-token-abcdef123456" } as any,
+    "https://pec.corp.local",
+    "/tmp/staging"
+  );
+  assert.ok(wxs.includes('Value="live-fleet-token-abcdef123456"'), "real fleet token must survive into the wxs");
+  assert.ok(!wxs.includes("<Property Id=\"FLEET_TOKEN\" Secure=\"yes\" />"), "real token must not render the neutral property");
+});
+
+test("MSI-FALLBACK-2: cfg.version is the single MSI version source (no 1.0.0 fallback drift)", () => {
+  const wxs = renderWxsManifest({ version: "1.0.7" } as any, "https://pec.corp.local", "/tmp/staging");
+  assert.match(wxs, /Product [^>]*Version="1\.0\.7"/s, "MSI ProductVersion must come from cfg.version");
+  assert.match(wxs, /Name="Version" Value="1\.0\.7"/, "registry Version value must match cfg.version");
+});
+
+test("MSI-FALLBACK-2: buildAppProfile scrubs placeholder/test fleet tokens (neutral provisioning)", () => {
+  const base = {
+    name: "PEC Corp",
+    version: "1.0.0",
+    serverUrl: "https://pec.corp.local",
+  };
+
+  const origExt = process.env.EXT_SHARED_TOKEN;
+  try {
+    delete process.env.EXT_SHARED_TOKEN;
+    const neutral = buildAppProfile({ ...base, defaultToken: "corp-proxy-secret-token-change-me" } as any, base.serverUrl) as any;
+    assert.equal(
+      neutral.PecSync.fleetToken,
+      "",
+      "corp placeholder must degrade to the neutral token (provision via GPO/managed storage)"
+    );
+
+    process.env.EXT_SHARED_TOKEN = "live-fleet-token-abcdef123456";
+    const live = buildAppProfile({ ...base } as any, base.serverUrl) as any;
+    assert.equal(live.PecSync.fleetToken, "live-fleet-token-abcdef123456", "a real fleet token bakes by design");
+  } finally {
+    if (origExt !== undefined) process.env.EXT_SHARED_TOKEN = origExt;
+    else delete process.env.EXT_SHARED_TOKEN;
+  }
 });

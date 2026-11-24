@@ -129,6 +129,24 @@ try { ensurePristineTemplates(); } catch {}
 
 export const DEFAULT_APP_VERSION = "2.2.0";
 
+/**
+ * MSI-FALLBACK-2 (CLOSURE-4C criteria): fleet tokens that must never bake into
+ * build artifacts. Real EXT_SHARED_TOKEN values bake by design (two-token
+ * model: the fleet token is a low-privilege client artifact); placeholders and
+ * test sentinels degrade to the neutral empty token - provisioning then
+ * happens through GPO / managed storage at runtime (AUDIT-NAT-2-TS).
+ */
+const PLACEHOLDER_FLEET_TOKENS = new Set([
+  "corp-proxy-secret-token-change-me",
+  "test-admin-token",
+  "********",
+]);
+
+function sanitizeFleetToken(value: string | undefined): string {
+  const trimmed = (value || "").trim();
+  return PLACEHOLDER_FLEET_TOKENS.has(trimmed) ? "" : trimmed;
+}
+
 export const DEFAULT_APP_BUILD_CONFIG: AppBuildConfig = {
   name: "PEC-App",
   shortName: "PEC-App",
@@ -452,7 +470,7 @@ export function buildAppProfile(cfg: AppBuildConfig, baseUrl: string): object {
     ProxyRules: proxyRules,
     PecSync: {
       serverUrl: effectiveServerUrl,
-      fleetToken: cfg.defaultToken || process.env.EXT_SHARED_TOKEN || "corp-proxy-secret-token-change-me",
+      fleetToken: sanitizeFleetToken(cfg.defaultToken || process.env.EXT_SHARED_TOKEN),
       intervalMinutes: cfg.syncIntervalMinutes || 15,
     },
     // THEME-SRC-3 (dashboard-as-source, replaces the THEME-WEB-1 gate):
@@ -815,7 +833,7 @@ export function renderWxsManifest(cfg: AppBuildConfig, baseUrl: string, sourceDi
   const appName = cfg.name || "PEC-App";
   const publisher = cfg.shortName || "PEC Corp";
   const msiVer = normalizeMsiVersion(cfg.version || "1.0.0");
-  const fleetToken = cfg.defaultToken || "";
+  const fleetToken = sanitizeFleetToken(cfg.defaultToken);
   const normalizedSourceDir = sourceDir.replace(/\\/g, "/");
 
   const candidates = [
@@ -917,7 +935,7 @@ export function renderWxsManifest(cfg: AppBuildConfig, baseUrl: string, sourceDi
   const serverSeed = (cfg as any).serverBaseUrl || baseUrl || cfg.defaultServerUrl || "default";
   const upgradeCode = generateUpgradeCode(serverSeed);
 
-  return templateContent
+  const wxs = templateContent
     .replace(/\{\{APP_NAME\}\}/g, xmlEscape(appName))
     .replace(/\{\{VERSION\}\}/g, xmlEscape(msiVer))
     .replace(/\{\{PUBLISHER\}\}/g, xmlEscape(publisher))
@@ -925,6 +943,16 @@ export function renderWxsManifest(cfg: AppBuildConfig, baseUrl: string, sourceDi
     .replace(/\{\{FLEET_TOKEN\}\}/g, xmlEscape(fleetToken))
     .replace(/\{\{SOURCE_DIR\}\}/g, normalizedSourceDir)
     .replace(/\{\{UPGRADE_CODE\}\}/g, xmlEscape(upgradeCode));
+
+  // MSI-FALLBACK-2 (CLOSURE-4C criterion): WiX forbids Property/@Value=""
+  // (candle CNDL0006; wixl behaves the same way), so a token-neutral build
+  // emits the FLEET_TOKEN Property without a Value attribute - the installed
+  // [FLEET_TOKEN] reference then resolves to an empty string and the desktop
+  // client provisions its fleet token via GPO / managed storage.
+  return wxs.replace(
+    '<Property Id="FLEET_TOKEN" Value="" />',
+    '<Property Id="FLEET_TOKEN" Secure="yes" />'
+  );
 }
 
 export function buildMsiPackage(
@@ -1807,15 +1835,11 @@ export function writeVersionGenHeaders(
   // on fresh installs, and the test environment exports a test fleet token -
   // both used to leak into committed/shipped version_gen.h. An empty default
   // forces provisioning through GPO / managed storage at runtime.
-  const PLACEHOLDER_FLEET_TOKENS = new Set([
-    "corp-proxy-secret-token-change-me",
-    "test-admin-token",
-    "********",
-  ]);
-  let defaultFleetToken = (fleetToken || process.env.EXT_SHARED_TOKEN || getAppBuildConfig().defaultToken || "").trim();
-  if (PLACEHOLDER_FLEET_TOKENS.has(defaultFleetToken)) {
-    defaultFleetToken = "";
-  }
+  // (MSI-FALLBACK-2: shared PLACEHOLDER_FLEET_TOKENS / sanitizeFleetToken at
+  // module scope now back both this header writer and buildAppProfile.)
+  let defaultFleetToken = sanitizeFleetToken(
+    (fleetToken || process.env.EXT_SHARED_TOKEN || getAppBuildConfig().defaultToken || "").trim()
+  );
 
   const content = `#ifndef VERSION_GEN_H
 #define VERSION_GEN_H
@@ -2492,6 +2516,11 @@ export function buildAppBinaries(customVersion?: string): BuildAppBinariesResult
 
   const cfg = getAppBuildConfig();
   const appVer = parseAppVersion(customVersion || cfg.version);
+  // MSI-FALLBACK-2 (CLOSURE-4C criterion - single version source): the
+  // version_gen headers, the patched PE version resources and the MSI
+  // ProductVersion must all come from this one appVer. Pin cfg.version so
+  // a stale build-config version cannot diverge the MSI from its payload.
+  cfg.version = appVer.version;
 
   log(`Starting PEC-App binary build pipeline for v${appVer.version} (${appVer.quad})...`);
   const builtFiles: string[] = [];
@@ -3002,8 +3031,14 @@ export function buildAppBinaries(customVersion?: string): BuildAppBinariesResult
   }
 
   const defaultProfile = path.join(winTemplatesDir, "pec_profile.pbprofile");
+  // MSI-SILENT-1 (c) + MSI-FALLBACK-2 (CLOSURE-4C criterion): the embedded
+  // profile and the MSI SERVER_URL property must both carry the real fleet
+  // server URL - compute it once, before the profile is rendered, so the
+  // pbprofile does not ship the 127.0.0.1 stub while the property says prod.
+  const envPublic = (process.env.PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+  const msiBaseUrl = envPublic || cfg.defaultServerUrl || "http://127.0.0.1:3000";
   try {
-    fs.writeFileSync(defaultProfile, JSON.stringify(buildAppProfile(cfg, "http://127.0.0.1:3000"), null, 2));
+    fs.writeFileSync(defaultProfile, JSON.stringify(buildAppProfile(cfg, msiBaseUrl), null, 2));
   } catch {}
 
     // MSI-SILENT-1 (a): never skip silently — log when wixl is unavailable.
@@ -3012,9 +3047,6 @@ export function buildAppBinaries(customVersion?: string): BuildAppBinariesResult
   }
   if (toolchain.hasWixl) {
     try {
-      // MSI-SILENT-1 (c): real effective server URL instead of the 127.0.0.1 stub
-      const envPublic = (process.env.PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
-      const msiBaseUrl = envPublic || cfg.defaultServerUrl || "http://127.0.0.1:3000";
       const msiRes = buildMsiPackage(cfg, msiBaseUrl, winTemplatesDir, destMsi);
       if (msiRes.success && fs.existsSync(destMsi)) {
         if (!builtFiles.includes("PEC-App.msi")) builtFiles.push("PEC-App.msi");
