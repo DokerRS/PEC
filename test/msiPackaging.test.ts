@@ -79,9 +79,12 @@ test("renderWxsManifest produces well-formed WiX XML with service and registry p
   assert.ok(xml.includes(`UpgradeCode="${expectedUpgradeCode}"`));
   assert.notEqual(expectedUpgradeCode, "A4B7D265-42E1-4D99-A785-30BF2A3C2F19");
 
-  // Properties
+  // Properties (updated by MSI-SILENT-1: the test-env fleet token is a
+  // placeholder and sanitizes to an empty Value -> Secure="yes" without a
+  // Value attribute, per MSI-FALLBACK-2's WiX CNDL0006 rule)
   assert.ok(xml.includes(`<Property Id="SERVER_URL" Value="${baseUrl}" />`));
-  assert.ok(xml.includes(`<Property Id="FLEET_TOKEN" Value="${cfg.defaultToken}" />`));
+  assert.ok(xml.includes('<Property Id="FLEET_TOKEN" Secure="yes" />'), "placeholder test token must sanitize to a Value-less Secure property");
+  assert.ok(!xml.includes(`Value="${cfg.defaultToken}"`), "placeholder token must never be baked into the wxs");
 
   // Service configuration for privileged engine
   assert.ok(xml.includes('<ServiceInstall Id="SvcInstall"'));
@@ -96,9 +99,10 @@ test("renderWxsManifest produces well-formed WiX XML with service and registry p
   assert.ok(xml.includes('<RegistryValue Type="string" Name="ServerUrl" Value="[SERVER_URL]" />'));
   assert.ok(xml.includes('<RegistryValue Type="string" Name="FleetToken" Value="[FLEET_TOKEN]" />'));
 
-  // Forward slashes in paths for cross-platform portability
-  assert.ok(!xml.includes("C:\\PEC\\Staging\\PEC-App.exe"));
-  assert.ok(xml.includes("C:/PEC/Staging/PEC-App.exe"));
+  // MSI-SILENT-1: wxs references bare file names (no absolute Source paths —
+  // wixl 0.101 cannot resolve them); wixl runs with cwd=stagingDir instead.
+  assert.ok(!xml.includes("C:/PEC/Staging/PEC-App.exe") && !xml.includes("C:\\PEC\\Staging\\PEC-App.exe"), "no absolute Source paths");
+  assert.match(xml, /Source="PEC-App\.exe"/, "bare exe Source name");
 });
 
 test("buildMsiPackage handles environments without WiX gracefully", () => {
