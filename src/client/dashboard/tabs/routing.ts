@@ -40,6 +40,7 @@ export async function loadPresets() {
   try {
     const res = await adminFetch('/api/routing/presets');
     const presets = await res.json();
+    lastLoadedPresets = presets;
     const container = document.getElementById('presetsContainer');
     if (!container) return;
 
@@ -523,6 +524,53 @@ let inspectorEntries: string[] = [];
 let inspectorFilteredEntries: string[] = [];
 const inspectorSelectedSet = new Set<string>();
 
+/**
+ * GEO-PRESET-EDIT-1 (b): delete the selected entries from the inspected
+ * preset. Reads inspectorSelectedSet, filters inspectorEntries, and POSTs
+ * the upsert (same id + resend source/sourceUrl/sourceTag) — then re-renders
+ * the table and counters. Empty selection is a no-op (nothing sent).
+ */
+export async function deleteInspectorSelectedEntries() {
+  if (!currentInspectorPreset || !inspectorSelectedSet.size) return;
+  const isRu = state.currentLang === 'ru';
+  const keep = inspectorEntries.filter((e) => !inspectorSelectedSet.has(e));
+  if (keep.length === inspectorEntries.length) return; // nothing actually selected
+
+  const payload: Record<string, any> = {
+    id: currentInspectorPreset.id,
+    name: currentInspectorPreset.name || '',
+    description: currentInspectorPreset.description || '',
+    type: currentInspectorPreset.type || 'domain',
+    entries: keep,
+    domains: keep,
+  };
+  for (const k of ['source', 'sourceUrl', 'sourceTag']) {
+    if (currentInspectorPreset[k] !== undefined && currentInspectorPreset[k] !== null) payload[k] = currentInspectorPreset[k];
+  }
+
+  try {
+    const res = await adminFetch('/api/routing/presets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      toast(data.error || ('HTTP ' + res.status), 'error');
+      return;
+    }
+    toast(isRu ? `Удалено записей: ${inspectorEntries.length - keep.length}` : `Deleted ${inspectorEntries.length - keep.length} entries`, 'success');
+    // Update local state: entries shrink, selection clears
+    inspectorEntries = keep;
+    inspectorFilteredEntries = inspectorFilteredEntries.filter((e) => !inspectorSelectedSet.has(e));
+    inspectorSelectedSet.clear();
+    renderInspectorTable();
+    updateInspectorCounters();
+  } catch (e: any) {
+    toast(e?.message || (isRu ? 'Ошибка удаления' : 'Delete failed'), 'error');
+  }
+}
+
 export async function openGeobaseInspector(presetId: string) {
   const modal = document.getElementById('modalGeobaseInspector');
   if (!modal) return;
@@ -957,7 +1005,7 @@ export function openPresetEditModal(presetId: string) {
 
   if (nameEl) nameEl.value = preset.name || '';
   if (descEl) descEl.value = preset.description || '';
-  if (typeBadge) typeBadge.textContent = preset.type || 'domain';
+  if (typeBadge) typeBadge.textContent = (preset.type || 'domain').toUpperCase();
   if (typeInput) typeInput.value = preset.type || 'domain';
   if (entriesEl) entriesEl.value = (preset.entries || preset.domains || []).join('\n');
   if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
