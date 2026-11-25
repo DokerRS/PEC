@@ -251,7 +251,7 @@ test("CARD-MENU (d): custom/remote menu = Edit · Refresh · Export · Delete(re
     click(window, menuCardItem(document, REMOTE_PRESET.id, "pm-edit"));
     await waitFor(() => document.getElementById("presetBuilderPage")?.style.display === "block", {
       label: "constructor opened via menu",
-      timeout: 6000,
+      timeoutMs: 6000,
     });
     assert.equal((document.getElementById("builderNameInput") as HTMLInputElement).value, REMOTE_PRESET.name);
     window.closePresetBuilder();
@@ -299,7 +299,7 @@ test("CARD-MENU (e): builtin menu = View layers · Duplicate only; no Edit/Delet
     click(window, menuCardItem(document, BUILTIN_PRESET.id, "pm-duplicate"));
     await waitFor(() => fetchCalls.some((c: any) => c.url.includes("/api/routing/presets/import-preset")), {
       label: "duplicate POST",
-      timeout: 6000,
+      timeoutMs: 6000,
     });
     const dupCall = fetchCalls.find((c: any) => c.url.includes("/api/routing/presets/import-preset"));
     assert.equal(dupCall.method, "POST");
