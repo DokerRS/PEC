@@ -11,7 +11,7 @@
 > Active feature development of PEC is complete. The platform is running in production: server core, dynamic PAC generation, browser extension synchronization, native desktop clients (DirectX 11 GUI, WinDivert driver, Linux daemon), and Active Directory GPO deployment. Ongoing support means bug fixes and improvements based on user feedback; issue reports and contributions are welcome.
 
 [![CI Status](https://github.com/vlv-code/PEC/actions/workflows/ci.yml/badge.svg)](https://github.com/vlv-code/PEC/actions)
-[![Release](https://img.shields.io/badge/release-v1.0.3-blue.svg)](https://github.com/vlv-code/PEC/releases)
+[![Release](https://img.shields.io/badge/release-v1.0.4-blue.svg)](https://github.com/vlv-code/PEC/releases)
 [![Status: Official Release](https://img.shields.io/badge/status-official--release-green.svg)]()
 [![Node.js](https://img.shields.io/badge/node.js-%3E%3D20-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg)](Dockerfile)
