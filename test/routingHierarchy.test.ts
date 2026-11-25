@@ -53,13 +53,18 @@ test("generatePacScript evaluates rules in exact array order (top-to-bottom hier
   assert.ok(rProxyIdx < rBlockIdx, "Reversed rules must change PAC emission order");
 });
 
-test("dashboardView includes reorder buttons, presets grid, inspector modal, and unsaved changes indicator", () => {
+test("dashboardView includes reorder buttons, presets grid, constructor sub-page, and unsaved changes indicator", () => {
   const dashboardView = fs.readFileSync(path.join(process.cwd(), "src", "views", "dashboardView.ts"), "utf-8");
   assert.ok(dashboardView.includes("btn-reorder-up"), "Must include rule reorder up button");
   assert.ok(dashboardView.includes("btn-reorder-down"), "Must include rule reorder down button");
-  assert.ok(dashboardView.includes("modalGeobaseInspector"), "Must include modal geobase inspector markup");
+  // GEO-PRESET-UX-2: modals replaced by the constructor detail view
+  assert.ok(!dashboardView.includes('id="modalGeobaseInspector"'), "Geobase inspector modal must be removed");
+  assert.ok(!dashboardView.includes('id="modalImportPresets"'), "Import presets modal must be removed");
+  assert.ok(!dashboardView.includes('id="modalPresetEdit"'), "Preset edit modal must be removed");
+  assert.ok(dashboardView.includes('id="presetBuilderPage"'), "Must include the preset constructor sub-page");
+  assert.ok(dashboardView.includes("builderLayersList"), "Must include the layers panel");
+  assert.ok(dashboardView.includes("builderEntriesBody"), "Must include the composition table");
   assert.ok(dashboardView.includes("presets-grid"), "Must include responsive presets grid class");
-  assert.ok(dashboardView.includes("modalImportPresets"), "Must include import presets modal markup");
   assert.ok(dashboardView.includes("unsavedChangesBadge"), "Must include unsaved changes badge");
 });
 
@@ -73,11 +78,17 @@ test("dashboard.css includes required styles for presets grid, reorder buttons, 
   assert.ok(dashboardCss.includes(".unsaved-badge"), "Must include .unsaved-badge style");
 });
 
-test("dashboard.js implements moveRuleUp, moveRuleDown, duplicate preset badging, inspector, and unsaved tracking", () => {
-  const dashboardJs = fs.readFileSync(path.join(process.cwd(), "public", "dashboard.js"), "utf-8");
+test("dashboard bundle implements rule reorder, the constructor click-path delegation, and unsaved tracking", () => {
+  // GEO-PRESET-UX-2: assertions target the built bundle (the artifact the
+  // dashboard actually loads and the jsdom tests evaluate).
+  const dashboardJs = fs.readFileSync(path.join(process.cwd(), "public", "dashboard.min.js"), "utf-8");
   assert.ok(dashboardJs.includes("moveRuleUp"), "Must implement moveRuleUp function");
   assert.ok(dashboardJs.includes("moveRuleDown"), "Must implement moveRuleDown function");
-  assert.ok(dashboardJs.includes("openGeobaseInspector"), "Must implement openGeobaseInspector function");
-  assert.ok(dashboardJs.includes("openImportPresetsModal"), "Must implement openImportPresetsModal function");
+  assert.ok(!dashboardJs.includes("openGeobaseInspector"), "Geobase inspector must be removed from the bundle");
+  assert.ok(!dashboardJs.includes("openImportPresetsModal"), "Import presets modal must be removed from the bundle");
+  assert.ok(dashboardJs.includes("openPresetBuilder"), "Must implement the preset constructor entry");
+  assert.ok(dashboardJs.includes("btn-preset-menu"), "Card menu button must be click-delegated");
+  assert.ok(dashboardJs.includes("preset-menu-item"), "Menu items must be click-delegated");
+  assert.ok(dashboardJs.includes("btn-layer-remove"), "Layer removal must be click-delegated");
   assert.ok(dashboardJs.includes("hasUnsavedRouting"), "Must track hasUnsavedRouting dirty state");
 });

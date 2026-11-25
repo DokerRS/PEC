@@ -36,6 +36,14 @@ export function initRoutingDirtyTracking() {
   }
 }
 
+let lastLoadedPresets: any[] = [];
+
+function isRuGlobal(): boolean { return state.currentLang === 'ru'; }
+
+function isBuiltinPreset(p: any): boolean {
+  return p && p.source === 'builtin';
+}
+
 export async function loadPresets() {
   try {
     const res = await adminFetch('/api/routing/presets');
@@ -48,6 +56,8 @@ export async function loadPresets() {
     container.innerHTML = presets.map((p: any) => {
       const entriesList = p.entries || p.domains || [];
       const count = entriesList.length;
+      const canRefresh = p.source === 'remote' ||
+        (Array.isArray(p.sources) && p.sources.some((s: any) => s && s.kind === 'url'));
 
       // Check if preset is already in currentProfile
       const existingRule = (state.currentProfile && Array.isArray(state.currentProfile.rules))
@@ -63,24 +73,50 @@ export async function loadPresets() {
         badgeHtml = `<span class="preset-in-profile-badge action-${esc(act)}">${isRu ? 'В профиле: ' : 'In Profile: '}${esc(actLabel)}</span>`;
       }
 
+      // GEO-PRESET-UX-2 CARD-MENU: the ✏️/🗑/🔄 actions moved into a per-card
+      // «⋮» dropdown (btn-preset-menu); 🔍 stays removed. Items depend on the
+      // preset source: builtin -> read-only view + duplicate; custom ->
+      // edit / refresh (url layers only) / export / delete (danger).
+      // Bottom quick-add row and the in-profile badge are untouched.
+      const isBuiltinCard = p.source === 'builtin';
+      const menuBtn = '<button type="button" class="btn-icon btn-preset-menu" data-id="' + esc(p.id) + '" aria-haspopup="menu" aria-expanded="false" title="' + (isRu ? 'Меню пресета' : 'Preset menu') + '" style="font-size: 14px; padding: 2px 7px; line-height: 1;">⋮</button>';
+      const menuItem = (cls: string, icon: string, label: string, styleExtra: string = ''): string =>
+        '<button type="button" class="preset-menu-item ' + cls + '" data-id="' + esc(p.id) + '"' +
+        ' style="display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: transparent; border: none; color: ' + (styleExtra ? styleExtra : 'var(--text)') + '; font-size: 12px; padding: 8px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap;">' +
+        (icon ? icon + ' ' : '') + esc(label) + '</button>';
+      const menuItems: string[] = [];
+      if (isBuiltinCard) {
+        menuItems.push(menuItem('pm-view', '👁', isRu ? 'Просмотр слоёв' : 'View layers'));
+        menuItems.push(menuItem('pm-duplicate', '📄', isRu ? 'Дублировать в свой' : 'Duplicate to custom'));
+      } else {
+        menuItems.push(menuItem('pm-edit', '✏️', isRu ? 'Редактировать' : 'Edit'));
+        if (canRefresh) menuItems.push(menuItem('pm-refresh', '🔄', isRu ? 'Обновить' : 'Refresh'));
+        menuItems.push(menuItem('pm-export', '⬇', isRu ? 'Экспорт JSON' : 'Export JSON'));
+        menuItems.push(menuItem('pm-delete', '🗑', isRu ? 'Удалить' : 'Delete', 'var(--danger, #ef4444)'));
+      }
+      const cardMenu =
+        '<div class="preset-card-menu" data-menu-for="' + esc(p.id) + '"' +
+        ' style="display: none; position: absolute; top: 30px; right: 10px; z-index: 1000; min-width: 200px; flex-direction: column; gap: 2px; padding: 4px; background: var(--card-bg, #111827); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);">' +
+        menuItems.join('') +
+        '</div>';
+
       return `
-      <div class="preset-card">
+      <div class="preset-card" style="position: relative;">
         <div>
           <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin-bottom: 4px;">
             <h4 style="margin: 0; font-size: 13px; font-weight: 600;">${esc(p.name)}</h4>
-            ${p.source !== 'builtin' ? '<button type="button" class="btn-icon btn-edit-preset" data-id="' + esc(p.id) + '" style="font-size: 11px; padding: 2px 5px; line-height: 1;">✏️</button>' : ''}
-            ${p.source === 'remote' ? '<button type="button" class="btn-icon btn-refresh-preset" data-id="' + esc(p.id) + '" style="font-size: 11px; padding: 2px 5px; line-height: 1;">🔄</button>' : ''}
-            ${p.source !== 'builtin' ? '<button type="button" class="btn-icon btn-delete-preset" data-id="' + esc(p.id) + '" style="font-size: 11px; padding: 2px 5px; line-height: 1;">🗑</button>' : ''}
-            <button type="button" class="btn-icon btn-inspect-geobase" data-id="${esc(p.id)}" title="${isRu ? 'Инспектор пресета' : 'Inspect Preset'}" style="font-size: 11px; padding: 2px 5px; line-height: 1;"><img src="/icons/search.png" class="icon-inline-sm" alt="inspect"></button>
+            ${menuBtn}
           </div>
+          ${cardMenu}
           <p style="margin: 0 0 6px 0;">${esc(p.description)} (${count} ${isRu ? 'записей' : 'entries'})</p>
           ${badgeHtml ? `<div style="margin-bottom: 6px;">${badgeHtml}</div>` : ''}
         </div>
+        ${p.source !== 'builtin' ? `
         <div style="display: flex; gap: 6px; margin-top: 6px;">
           <button type="button" class="btn-secondary btn-add-preset-rule" data-id="${esc(p.id)}" data-name="${esc(p.name)}" data-action="proxy" style="font-size: 11px; padding: 4px 8px; flex: 1;">+ ${isRu ? 'Прокси' : 'Proxy'}</button>
           <button type="button" class="btn-secondary btn-add-preset-rule" data-id="${esc(p.id)}" data-name="${esc(p.name)}" data-action="direct" style="font-size: 11px; padding: 4px 8px; flex: 1;">+ ${isRu ? 'Напрямую' : 'Direct'}</button>
           <button type="button" class="btn-danger btn-add-preset-rule" data-id="${esc(p.id)}" data-name="${esc(p.name)}" data-action="block" style="font-size: 11px; padding: 4px 8px; flex: 1;">+ ${isRu ? 'Блок' : 'Block'}</button>
-        </div>
+        </div>` : ''}
       </div>
       `;
     }).join('');
@@ -96,7 +132,7 @@ export async function loadProfiles() {
     state.allProfiles = await res.json();
     const sel = document.getElementById('profileSelect') as HTMLSelectElement | null;
     if (sel) {
-      sel.innerHTML = state.allProfiles.map((p: any) => 
+      sel.innerHTML = state.allProfiles.map((p: any) =>
         `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.defaultPolicy.toUpperCase())} default)${p.isDefault ? ' [DEFAULT]' : ''}</option>`
       ).join('');
     }
@@ -189,7 +225,7 @@ export function renderProfile(p: any) {
   if (failClosedEl) failClosedEl.checked = Boolean(p.failClosed);
   const descEl = document.getElementById('profDesc');
   if (descEl) descEl.textContent = p.description || 'Configured routing rules.';
-  
+
   const groupRow = document.getElementById('groupTargetRow');
   if (groupRow) groupRow.style.display = p.targetScope === 'group' ? 'block' : 'none';
 
@@ -518,34 +554,686 @@ export async function saveCurrentProfile() {
   }
 }
 
-// ==================== Geobase Inspector Modal Logic ====================
-let currentInspectorPreset: any = null;
-let inspectorEntries: string[] = [];
-let inspectorFilteredEntries: string[] = [];
-const inspectorSelectedSet = new Set<string>();
+// ============================================================================
+// GEO-PRESET-UX-2: Preset Constructor sub-page (full-width detail view inside
+// the Routing tab). Replaces the geobase-inspector / preset-edit / import
+// modals. All buttons are wired through the DELEGATED document-level click
+// listener at the bottom of this module (telemetry.ts:771 pattern) — direct
+// onclick attributes are forbidden for this UI (DIAG-GEO-UX-1 click-path).
+// ============================================================================
 
-/**
- * GEO-PRESET-EDIT-1 (b): delete the selected entries from the inspected
- * preset. Reads inspectorSelectedSet, filters inspectorEntries, and POSTs
- * the upsert (same id + resend source/sourceUrl/sourceTag) — then re-renders
- * the table and counters. Empty selection is a no-op (nothing sent).
- */
-export async function deleteInspectorSelectedEntries() {
-  if (!currentInspectorPreset || !inspectorSelectedSet.size) return;
-  const isRu = state.currentLang === 'ru';
-  const keep = inspectorEntries.filter((e) => !inspectorSelectedSet.has(e));
-  if (keep.length === inspectorEntries.length) return; // nothing actually selected
+const BUILDER_RENDER_LIMIT = 500;
 
-  const payload: Record<string, any> = {
-    id: currentInspectorPreset.id,
-    name: currentInspectorPreset.name || '',
-    description: currentInspectorPreset.description || '',
-    type: currentInspectorPreset.type || 'domain',
-    entries: keep,
-    domains: keep,
+let builderState: any = null;
+let builderRenderedCount = BUILDER_RENDER_LIMIT;
+const builderSelected = new Set<string>();
+
+// ============================================================================
+// GEO-PRESET-UX-2 CARD-MENU: per-card «⋮» dropdown state.
+// POPOVER-CLOSE discipline (observations @ 2026-11-17, 4th loss of the
+// family): BOTH the outside-click close and the Escape close are ported as
+// document-level listeners in this module scope, and the behavioral tests in
+// test/presetCardMenu.test.ts cover open/outside/escape/switch paths.
+// ============================================================================
+
+function setPresetCardMenu(card: Element | null | undefined, open: boolean) {
+  if (!card) return;
+  const menu = card.querySelector('.preset-card-menu') as HTMLElement | null;
+  const btn = card.querySelector('.btn-preset-menu') as HTMLElement | null;
+  if (menu) menu.style.display = open ? 'flex' : 'none';
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+/** Only one preset menu is open at a time; closes every rendered menu. */
+function closePresetMenus() {
+  if (typeof document === 'undefined') return;
+  document.querySelectorAll('.preset-card').forEach((c) => {
+    setPresetCardMenu(c, false);
+  });
+}
+
+function togglePresetCardMenu(menuBtn: Element) {
+  const card = (menuBtn as HTMLElement).closest('.preset-card');
+  const menu = card ? (card.querySelector('.preset-card-menu') as HTMLElement | null) : null;
+  const wasOpen = !!menu && menu.style.display === 'flex';
+  closePresetMenus();
+  if (!wasOpen) setPresetCardMenu(card, true);
+}
+
+function builderIsRu(): boolean { return state.currentLang === 'ru'; }
+
+function findLoadedPreset(id: string): any | undefined {
+  return (lastLoadedPresets || []).find((p: any) => p.id === id);
+}
+
+function showBuilderLayerStatus(msg: string) {
+  const el = document.getElementById('builderLayerStatus');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+
+function clearBuilderLayerStatus() {
+  const el = document.getElementById('builderLayerStatus');
+  if (el) { el.textContent = ''; el.style.display = 'none'; }
+}
+
+function showPresetBuilderPage() {
+  const page = document.getElementById('presetBuilderPage');
+  const main = document.getElementById('branchExtView');
+  const switcher = document.getElementById('routingBranchSwitcher');
+  if (page) page.style.display = 'block';
+  if (main) main.style.display = 'none';
+  if (switcher) switcher.style.display = 'none';
+}
+
+export function closePresetBuilder() {
+  builderState = null;
+  builderRenderedCount = BUILDER_RENDER_LIMIT;
+  builderSelected.clear();
+  const page = document.getElementById('presetBuilderPage');
+  const main = document.getElementById('branchExtView');
+  const switcher = document.getElementById('routingBranchSwitcher');
+  if (page) page.style.display = 'none';
+  if (main) main.style.display = '';
+  if (switcher) switcher.style.display = '';
+}
+
+/** Client-side union of all layer entries (dedup, layer order). */
+export function builderEntriesUnion(): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const layer of (builderState && builderState.sources) || []) {
+    for (const e of builderLayerEntries(layer)) {
+      const v = String(e || '').trim();
+      if (!v || seen.has(v)) continue;
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out;
+}
+
+/** Entries of a single layer; geo-tag layers resolve against loaded builtin presets. */
+function builderLayerEntries(layer: any): string[] {
+  if (!layer) return [];
+  if (Array.isArray(layer.entries)) return layer.entries;
+  if (layer.kind === 'geo-tag' && layer.ref) {
+    const geo = findLoadedPreset(layer.ref);
+    if (geo) return geo.entries || geo.domains || [];
+  }
+  return [];
+}
+
+function builderLayerLabel(layer: any, isRu: boolean): string {
+  if (!layer) return '';
+  switch (layer.kind) {
+    case 'geo-tag': {
+      const geo = findLoadedPreset(layer.ref);
+      return geo ? (geo.name || layer.ref) : (layer.ref || 'geo');
+    }
+    case 'url':
+      return layer.url || 'url';
+    case 'file':
+      return (layer.name || 'file') + (layer.tag ? ` [${layer.tag}]` : '');
+    case 'manual':
+      return isRu ? 'Ручной список' : 'Manual list';
+    default:
+      return String(layer.kind || '');
+  }
+}
+
+function builderLayerIcon(kind: string): string {
+  switch (kind) {
+    case 'geo-tag': return '🌍';
+    case 'url': return '🔗';
+    case 'file': return '📄';
+    case 'manual': return '✍️';
+    default: return '📄';
+  }
+}
+
+/** entry -> owning layer info (first layer that contributes the entry wins). */
+function builderOriginMap(): Map<string, { layerIdx: number; label: string; editable: boolean }> {
+  const map = new Map<string, { layerIdx: number; label: string; editable: boolean }>();
+  const isRu = builderIsRu();
+  ((builderState && builderState.sources) || []).forEach((layer: any, idx: number) => {
+    const editable = layer.kind === 'manual' || layer.kind === 'file';
+    for (const e of builderLayerEntries(layer)) {
+      const v = String(e || '').trim();
+      if (!v || map.has(v)) continue;
+      map.set(v, { layerIdx: idx, label: builderLayerLabel(layer, isRu), editable });
+    }
+  });
+  return map;
+}
+
+export async function openPresetBuilder(presetId: string, opts: { readOnly?: boolean } = {}) {
+  const isRu = builderIsRu();
+  try {
+    const res = await adminFetch('/api/routing/presets/' + encodeURIComponent(presetId));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const preset = await res.json();
+    builderState = {
+      id: preset.id,
+      builtin: preset.source === 'builtin' || !!opts.readOnly,
+      isNew: false,
+      name: preset.name || '',
+      description: preset.description || '',
+      category: preset.category || 'custom',
+      type: preset.type === 'cidr' ? 'cidr' : 'domain',
+      // Deep-copy the layer list: builderState is a working copy that the
+      // constructor mutates freely (add/remove layers and entries) and must
+      // never alias the response object graph.
+      sources: Array.isArray(preset.sources) && preset.sources.length
+        ? JSON.parse(JSON.stringify(preset.sources))
+        : [{ kind: 'manual', entries: preset.entries || preset.domains || [] }],
+      search: '',
+    };
+    builderRenderedCount = BUILDER_RENDER_LIMIT;
+    builderSelected.clear();
+    showPresetBuilderPage();
+    renderPresetBuilder();
+  } catch (e: any) {
+    toast(e?.message || (isRu ? 'Не удалось открыть пресет' : 'Failed to open preset'), 'error');
+  }
+}
+
+export function openPresetBuilderCreate() {
+  const isRu = builderIsRu();
+  builderState = {
+    id: 'preset:' + Math.random().toString(16).slice(2, 10),
+    builtin: false,
+    isNew: true,
+    name: isRu ? 'Новый пресет' : 'New Preset',
+    description: '',
+    category: 'custom',
+    type: 'domain',
+    sources: [],
+    search: '',
   };
-  for (const k of ['source', 'sourceUrl', 'sourceTag']) {
-    if (currentInspectorPreset[k] !== undefined && currentInspectorPreset[k] !== null) payload[k] = currentInspectorPreset[k];
+  builderRenderedCount = BUILDER_RENDER_LIMIT;
+  builderSelected.clear();
+  showPresetBuilderPage();
+  renderPresetBuilder();
+}
+
+function populateBuilderGeoSelect() {
+  const sel = document.getElementById('builderGeoSelect') as HTMLSelectElement | null;
+  if (!sel) return;
+  const isRu = builderIsRu();
+  const candidates = (lastLoadedPresets || []).filter((p: any) =>
+    p.source === 'builtin' && (p.type === 'cidr' ? 'cidr' : 'domain') === (builderState ? builderState.type : 'domain')
+  );
+  if (!candidates.length) {
+    sel.innerHTML = `<option value="">${isRu ? 'Нет доступных геосписков' : 'No geo lists available'}</option>`;
+    return;
+  }
+  sel.innerHTML = candidates.map((p: any) =>
+    `<option value="${esc(p.id)}">${esc(p.name)}</option>`
+  ).join('');
+}
+
+export function renderPresetBuilder() {
+  const page = document.getElementById('presetBuilderPage');
+  if (!page || !builderState) return;
+  const isRu = builderIsRu();
+  const s = builderState;
+
+  const nameEl = document.getElementById('builderNameInput') as HTMLInputElement | null;
+  if (nameEl) {
+    nameEl.value = s.name || '';
+    nameEl.readOnly = s.builtin;
+  }
+  const descEl = document.getElementById('builderDescInput') as HTMLInputElement | null;
+  if (descEl) {
+    descEl.value = s.description || '';
+    descEl.readOnly = s.builtin;
+    descEl.placeholder = isRu ? 'Описание пресета' : 'Preset description';
+  }
+  const typeBadge = document.getElementById('builderTypeBadge');
+  if (typeBadge) typeBadge.textContent = (s.type || 'domain').toUpperCase();
+  const builtinBadge = document.getElementById('builderBuiltinBadge');
+  if (builtinBadge) builtinBadge.style.display = s.builtin ? 'inline-flex' : 'none';
+  const idEl = document.getElementById('builderPresetId');
+  if (idEl) idEl.textContent = s.id || '';
+
+  const exportLabel = document.getElementById('builderExportLabel');
+  if (exportLabel) exportLabel.textContent = isRu ? 'Экспорт JSON' : 'Export JSON';
+  const dupBtn = document.getElementById('builderDuplicateBtn');
+  if (dupBtn) dupBtn.style.display = s.builtin ? 'inline-flex' : 'none';
+  const dupLabel = document.getElementById('builderDuplicateLabel');
+  if (dupLabel) dupLabel.textContent = isRu ? 'Дублировать в свой' : 'Duplicate to custom';
+
+  const addBlock = document.getElementById('builderAddLayerBlock');
+  if (addBlock) addBlock.style.display = s.builtin ? 'none' : 'block';
+  const footer = document.getElementById('builderFooter');
+  if (footer) footer.style.display = s.builtin ? 'none' : 'flex';
+  const saveBtn = document.getElementById('btnBuilderSave');
+  if (saveBtn) saveBtn.style.display = s.builtin ? 'none' : 'inline-flex';
+  const saveLabel = document.getElementById('builderSaveLabel');
+  if (saveLabel) saveLabel.textContent = isRu ? 'Сохранить' : 'Save';
+  const cancelBtn = document.getElementById('btnBuilderCancel');
+  if (cancelBtn) cancelBtn.textContent = isRu ? (s.builtin ? 'Закрыть' : 'Отмена') : (s.builtin ? 'Close' : 'Cancel');
+
+  const layersTitle = document.getElementById('builderLayersTitle');
+  if (layersTitle) layersTitle.textContent = isRu ? 'Слои' : 'Layers';
+  const entriesTitle = document.getElementById('builderEntriesTitle');
+  if (entriesTitle) entriesTitle.textContent = isRu ? 'Состав' : 'Composition';
+  const thEntry = document.getElementById('builderThEntry');
+  if (thEntry) thEntry.textContent = isRu ? 'Запись' : 'Entry';
+  const thOrigin = document.getElementById('builderThOrigin');
+  if (thOrigin) thOrigin.textContent = isRu ? 'Слой' : 'Layer';
+  const addGeoLabel = document.getElementById('builderAddGeoLabel');
+  if (addGeoLabel) addGeoLabel.textContent = '+ ' + (isRu ? 'Геосписок' : 'Geo list');
+  const addUrlLabel = document.getElementById('builderAddUrlLabel');
+  if (addUrlLabel) addUrlLabel.textContent = '+ ' + (isRu ? 'Из URL' : 'From URL');
+  const addManualLabel = document.getElementById('builderAddManualLabel');
+  if (addManualLabel) addManualLabel.textContent = '+ ' + (isRu ? 'Список вручную' : 'Manual list');
+  const jsonHint = document.getElementById('builderImportJsonHint');
+  if (jsonHint) jsonHint.textContent = isRu ? 'импорт пресета JSON' : 'import preset JSON';
+  const selAllBtn = document.getElementById('btnBuilderSelectAll');
+  if (selAllBtn) selAllBtn.textContent = isRu ? 'Выбрать все' : 'Select all';
+  const delSelLabel = document.getElementById('builderDeleteSelectedLabel');
+  if (delSelLabel) delSelLabel.textContent = isRu ? 'Удалить выбранных' : 'Delete selected';
+  const domainHint = document.getElementById('builderAddDomainHint');
+  if (domainHint) domainHint.textContent = isRu ? '→ ручной слой' : '→ manual layer';
+  const addDomain = document.getElementById('builderAddDomain') as HTMLInputElement | null;
+  if (addDomain) addDomain.placeholder = isRu ? 'Домен + (Enter)' : 'Domain + (Enter)';
+  const search = document.getElementById('builderEntrySearch') as HTMLInputElement | null;
+  if (search) search.placeholder = isRu ? 'Поиск по записям...' : 'Search entries...';
+  const manualTa = document.getElementById('builderManualEntries') as HTMLTextAreaElement | null;
+  if (manualTa) manualTa.placeholder = isRu
+    ? 'Ручной список: по одному домену/CIDR на строку'
+    : 'Manual list: one domain/CIDR per line';
+  const tagInput = document.getElementById('builderLayerTag') as HTMLInputElement | null;
+  if (tagInput) tagInput.placeholder = isRu ? 'TAG (для .dat)' : 'TAG (for .dat)';
+  const showMore = document.getElementById('btnBuilderShowMore');
+  if (showMore) showMore.textContent = isRu ? 'Показать ещё' : 'Show more';
+
+  populateBuilderGeoSelect();
+  renderBuilderLayers();
+  renderBuilderEntries();
+}
+
+export function renderBuilderLayers() {
+  const list = document.getElementById('builderLayersList');
+  if (!list || !builderState) return;
+  const isRu = builderIsRu();
+  const sources = builderState.sources || [];
+  if (!sources.length) {
+    list.innerHTML = `<div style="font-size: 12px; color: var(--text-muted);">${isRu ? 'Слоёв пока нет — добавьте первый слой ниже.' : 'No layers yet — add the first layer below.'}</div>`;
+    return;
+  }
+  list.innerHTML = sources.map((layer: any, idx: number) => {
+    const count = builderLayerEntries(layer).length;
+    const removable = !builderState.builtin;
+    const refreshable = layer.kind === 'url' && !builderState.builtin;
+    return `<div class="builder-layer-row" data-index="${idx}" style="display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card-subtle, rgba(255,255,255,0.02)); font-size: 12px;">
+      <span title="${esc(layer.kind)}">${builderLayerIcon(layer.kind)}</span>
+      <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${esc(builderLayerLabel(layer, isRu))}">${esc(builderLayerLabel(layer, isRu))}</span>
+      <span class="badge builder-layer-count" style="font-size: 10px;">${count}</span>
+      ${refreshable ? `<button type="button" class="btn-icon btn-layer-refresh" data-index="${idx}" title="${isRu ? 'Обновить слой' : 'Refresh layer'}" style="font-size: 11px; padding: 1px 4px;">↻</button>` : ''}
+      ${removable ? `<button type="button" class="btn-icon btn-layer-remove" data-index="${idx}" title="${isRu ? 'Удалить слой' : 'Remove layer'}" style="font-size: 11px; padding: 1px 4px;">✕</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function builderFilteredEntries(): string[] {
+  const q = ((builderState && builderState.search) || '').trim().toLowerCase();
+  const entries = builderEntriesUnion();
+  if (!q) return entries;
+  return entries.filter((e) => e.toLowerCase().includes(q));
+}
+
+export function renderBuilderEntries() {
+  const tbody = document.getElementById('builderEntriesBody');
+  if (!tbody || !builderState) return;
+  const isRu = builderIsRu();
+  const filtered = builderFilteredEntries();
+  const origins = builderOriginMap();
+  const totalEl = document.getElementById('builderEntriesTotal');
+  if (totalEl) {
+    totalEl.textContent = (isRu ? 'Записей: ' : 'Entries: ') + builderEntriesUnion().length +
+      (filtered.length !== builderEntriesUnion().length ? ` (${isRu ? 'найдено' : 'matched'}: ${filtered.length})` : '');
+  }
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">${isRu ? (builderEntriesUnion().length ? 'Нет совпадений' : 'Нет слоёв — добавьте слой слева') : (builderEntriesUnion().length ? 'No matches' : 'No layers — add one on the left')}</td></tr>`;
+    const showMore = document.getElementById('btnBuilderShowMore') as HTMLButtonElement | null;
+    if (showMore) showMore.style.display = 'none';
+    updateBuilderCounters();
+    return;
+  }
+
+  const visible = filtered.slice(0, builderRenderedCount);
+  tbody.innerHTML = visible.map((entry) => {
+    const origin = origins.get(entry);
+    const editable = origin ? origin.editable : false;
+    const checked = builderSelected.has(entry) ? 'checked' : '';
+    const cellCheckbox = editable
+      ? `<input type="checkbox" class="toggle-builder-entry" data-entry="${escapeHtml(entry)}" ${checked} style="margin: 0;" />`
+      : '';
+    const removeBtn = editable
+      ? `<button type="button" class="btn-icon btn-entry-remove" data-entry="${escapeHtml(entry)}" title="${isRu ? 'Удалить запись' : 'Remove entry'}" style="font-size: 11px; padding: 1px 4px;">✕</button>`
+      : `<span title="${isRu ? 'Живой слой: запись удаляется только в источнике' : 'Live layer: entries are managed at the source'}" style="color: var(--text-muted);">🔒</span>`;
+    return `<tr class="builder-entry-row">
+      <td style="width: 36px;">${cellCheckbox}</td>
+      <td><code>${esc(entry)}</code></td>
+      <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="badge builder-entry-origin" style="font-size: 10px; background: rgba(255,255,255,0.06);">${esc(origin ? origin.label : '')}</span></td>
+      <td style="width: 40px; text-align: right;">${removeBtn}</td>
+    </tr>`;
+  }).join('');
+
+  const showMore = document.getElementById('btnBuilderShowMore') as HTMLButtonElement | null;
+  if (showMore) {
+    if (filtered.length > builderRenderedCount) {
+      showMore.style.display = 'inline-flex';
+      showMore.textContent = isRu
+        ? `Показать ещё (${builderRenderedCount} из ${filtered.length})`
+        : `Show more (${builderRenderedCount} of ${filtered.length})`;
+    } else {
+      showMore.style.display = 'none';
+    }
+  }
+
+  updateBuilderCounters();
+}
+
+function updateBuilderCounters() {
+  const isRu = builderIsRu();
+  const selCount = document.getElementById('builderSelectedCount');
+  if (selCount) selCount.textContent = (isRu ? 'Выбрано: ' : 'Selected: ') + builderSelected.size;
+  const allBox = document.getElementById('builderSelectAllBox') as HTMLInputElement | null;
+  if (allBox) {
+    const origins = builderOriginMap();
+    const visibleEditable = builderFilteredEntries().slice(0, builderRenderedCount).filter((e) => {
+      const o = origins.get(e);
+      return o && o.editable;
+    });
+    allBox.checked = visibleEditable.length > 0 && visibleEditable.every((e) => builderSelected.has(e));
+  }
+}
+
+function toggleBuilderSelectAll(force?: boolean) {
+  const origins = builderOriginMap();
+  const editableEntries = builderFilteredEntries().filter((e) => {
+    const o = origins.get(e);
+    return o && o.editable;
+  });
+  const target = force !== undefined ? force : !editableEntries.every((e) => builderSelected.has(e)) || editableEntries.length === 0;
+  if (target) {
+    for (const e of editableEntries) builderSelected.add(e);
+  } else {
+    for (const e of editableEntries) builderSelected.delete(e);
+  }
+  renderBuilderEntries();
+}
+
+async function resolveBuilderLayer(rawSource: any): Promise<any | null> {
+  const isRu = builderIsRu();
+  clearBuilderLayerStatus();
+  try {
+    const res = await adminFetch('/api/routing/presets/resolve-layer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: rawSource, type: builderState ? builderState.type : 'domain' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || 'HTTP ' + res.status);
+    }
+    return data.source;
+  } catch (e: any) {
+    const msg = e?.message || 'resolve-layer failed';
+    showBuilderLayerStatus(msg);
+    toast(msg, 'error');
+    return null;
+  }
+}
+
+function fileToBase64(file: any): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === 'string') {
+        resolve(result.includes(',') ? result.split(',')[1] : result);
+      } else {
+        reject(new Error('Failed to read file'));
+      }
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addBuilderLayer(rawSource: any) {
+  if (!builderState || builderState.builtin) return;
+  const resolved = await resolveBuilderLayer(rawSource);
+  if (!resolved) return;
+  builderState.sources.push(resolved);
+  builderRenderedCount = BUILDER_RENDER_LIMIT;
+  renderPresetBuilder();
+}
+
+async function addGeoLayerFromSelect() {
+  const sel = document.getElementById('builderGeoSelect') as HTMLSelectElement | null;
+  const ref = sel ? sel.value : '';
+  if (!ref) return;
+  await addBuilderLayer({ kind: 'geo-tag', ref });
+}
+
+async function addUrlLayerFromInputs() {
+  const urlEl = document.getElementById('builderLayerUrl') as HTMLInputElement | null;
+  const tagEl = document.getElementById('builderLayerTag') as HTMLInputElement | null;
+  const url = (urlEl ? urlEl.value : '').trim();
+  if (!url) {
+    toast(builderIsRu() ? 'Укажите URL слоя' : 'Layer URL is required', 'error');
+    return;
+  }
+  const tag = (tagEl ? tagEl.value : '').trim();
+  await addBuilderLayer({ kind: 'url', url, ...(tag ? { tag } : {}) });
+  if (urlEl) urlEl.value = '';
+  if (tagEl) tagEl.value = '';
+}
+
+async function addManualLayerFromTextarea() {
+  const ta = document.getElementById('builderManualEntries') as HTMLTextAreaElement | null;
+  const raw = ta ? ta.value : '';
+  const entries = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (!entries.length) {
+    toast(builderIsRu() ? 'Список записей пуст' : 'Entries list is empty', 'error');
+    return;
+  }
+  await addBuilderLayer({ kind: 'manual', entries });
+  if (ta) ta.value = '';
+}
+
+async function addBuilderFileLayer(file: any) {
+  if (!file) return;
+  const isRu = builderIsRu();
+  try {
+    const base64 = await fileToBase64(file);
+    const tagEl = document.getElementById('builderLayerTag') as HTMLInputElement | null;
+    const tag = (tagEl ? tagEl.value : '').trim();
+    // .dat needs a tag; .txt/.list go without one (GEO-PRESET-UX-2 input table)
+    await addBuilderLayer({ kind: 'file', name: file.name, ...(tag ? { tag } : {}), content: base64 });
+    if (tagEl) tagEl.value = '';
+  } catch (e: any) {
+    toast(e?.message || (isRu ? 'Не удалось прочитать файл' : 'Failed to read file'), 'error');
+  }
+}
+
+async function importPresetJsonFile(file: any) {
+  if (!file) return;
+  const isRu = builderIsRu();
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const res = await adminFetch('/api/routing/presets/import-preset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(parsed && parsed.preset ? parsed : { preset: parsed }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || 'HTTP ' + res.status);
+    }
+    toast((isRu ? 'Пресет импортирован: ' : 'Preset imported: ') + (data.preset ? data.preset.name : ''), 'success');
+    const newId = data.preset ? data.preset.id : null;
+    await loadPresets();
+    if (newId) await openPresetBuilder(newId);
+  } catch (e: any) {
+    toast((isRu ? 'Ошибка импорта: ' : 'Import error: ') + (e?.message || e), 'error');
+  }
+}
+
+async function refreshBuilderLayer(index: number) {
+  if (!builderState || builderState.builtin) return;
+  const layer = (builderState.sources || [])[index];
+  if (!layer || layer.kind !== 'url') return;
+  const resolved = await resolveBuilderLayer({ kind: 'url', url: layer.url, ...(layer.tag ? { tag: layer.tag } : {}) });
+  if (!resolved) return;
+  builderState.sources[index] = resolved;
+  builderRenderedCount = BUILDER_RENDER_LIMIT;
+  renderPresetBuilder();
+}
+
+async function removeBuilderLayer(index: number) {
+  if (!builderState || builderState.builtin) return;
+  const isRu = builderIsRu();
+  const layer = (builderState.sources || [])[index];
+  if (!layer) return;
+  const ok = await pecConfirm({
+    title: isRu ? 'Удалить слой?' : 'Remove layer?',
+    message: (isRu ? 'Слой «' : 'Layer "') + builderLayerLabel(layer, isRu) + (isRu ? '" будет удалён из пресета.' : '" will be removed from the preset.'),
+    isDanger: true,
+    confirmText: isRu ? 'Удалить' : 'Remove',
+  });
+  if (!ok) return;
+  builderState.sources.splice(index, 1);
+  builderSelected.clear();
+  builderRenderedCount = BUILDER_RENDER_LIMIT;
+  renderPresetBuilder();
+}
+
+function removeBuilderEntry(entry: string) {
+  if (!builderState || builderState.builtin) return;
+  const origin = builderOriginMap().get(entry);
+  if (!origin || !origin.editable) return;
+  const layer = builderState.sources[origin.layerIdx];
+  if (!layer || !Array.isArray(layer.entries)) return;
+  const i = layer.entries.indexOf(entry);
+  if (i >= 0) layer.entries.splice(i, 1);
+  builderSelected.delete(entry);
+  renderBuilderEntries();
+  renderBuilderLayers();
+}
+
+function deleteSelectedBuilderEntries() {
+  if (!builderState || builderState.builtin) return;
+  const isRu = builderIsRu();
+  if (!builderSelected.size) {
+    toast(isRu ? 'Не выбрано ни одной записи' : 'No entries selected', 'error');
+    return;
+  }
+  const origins = builderOriginMap();
+  let removed = 0;
+  for (const entry of Array.from(builderSelected)) {
+    const origin = origins.get(entry);
+    if (!origin || !origin.editable) continue;
+    const layer = builderState.sources[origin.layerIdx];
+    if (!layer || !Array.isArray(layer.entries)) continue;
+    const i = layer.entries.indexOf(entry);
+    if (i >= 0) {
+      layer.entries.splice(i, 1);
+      removed++;
+    }
+  }
+  builderSelected.clear();
+  toast(isRu ? `Удалено записей: ${removed}` : `Removed ${removed} entries`, 'success');
+  renderBuilderEntries();
+  renderBuilderLayers();
+}
+
+export function addBuilderDomain() {
+  if (!builderState || builderState.builtin) return;
+  const isRu = builderIsRu();
+  const input = document.getElementById('builderAddDomain') as HTMLInputElement | null;
+  const raw = (input ? input.value : '').trim();
+  if (!raw) return;
+  const tokens = raw.split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean);
+  for (const tok of tokens) {
+    const isCidrTok = tok.includes('/');
+    if (builderState.type === 'domain' && isCidrTok) {
+      toast(isRu ? 'CIDR-запись нельзя добавить в domain-пресет' : 'CIDR entries are not allowed in a domain preset', 'error');
+      return;
+    }
+    if (builderState.type === 'cidr' && !isCidrTok) {
+      toast(isRu ? 'Домен нельзя добавить в cidr-пресет' : 'Domain entries are not allowed in a cidr preset', 'error');
+      return;
+    }
+    const v = validatePatternToken(tok);
+    if (!v.valid) {
+      toast(v.error || 'Invalid entry', 'error');
+      return;
+    }
+  }
+  let layer = builderState.sources.find((s: any) => s.kind === 'manual');
+  if (!layer) {
+    layer = { kind: 'manual', entries: [] };
+    builderState.sources.push(layer);
+  }
+  for (const tok of tokens) {
+    if (!layer.entries.includes(tok)) layer.entries.push(tok);
+  }
+  if (input) input.value = '';
+  builderRenderedCount = Math.max(builderRenderedCount, BUILDER_RENDER_LIMIT);
+  renderPresetBuilder();
+}
+
+export async function savePresetBuilder() {
+  if (!builderState || builderState.builtin) return;
+  const isRu = builderIsRu();
+
+  const nameEl = document.getElementById('builderNameInput') as HTMLInputElement | null;
+  const descEl = document.getElementById('builderDescInput') as HTMLInputElement | null;
+  const name = ((nameEl && nameEl.value) || builderState.name || '').trim();
+  if (!name) {
+    toast(isRu ? 'Укажите название пресета' : 'Preset name is required', 'error');
+    return;
+  }
+  const description = ((descEl && descEl.value) || '').trim();
+  const sources = builderState.sources || [];
+  if (!sources.length) {
+    toast(isRu ? 'Добавьте хотя бы один слой' : 'Add at least one layer', 'error');
+    return;
+  }
+  const entries = builderEntriesUnion();
+  if (!entries.length) {
+    toast(isRu ? 'Пресет пуст: слои не дают записей' : 'Preset is empty: layers produce no entries', 'error');
+    return;
+  }
+
+  // ⚠️ GEO-PRESET-EDIT-1 lesson: re-send the legacy source fields alongside
+  // sources — the server derives them from layers now, but old flows expect
+  // them in the payload (sources remain the authoritative shape).
+  const urlLayer = sources.find((s: any) => s.kind === 'url');
+  const fileTagLayer = sources.find((s: any) => s.kind === 'file' && s.tag);
+  const payload: Record<string, any> = {
+    id: builderState.id,
+    name,
+    description,
+    type: builderState.type,
+    sources,
+    entries,
+    domains: entries,
+    source: urlLayer ? 'remote' : 'file',
+  };
+  if (urlLayer) {
+    payload.sourceUrl = urlLayer.url;
+    if (urlLayer.tag) payload.sourceTag = urlLayer.tag;
+  } else if (fileTagLayer) {
+    payload.sourceTag = fileTagLayer.tag;
   }
 
   try {
@@ -556,535 +1244,92 @@ export async function deleteInspectorSelectedEntries() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) {
-      toast(data.error || ('HTTP ' + res.status), 'error');
+      const msg = data.error || 'HTTP ' + res.status;
+      showBuilderLayerStatus(msg);
+      toast(msg, 'error');
       return;
     }
-    toast(isRu ? `Удалено записей: ${inspectorEntries.length - keep.length}` : `Deleted ${inspectorEntries.length - keep.length} entries`, 'success');
-    // Update local state: entries shrink, selection clears
-    inspectorEntries = keep;
-    inspectorFilteredEntries = inspectorFilteredEntries.filter((e) => !inspectorSelectedSet.has(e));
-    inspectorSelectedSet.clear();
-    renderInspectorTable();
-    updateInspectorCounters();
+    toast(isRu ? 'Пресет сохранён' : 'Preset saved', 'success');
+    await loadPresets();
+    closePresetBuilder();
   } catch (e: any) {
-    toast(e?.message || (isRu ? 'Ошибка удаления' : 'Delete failed'), 'error');
+    toast(e?.message || (isRu ? 'Ошибка сохранения' : 'Save failed'), 'error');
   }
 }
 
-export async function openGeobaseInspector(presetId: string) {
-  const modal = document.getElementById('modalGeobaseInspector');
-  if (!modal) return;
-  modal.style.display = 'flex';
-  
-  const isRu = state.currentLang === 'ru';
-  const titleEl = document.getElementById('inspectorTitle');
-  if (titleEl) titleEl.textContent = isRu ? 'Загрузка...' : 'Loading...';
-  const tbody = document.getElementById('inspectorTableBody');
-  if (tbody) {
-    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Загрузка содержимого пресета...' : 'Loading preset entries...') + '</td></tr>';
-  }
-  const searchEl = document.getElementById('inspectorSearch') as HTMLInputElement | null;
-  if (searchEl) searchEl.value = '';
-  inspectorSelectedSet.clear();
-  updateInspectorCounters();
-
+export async function duplicateBuiltinPreset(presetId: string) {
+  const isRu = builderIsRu();
   try {
     const res = await adminFetch('/api/routing/presets/' + encodeURIComponent(presetId));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const preset = await res.json();
-    currentInspectorPreset = preset;
-
-    if (titleEl) titleEl.textContent = preset.name || presetId;
-    const typeBadge = document.getElementById('inspectorTypeBadge');
-    if (typeBadge) {
-      typeBadge.textContent = (preset.type || 'domain').toUpperCase();
-    }
-    const subTitleEl = document.getElementById('inspectorSubtitle');
-    if (subTitleEl) {
-      subTitleEl.textContent = preset.description || (preset.source ? 'Source: ' + preset.source : '');
-    }
-
-    inspectorEntries = preset.entries || preset.domains || [];
-    inspectorFilteredEntries = [...inspectorEntries];
-    renderInspectorTable();
-  } catch (err) {
-    if (tbody) {
-      tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #ef4444;">' + (isRu ? 'Ошибка загрузки пресета: ' : 'Failed to load preset: ') + esc(String(err)) + '</td></tr>';
-    }
-  }
-}
-
-export function closeGeobaseInspector() {
-  const modal = document.getElementById('modalGeobaseInspector');
-  if (modal) modal.style.display = 'none';
-  currentInspectorPreset = null;
-  inspectorEntries = [];
-  inspectorFilteredEntries = [];
-  inspectorSelectedSet.clear();
-}
-
-export function filterInspectorEntries() {
-  const searchEl = document.getElementById('inspectorSearch') as HTMLInputElement | null;
-  const q = (searchEl ? searchEl.value : '').trim().toLowerCase();
-  if (!q) {
-    inspectorFilteredEntries = [...inspectorEntries];
-  } else {
-    inspectorFilteredEntries = inspectorEntries.filter(e => String(e).toLowerCase().includes(q));
-  }
-  renderInspectorTable();
-}
-
-export function renderInspectorTable() {
-  const tbody = document.getElementById('inspectorTableBody');
-  const isRu = state.currentLang === 'ru';
-  if (!tbody) return;
-  if (!inspectorFilteredEntries.length) {
-    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Нет совпадений' : 'No matching entries') + '</td></tr>';
-    updateInspectorCounters();
-    return;
-  }
-
-  const limit = 500;
-  const visible = inspectorFilteredEntries.slice(0, limit);
-  tbody.innerHTML = visible.map(entry => {
-    const checked = inspectorSelectedSet.has(entry) ? 'checked' : '';
-    const entryType = entry.includes('/') ? 'CIDR' : (entry.startsWith('*.') || entry.startsWith('.')) ? 'Wildcard' : 'Domain';
-    return `<tr>
-      <td>
-        <input type="checkbox" class="toggle-inspector-entry" data-entry="${escapeHtml(entry)}" ${checked} style="margin: 0;" />
-      </td>
-      <td><code>${esc(entry)}</code></td>
-      <td><span class="badge" style="font-size: 10px; background: rgba(255,255,255,0.06);">${entryType}</span></td>
-    </tr>`;
-  }).join('');
-
-  if (inspectorFilteredEntries.length > limit) {
-    tbody.innerHTML += `<tr><td colspan="3" style="text-align: center; color: var(--text-muted); font-size: 11px;">... ${isRu ? 'показано первых' : 'showing first'} ${limit} ${isRu ? 'из' : 'of'} ${inspectorFilteredEntries.length} (${isRu ? 'уточните поиск' : 'refine search'})</td></tr>`;
-  }
-
-  updateInspectorCounters();
-}
-
-export function toggleInspectorEntry(entry: string, isChecked: boolean) {
-  if (isChecked) {
-    inspectorSelectedSet.add(entry);
-  } else {
-    inspectorSelectedSet.delete(entry);
-  }
-  updateInspectorCounters();
-}
-
-export function selectInspectorAll(select: boolean) {
-  if (select) {
-    for (const e of inspectorFilteredEntries) {
-      inspectorSelectedSet.add(e);
-    }
-  } else {
-    for (const e of inspectorFilteredEntries) {
-      inspectorSelectedSet.delete(e);
-    }
-  }
-  renderInspectorTable();
-}
-
-export function updateInspectorCounters() {
-  const isRu = state.currentLang === 'ru';
-  const selCount = document.getElementById('inspectorSelectedCount');
-  if (selCount) {
-    selCount.textContent = (isRu ? 'Выбрано: ' : 'Selected: ') + inspectorSelectedSet.size;
-  }
-  const totalCount = document.getElementById('inspectorTotalCount');
-  if (totalCount) {
-    totalCount.textContent = (isRu ? 'Всего записей: ' : 'Total entries: ') + inspectorEntries.length;
-  }
-  const allBox = document.getElementById('inspectorSelectAll') as HTMLInputElement | null;
-  if (allBox) {
-    allBox.checked = inspectorFilteredEntries.length > 0 && inspectorFilteredEntries.every(e => inspectorSelectedSet.has(e));
-  }
-}
-
-export function addSelectedToProfile(action?: string) {
-  if (!state.currentProfile) {
-    toast('No profile selected', 'error');
-    return;
-  }
-  if (!inspectorSelectedSet.size) {
-    toast(state.currentLang === 'ru' ? 'Не выбрано ни одной записи' : 'No entries selected', 'error');
-    return;
-  }
-
-  const inspectorSel = (document.getElementById('inspectorActionSelect') as HTMLSelectElement | null)?.value;
-  const effectiveAction = (inspectorSel || action || 'proxy') as 'proxy' | 'direct' | 'block';
-
-  const isRu = state.currentLang === 'ru';
-  const entries = Array.from(inspectorSelectedSet);
-  const presetName = currentInspectorPreset ? currentInspectorPreset.name : 'Entries';
-
-  let added = 0;
-  for (const entry of entries) {
-    const isCidr = entry.includes('/');
-    state.currentProfile.rules.push({
-      id: 'r_' + Math.random().toString(36).substring(2, 8),
-      name: `${presetName} [${entry}]`,
-      targetType: isCidr ? 'cidr' : 'wildcard',
-      pattern: entry,
-      action: effectiveAction,
-      enabled: true
-    });
-    added++;
-  }
-
-  toast((isRu ? `Добавлено правил: ${added}` : `Added ${added} rules`) + ` (${effectiveAction.toUpperCase()})`, 'success');
-  setUnsavedRouting(true);
-  renderRules(state.currentProfile.rules);
-  closeGeobaseInspector();
-}
-
-// ==================== Import Presets Modal Logic ====================
-let currentImportTab: string = 'url';
-
-export function openImportPresetsModal() {
-  const modal = document.getElementById('modalImportPresets');
-  if (!modal) return;
-  modal.style.display = 'flex';
-  const errBox = document.getElementById('importPresetError');
-  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
-  const urlInp = (document.getElementById('importPresetUrl') || document.getElementById('importPresetUrlInput')) as HTMLInputElement | null;
-  if (urlInp) urlInp.value = '';
-  const fileInp = document.getElementById('importPresetFileInput') as HTMLInputElement | null;
-  if (fileInp) fileInp.value = '';
-  const tagInp = document.getElementById('importPresetTag') as HTMLInputElement | null;
-  if (tagInp) tagInp.value = '';
-  const nameInp = document.getElementById('importPresetName') as HTMLInputElement | null;
-  if (nameInp) nameInp.value = '';
-  switchImportTab('url');
-}
-
-export function closeImportPresetsModal() {
-  const modal = document.getElementById('modalImportPresets');
-  if (modal) modal.style.display = 'none';
-}
-
-export function switchImportTab(tab: string) {
-  currentImportTab = tab;
-  const tabUrl = document.getElementById('tabImportUrlBtn') || document.getElementById('tabImportUrl');
-  const tabFile = document.getElementById('tabImportFileBtn') || document.getElementById('tabImportFile');
-  const secUrl = document.getElementById('panelImportUrl') || document.getElementById('sectionImportUrl');
-  const secFile = document.getElementById('panelImportFile') || document.getElementById('sectionImportFile');
-
-  if (tab === 'url') {
-    if (tabUrl) tabUrl.className = tabUrl.classList.contains('tab-btn') ? 'tab-btn active' : 'btn-primary';
-    if (tabFile) tabFile.className = tabFile.classList.contains('tab-btn') ? 'tab-btn' : 'btn-secondary';
-    if (secUrl) secUrl.style.display = 'block';
-    if (secFile) secFile.style.display = 'none';
-  } else {
-    if (tabUrl) tabUrl.className = tabUrl.classList.contains('tab-btn') ? 'tab-btn' : 'btn-secondary';
-    if (tabFile) tabFile.className = tabFile.classList.contains('tab-btn') ? 'tab-btn active' : 'btn-primary';
-    if (secUrl) secUrl.style.display = 'none';
-    if (secFile) secFile.style.display = 'block';
-  }
-}
-
-export async function submitImportPreset() {
-  const isRu = state.currentLang === 'ru';
-  const errBox = document.getElementById('importPresetError');
-  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
-
-  const tag = ((document.getElementById('importPresetTag') as HTMLInputElement)?.value || '').trim();
-  const name = ((document.getElementById('importPresetName') as HTMLInputElement)?.value || '').trim();
-  const category = (document.getElementById('importPresetCategory') as HTMLSelectElement)?.value || 'custom';
-  const type = (document.getElementById('importPresetType') as HTMLSelectElement)?.value || 'domain';
-
-  if (!tag) {
-    if (errBox) {
-      errBox.textContent = isRu ? 'Укажите системный идентификатор (tag/id)' : 'Specify system identifier (tag/id)';
-      errBox.style.display = 'block';
-    }
-    return;
-  }
-  if (!name) {
-    if (errBox) {
-      errBox.textContent = isRu ? 'Укажите понятное имя пресета' : 'Specify human-readable preset name';
-      errBox.style.display = 'block';
-    }
-    return;
-  }
-
-  const submitBtn = document.getElementById('btnSubmitImportPreset') as HTMLButtonElement | null;
-
-  if (currentImportTab === 'url') {
-    const url = (((document.getElementById('importPresetUrl') || document.getElementById('importPresetUrlInput')) as HTMLInputElement)?.value || '').trim();
-    if (!url) {
-      if (errBox) {
-        errBox.textContent = isRu ? 'Укажите прямой URL источника' : 'Specify source URL';
-        errBox.style.display = 'block';
-      }
-      return;
-    }
-
-    try {
-      if (submitBtn) submitBtn.disabled = true;
-      const res = await adminFetch('/api/routing/presets/import-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, tag, name, category, type })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || ('HTTP ' + res.status));
-      }
-      toast((isRu ? 'Пресетов импортировано! Записей: ' : 'Preset imported! Entries: ') + (data.preset ? data.preset.entriesCount : ''), 'success');
-      closeImportPresetsModal();
-      loadPresets();
-    } catch (e: any) {
-      if (errBox) {
-        errBox.textContent = (isRu ? 'Ошибка импорта: ' : 'Import error: ') + e.message;
-        errBox.style.display = 'block';
-      }
-    } finally {
-      if (submitBtn) submitBtn.disabled = false;
-    }
-  } else {
-    // File Upload
-    const fileInput = document.getElementById('importPresetFileInput') as HTMLInputElement | null;
-    if (!fileInput || !fileInput.files || !fileInput.files[0]) {
-      if (errBox) {
-        errBox.textContent = isRu ? 'Выберите файл для загрузки' : 'Select a file to upload';
-        errBox.style.display = 'block';
-      }
-      return;
-    }
-    const file = fileInput.files[0];
-
-    try {
-      if (submitBtn) submitBtn.disabled = true;
-      const reader = new FileReader();
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const res = reader.result;
-          if (typeof res === 'string') {
-            const b64 = res.includes(',') ? res.split(',')[1] : res;
-            resolve(b64);
-          } else {
-            reject(new Error('Failed to read file'));
-          }
-        };
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-      });
-
-      const res = await adminFetch('/api/routing/presets/import-file', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filename: file.name,
-          content: base64Data,
-          encoding: 'base64',
-          tag,
-          name,
-          category,
-          type
-        })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || ('HTTP ' + res.status));
-      }
-      toast((isRu ? 'Файл пресета импортирован! Записей: ' : 'Preset file imported! Entries: ') + (data.preset ? data.preset.entriesCount : ''), 'success');
-      closeImportPresetsModal();
-      loadPresets();
-    } catch (e: any) {
-      if (errBox) {
-        errBox.textContent = (isRu ? 'Ошибка импорта: ' : 'Import error: ') + e.message;
-        errBox.style.display = 'block';
-      }
-    } finally {
-      if (submitBtn) submitBtn.disabled = false;
-    }
-  }
-}
-
-export async function createNewProfile() {
-  const isRu = (typeof state.currentLang !== 'undefined' ? state.currentLang : 'ru') === 'ru';
-  const name = await pecPrompt(isRu ? 'Введите название нового профиля маршрутизации:' : 'Enter name for the new Routing Profile:', 'New Department Profile');
-  if (!name) return;
-  const newP = {
-    id: 'prof_' + Math.random().toString(36).substring(2, 8),
-    name: name,
-    description: 'Custom routing profile',
-    defaultPolicy: 'direct',
-    targetScope: 'all',
-    rules: []
-  };
-  try {
-    const res = await adminFetch('/api/routing/profiles', {
+    const dupRes = await adminFetch('/api/routing/presets/import-preset', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newP)
+      body: JSON.stringify({
+        preset: {
+          name: (preset.name || presetId) + (isRu ? ' (копия)' : ' (copy)'),
+          description: preset.description || '',
+          category: preset.category || 'custom',
+          type: preset.type === 'cidr' ? 'cidr' : 'domain',
+          sources: Array.isArray(preset.sources) && preset.sources.length
+            ? preset.sources
+            : [{ kind: 'manual', entries: preset.entries || preset.domains || [] }],
+        },
+      }),
     });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      toast('Failed to create profile: ' + (data.error || ('HTTP ' + res.status)), 'error');
-      return;
+    const dupData = await dupRes.json().catch(() => ({}));
+    if (!dupRes.ok || !dupData.ok) {
+      throw new Error(dupData.error || 'HTTP ' + dupRes.status);
     }
-    const saved = await res.json();
-    state.allProfiles.push(saved);
-    state.currentProfile = saved;
-    (window as any).currentProfile = state.currentProfile;
-
-    const sel = document.getElementById('profileSelect') as HTMLSelectElement | null;
-    if (sel) {
-      const opt = document.createElement('option');
-      opt.value = saved.id;
-      opt.textContent = saved.name;
-      opt.selected = true;
-      sel.appendChild(opt);
-    }
-
-    renderProfile(saved);
-    toast('Profile created on the server. Remember to add rules and press Save after editing.', 'success');
-  } catch (e) {
-    toast('Error creating profile: ' + e, 'error');
-  }
-}
-
-export async function deleteCurrentProfile() {
-  if (!state.currentProfile) return;
-  if (!await pecConfirm('Are you sure you want to delete profile "' + state.currentProfile.name + '"?', { isDanger: true })) return;
-  try {
-    const res = await adminFetch('/api/routing/profiles/' + state.currentProfile.id, { method: 'DELETE' });
-    const data = await res.json();
-    if (data.ok) {
-      toast('Profile deleted', 'success');
-      loadProfiles();
-    } else {
-      toast('Delete error: ' + (data.error || 'Failed'), 'error');
-    }
-  } catch (e) {
-    toast('Error: ' + e, 'error');
-  }
-}
-
-// Modal closers
-registerModalCloser('modalEditRule', closeEditRuleModal);
-registerModalCloser('modalGeobaseInspector', closeGeobaseInspector);
-registerModalCloser('modalImportPresets', closeImportPresetsModal);
-
-// ============================================================================
-// GEO-PRESET-EDIT-1: editing / deletion / refresh of geo-presets in the UI.
-// POST /api/routing/presets is an upsert keyed by id — the payload MUST
-// re-send the existing source/sourceUrl/sourceTag, otherwise the server
-// resets them to the default 'file' source (routingRoutes source merge).
-// ============================================================================
-
-let editingPreset: any = null;
-
-function isBuiltinPreset(p: any): boolean {
-  return p && p.source === 'builtin';
-}
-
-export function openPresetEditModal(presetId: string) {
-  const preset = (lastLoadedPresets || []).find((p: any) => p.id === presetId);
-  if (!preset) { toast('Пресет не найден', 'error'); return; }
-  if (isBuiltinPreset(preset)) {
-    toast(isRuGlobal() ? 'Builtin-пресеты нельзя редактировать' : 'Built-in presets cannot be edited', 'error');
-    return;
-  }
-  editingPreset = preset;
-
-  const modal = document.getElementById('modalPresetEdit');
-  if (!modal) return;
-  modal.style.display = 'flex';
-
-  const nameEl = document.getElementById('presetEditName') as HTMLInputElement | null;
-  const descEl = document.getElementById('presetEditDescription') as HTMLTextAreaElement | null;
-  const typeBadge = document.getElementById('presetEditTypeBadge');
-  const typeInput = document.getElementById('presetEditType') as HTMLInputElement | null;
-  const entriesEl = document.getElementById('presetEditEntries') as HTMLTextAreaElement | null;
-  const errEl = document.getElementById('presetEditError');
-
-  if (nameEl) nameEl.value = preset.name || '';
-  if (descEl) descEl.value = preset.description || '';
-  if (typeBadge) typeBadge.textContent = (preset.type || 'domain').toUpperCase();
-  if (typeInput) typeInput.value = preset.type || 'domain';
-  if (entriesEl) entriesEl.value = (preset.entries || preset.domains || []).join('\n');
-  if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
-}
-
-export function closePresetEditModal() {
-  const modal = document.getElementById('modalPresetEdit');
-  if (modal) modal.style.display = 'none';
-  editingPreset = null;
-}
-
-export async function savePresetEdit() {
-  if (!editingPreset) return;
-  const isRu = state.currentLang === 'ru';
-  const nameEl = document.getElementById('presetEditName') as HTMLInputElement | null;
-  const descEl = document.getElementById('presetEditDescription') as HTMLTextAreaElement | null;
-  const entriesEl = document.getElementById('presetEditEntries') as HTMLTextAreaElement | null;
-  const errEl = document.getElementById('presetEditError');
-
-  const showErr = (msg: string) => {
-    if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
-    toast(msg, 'error');
-  };
-
-  const name = (nameEl?.value || '').trim();
-  if (!name) { showErr(isRu ? 'Укажите название пресета' : 'Preset name is required'); return; }
-
-  const entries = (entriesEl?.value || '')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  if (!entries.length) { showErr(isRu ? 'Список записей пуст' : 'Entries list is empty'); return; }
-
-  // ⚠️ GEO-PRESET-EDIT-1: re-send the original source fields — POST resets
-  // missing source/sourceUrl/sourceTag to the default 'file'.
-  const payload: Record<string, any> = {
-    id: editingPreset.id,
-    name,
-    description: (descEl?.value || '').trim(),
-    type: editingPreset.type || 'domain',
-    entries,
-    domains: entries,
-  };
-  for (const k of ['source', 'sourceUrl', 'sourceTag']) {
-    if (editingPreset[k] !== undefined && editingPreset[k] !== null) payload[k] = editingPreset[k];
-  }
-
-  try {
-    const res = await adminFetch('/api/routing/presets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      // 400 = MAX_ROUTING_PRESET_ENTRIES exceeded or validation error
-      showErr(data.error || ('HTTP ' + res.status));
-      return;
-    }
-    closePresetEditModal();
-    toast(isRu ? 'Пресет сохранён' : 'Preset saved', 'success');
+    toast(isRu ? 'Создана копия пресета' : 'Preset duplicated', 'success');
     await loadPresets();
+    if (dupData.preset && dupData.preset.id) {
+      await openPresetBuilder(dupData.preset.id);
+    }
   } catch (e: any) {
-    showErr(e?.message || 'Save failed');
+    toast(e?.message || (isRu ? 'Не удалось дублировать пресет' : 'Failed to duplicate preset'), 'error');
+  }
+}
+
+export async function exportPresetJson(presetId: string) {
+  const isRu = builderIsRu();
+  try {
+    const res = await adminFetch('/api/routing/presets/' + encodeURIComponent(presetId) + '/export');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = String(presetId).replace(/[^a-zA-Z0-9._-]/g, '-') + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(isRu ? 'Экспорт готов' : 'Export ready', 'success');
+  } catch (e: any) {
+    toast(e?.message || (isRu ? 'Ошибка экспорта' : 'Export failed'), 'error');
   }
 }
 
 export async function deletePresetWithConfirm(presetId: string) {
-  const preset = (lastLoadedPresets || []).find((p: any) => p.id === presetId);
+  const preset = findLoadedPreset(presetId);
   if (!preset) return;
   if (isBuiltinPreset(preset)) {
-    toast(isRuGlobal() ? 'Builtin-пресеты нельзя удалять' : 'Built-in presets cannot be deleted', 'error');
+    toast(builderIsRu() ? 'Builtin-пресеты нельзя удалять' : 'Built-in presets cannot be deleted', 'error');
     return;
   }
   const isRu = state.currentLang === 'ru';
+  const inProfiles = (state.allProfiles || []).filter((prof: any) =>
+    Array.isArray(prof.rules) && prof.rules.some((r: any) => r.targetType === 'preset' && r.pattern === presetId)
+  );
   const ok = await pecConfirm({
     title: isRu ? 'Удалить пресет?' : 'Delete preset?',
-    message: (isRu ? 'Пресет «' : 'Preset "') + (preset.name || presetId) + (isRu ? '" будет удалён безвозвратно.' : '" will be deleted permanently.'),
+    message: (isRu ? 'Пресет «' : 'Preset "') + (preset.name || presetId) + (isRu ? '" будет удалён безвозвратно.' : '" will be deleted permanently.') +
+      (inProfiles.length
+        ? (isRu ? `\nИспользуется в профилях: ${inProfiles.map((p: any) => p.name).join(', ')}.` : `\nUsed by profiles: ${inProfiles.map((p: any) => p.name).join(', ')}.`)
+        : ''),
     isDanger: true,
     confirmText: isRu ? 'Удалить' : 'Delete',
   });
@@ -1105,10 +1350,10 @@ export async function deletePresetWithConfirm(presetId: string) {
 }
 
 export async function refreshRemotePreset(presetId: string) {
-  const preset = (lastLoadedPresets || []).find((p: any) => p.id === presetId);
-  if (!preset || preset.source !== 'remote') return;
+  const preset = findLoadedPreset(presetId);
+  if (!preset) return;
   const isRu = state.currentLang === 'ru';
-  toast(isRu ? 'Обновление пресета...' : 'Refreshing preset...', 'info');
+  toast(isRu ? 'Обновление url-слоёв пресета...' : 'Refreshing preset url layers...', 'info');
   try {
     const res = await adminFetch('/api/routing/presets/' + encodeURIComponent(presetId) + '/refresh', { method: 'POST' });
     const data = await res.json().catch(() => ({}));
@@ -1123,6 +1368,205 @@ export async function refreshRemotePreset(presetId: string) {
   }
 }
 
-let lastLoadedPresets: any[] = [];
+// Modal closers
+registerModalCloser('modalEditRule', closeEditRuleModal);
 
-function isRuGlobal(): boolean { return state.currentLang === 'ru'; }
+// ============================================================================
+// GEO-PRESET-UX-2 click-path invariant (DIAG-GEO-UX-1): every constructor /
+// preset-card button is handled by DELEGATED document-level listeners below
+// (telemetry.ts:771 pattern). Tests must dispatchEvent(click) on the buttons.
+// ============================================================================
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', function(e: any) {
+    const target = e.target;
+    if (!target || typeof (target as any).closest !== 'function') return;
+
+    // CARD-MENU: any click outside an open menu and outside the «⋮» button
+    // closes it (outside-click dismiss; Escape handled by the keydown listener).
+    const menuBtn = (target as any).closest('.btn-preset-menu');
+    const insideMenu = (target as any).closest('.preset-card-menu');
+    if (!menuBtn && !insideMenu) {
+      closePresetMenus();
+    }
+    if (menuBtn) {
+      togglePresetCardMenu(menuBtn);
+      return;
+    }
+
+    // CARD-MENU item dispatch: close on selection, then run the action.
+    const menuItem = (target as any).closest('.preset-menu-item');
+    if (menuItem) {
+      const id = menuItem.getAttribute('data-id');
+      closePresetMenus();
+      if (!id) return;
+      if (menuItem.classList.contains('pm-edit')) {
+        openPresetBuilder(id);
+        return;
+      }
+      if (menuItem.classList.contains('pm-view')) {
+        openPresetBuilder(id, { readOnly: true });
+        return;
+      }
+      if (menuItem.classList.contains('pm-refresh')) {
+        refreshRemotePreset(id);
+        return;
+      }
+      if (menuItem.classList.contains('pm-export')) {
+        exportPresetJson(id);
+        return;
+      }
+      if (menuItem.classList.contains('pm-duplicate')) {
+        duplicateBuiltinPreset(id);
+        return;
+      }
+      if (menuItem.classList.contains('pm-delete')) {
+        deletePresetWithConfirm(id);
+        return;
+      }
+      return;
+    }
+
+    const dupBtn = (target as any).closest('.btn-preset-duplicate');
+    if (dupBtn) {
+      // card buttons carry data-id; the in-builder header button falls back to
+      // the currently open preset
+      const id = dupBtn.getAttribute('data-id') || (builderState && builderState.id);
+      if (id) duplicateBuiltinPreset(id);
+      return;
+    }
+    const exportBtn = (target as any).closest('.btn-preset-export');
+    if (exportBtn) {
+      if (builderState && builderState.id) exportPresetJson(builderState.id);
+      return;
+    }
+    const backBtn = (target as any).closest('.btn-builder-back');
+    if (backBtn) {
+      closePresetBuilder();
+      return;
+    }
+    const cancelBtn = (target as any).closest('.btn-builder-cancel');
+    if (cancelBtn) {
+      closePresetBuilder();
+      return;
+    }
+    const saveBtn = (target as any).closest('.btn-builder-save');
+    if (saveBtn) {
+      savePresetBuilder();
+      return;
+    }
+    const addGeoBtn = (target as any).closest('.btn-layer-add-geo');
+    if (addGeoBtn) {
+      addGeoLayerFromSelect();
+      return;
+    }
+    const addUrlBtn = (target as any).closest('.btn-layer-add-url');
+    if (addUrlBtn) {
+      addUrlLayerFromInputs();
+      return;
+    }
+    const addManualBtn = (target as any).closest('.btn-layer-add-manual');
+    if (addManualBtn) {
+      addManualLayerFromTextarea();
+      return;
+    }
+    const layerRefreshBtn = (target as any).closest('.btn-layer-refresh');
+    if (layerRefreshBtn) {
+      const idx = layerRefreshBtn.getAttribute('data-index');
+      if (idx !== null) refreshBuilderLayer(parseInt(idx, 10));
+      return;
+    }
+    const layerRemoveBtn = (target as any).closest('.btn-layer-remove');
+    if (layerRemoveBtn) {
+      const idx = layerRemoveBtn.getAttribute('data-index');
+      if (idx !== null) removeBuilderLayer(parseInt(idx, 10));
+      return;
+    }
+    const entryRemoveBtn = (target as any).closest('.btn-entry-remove');
+    if (entryRemoveBtn) {
+      const entry = entryRemoveBtn.getAttribute('data-entry');
+      if (entry) removeBuilderEntry(entry);
+      return;
+    }
+    const deleteSelectedBtn = (target as any).closest('.btn-builder-delete-selected');
+    if (deleteSelectedBtn) {
+      deleteSelectedBuilderEntries();
+      return;
+    }
+    const showMoreBtn = (target as any).closest('.btn-builder-show-more');
+    if (showMoreBtn) {
+      builderRenderedCount += BUILDER_RENDER_LIMIT;
+      renderBuilderEntries();
+      return;
+    }
+    const selectAllBtn = (target as any).closest('#btnBuilderSelectAll');
+    if (selectAllBtn) {
+      toggleBuilderSelectAll();
+      return;
+    }
+  });
+
+  document.addEventListener('change', function(e: any) {
+    const t = e.target;
+    if (!t || typeof t.classList !== 'object') return;
+    if (typeof t.classList.contains === 'function' && t.classList.contains('toggle-builder-entry')) {
+      const entry = t.getAttribute('data-entry');
+      if (!entry) return;
+      if (t.checked) {
+        builderSelected.add(entry);
+      } else {
+        builderSelected.delete(entry);
+      }
+      updateBuilderCounters();
+      return;
+    }
+    if (t.id === 'builderSelectAllBox') {
+      toggleBuilderSelectAll(!!t.checked);
+      return;
+    }
+    if (t.id === 'builderLayerFileInput' && t.files && t.files[0]) {
+      const f = t.files[0];
+      t.value = '';
+      addBuilderFileLayer(f);
+      return;
+    }
+    if (t.id === 'builderImportJsonInput' && t.files && t.files[0]) {
+      const f = t.files[0];
+      t.value = '';
+      importPresetJsonFile(f);
+      return;
+    }
+  });
+
+  document.addEventListener('input', function(e: any) {
+    const t = e.target;
+    if (!t || !t.id) return;
+    if (t.id === 'builderEntrySearch' && builderState) {
+      builderState.search = t.value || '';
+      builderRenderedCount = BUILDER_RENDER_LIMIT;
+      renderBuilderEntries();
+      return;
+    }
+    if (t.id === 'builderNameInput' && builderState) {
+      builderState.name = t.value || '';
+      return;
+    }
+    if (t.id === 'builderDescInput' && builderState) {
+      builderState.description = t.value || '';
+      return;
+    }
+  });
+
+  document.addEventListener('keydown', function(e: any) {
+    if (e && e.key === 'Escape') {
+      // CARD-MENU: Escape dismisses the open preset menu (POPOVER-CLOSE
+      // discipline); the modal Escape closer in index.ts keeps working
+      // alongside this listener.
+      closePresetMenus();
+    }
+    if (e && e.key === 'Enter' && e.target && e.target.id === 'builderAddDomain') {
+      e.preventDefault();
+      addBuilderDomain();
+    }
+  });
+}

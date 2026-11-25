@@ -27,6 +27,24 @@ export interface GeoPreset {
   domains: string[];
 }
 
+/**
+ * GEO-PRESET-UX-2: preset composition layers. `sources` is the authoritative
+ * per-preset model; the flat `entries`/`domains` fields remain derived
+ * projections (materialized union of the layers in order) so the PAC contract
+ * stays a plain string list.
+ *
+ * - geo-tag: live reference to a builtin GEO_PRESETS entry (ref = preset id).
+ * - url:     remote list; `entries` caches the last fetched snapshot (refresh
+ *            re-downloads only this layer).
+ * - file:    uploaded geodata parsed once into an entries snapshot.
+ * - manual:  hand-typed entries (constructor textarea / "+ Domain" input).
+ */
+export type PresetSource =
+  | { kind: "geo-tag"; ref: string; entries?: string[] }
+  | { kind: "url"; url: string; tag?: string; entries?: string[]; lastUpdated?: string }
+  | { kind: "file"; name: string; tag?: string; entries: string[] }
+  | { kind: "manual"; entries: string[] };
+
 export interface RoutingPresetItem {
   id: string;
   name: string;
@@ -39,6 +57,7 @@ export interface RoutingPresetItem {
   lastUpdated?: string;
   domains?: string[];
   entries: string[];
+  sources?: PresetSource[];
 }
 
 

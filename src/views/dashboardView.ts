@@ -259,7 +259,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
     <!-- ==================== TAB 1: ROUTING & GEOBASES ==================== -->
     <div id="tab-routing" class="tab-pane active" role="tabpanel" tabindex="0" aria-labelledby="tabBtnRouting">
       <!-- Routing Switcher (Extensions vs Desktop App) -->
-      <div style="display: flex; gap: 8px; margin-bottom: 16px; background: var(--bg-card-subtle, rgba(255,255,255,0.03)); padding: 6px; border-radius: 8px; border: 1px solid var(--border);">
+      <div id="routingBranchSwitcher" style="display: flex; gap: 8px; margin-bottom: 16px; background: var(--bg-card-subtle, rgba(255,255,255,0.03)); padding: 6px; border-radius: 8px; border: 1px solid var(--border);">
         <button type="button" id="btnBranchExt" class="tab-btn active" onclick="switchRoutingBranch('ext')" style="flex: 1; justify-content: center; font-size: 13px; font-weight: 600; padding: 8px 16px;">
           <img src="/icons/palette.png" class="icon-inline" alt="ext">
           <span data-i18n="branchExtTitle">Правила расширений браузера (Домены, URL, Геобазы)</span>
@@ -344,8 +344,8 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 0; color: var(--text);" data-i18n="titleGeoPresets">
             Quick Add GeoBase & Domain Bundles
           </h3>
-          <button type="button" onclick="openImportPresetsModal()" class="btn-secondary" style="font-size: 12px; padding: 4px 10px;" data-i18n="btnImportPresets">
-            <img src="/icons/download.png" class="icon-inline" alt="import"> + Import Presets (.dat / .txt)
+          <button type="button" id="btnNewPreset" class="btn-secondary" style="font-size: 12px; padding: 4px 10px;" onclick="openPresetBuilderCreate()" data-i18n="btnNewPreset">
+            <img src="/icons/download.png" class="icon-inline" alt="new"> + Новый пресет
           </button>
         </div>
         <div class="presets-grid" id="presetsContainer">
@@ -2107,169 +2107,101 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
     </div>
   </div>
 
-  <!-- Modal: Geobase Inspector -->
-  <div id="modalGeobaseInspector" class="modal-geobase-inspector" style="display: none;">
-    <div class="modal-geobase-inspector-content" style="background: var(--card-inner); color: var(--text);">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
-        <div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <h2 id="inspectorTitle" style="margin: 0; font-size: 17px;">Geobase Inspector</h2>
-            <span id="inspectorTypeBadge" class="badge badge-action-proxy" style="font-size: 10px;">DOMAIN</span>
+  <!-- GEO-PRESET-UX-2: Preset Constructor (full-width detail view inside the
+       Routing tab, replaces the geobase-inspector / preset-edit / import modals) -->
+  <div id="presetBuilderPage" style="display: none;">
+    <div class="card">
+      <!-- Header: name / description / id / type badge -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 12px;">
+        <div style="min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn-secondary btn-builder-back" style="font-size: 12px; padding: 4px 10px;" title="Back">&larr;</button>
+            <input type="text" id="builderNameInput" style="font-size: 15px; font-weight: 600; margin-bottom: 0; min-width: 220px;" />
+            <span id="builderTypeBadge" class="badge badge-action-proxy" style="font-size: 11px;">DOMAIN</span>
+            <span id="builderBuiltinBadge" class="badge badge-active" style="font-size: 11px; display: none;">BUILTIN</span>
+            <code id="builderPresetId" style="font-size: 11px; color: var(--text-muted);"></code>
           </div>
-          <p id="inspectorSubtitle" style="margin: 2px 0 0 0; font-size: 12px; color: var(--text-muted);">Inspection and cherry-picking of preset entries</p>
+          <input type="text" id="builderDescInput" placeholder="Описание пресета" style="margin: 8px 0 0 0; font-size: 12px; max-width: 520px;" />
         </div>
-        <button type="button" onclick="closeGeobaseInspector()" class="btn-icon" title="Close" style="font-size: 18px; line-height: 1;">&times;</button>
-      </div>
-
-      <!-- Search & Filter Bar -->
-      <div style="margin-bottom: 10px;">
-        <input type="text" id="inspectorSearch" class="inspector-search-input" placeholder="Поиск по доменам или CIDR..." oninput="filterInspectorEntries()" />
-      </div>
-
-      <!-- Batch Selection Controls -->
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 12px;">
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <button type="button" class="btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="selectInspectorAll(true)">Выбрать все</button>
-          <button type="button" class="btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="selectInspectorAll(false)">Снять выбор</button>
-          <span id="inspectorSelectedCount" style="color: var(--text-muted); font-size: 11px;">Выбрано: 0</span>
+        <div style="display: flex; gap: 8px; flex-shrink: 0;">
+          <button type="button" class="btn-secondary btn-preset-export" style="font-size: 12px;">⬇ <span id="builderExportLabel">Экспорт JSON</span></button>
+          <button type="button" class="btn-secondary btn-preset-duplicate" id="builderDuplicateBtn" style="font-size: 12px; display: none;">📄 <span id="builderDuplicateLabel">Дублировать в свой</span></button>
         </div>
-        <span id="inspectorTotalCount" style="color: var(--text-muted); font-size: 11px;">Всего записей: 0</span>
       </div>
 
-      <!-- Scrollable Entries Table -->
-      <div class="inspector-table-container">
-        <table class="inspector-table">
-          <thead>
-            <tr>
-              <th style="width: 36px;"><input type="checkbox" id="inspectorSelectAllBox" onchange="selectInspectorAll(this.checked)" /></th>
-              <th>Pattern / Entry</th>
-              <th style="width: 80px;">Type</th>
-            </tr>
-          </thead>
-          <tbody id="inspectorTableBody">
-            <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Загрузка содержимого пресета...</td></tr>
-          </tbody>
-        </table>
+      <div style="display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap;">
+        <!-- Left: layers -->
+        <div style="flex: 1 1 300px; min-width: 280px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--card-inner);">
+          <h4 style="font-size: 13px; font-weight: 600; margin-bottom: 8px;" id="builderLayersTitle">Слои</h4>
+          <div id="builderLayersList" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;"></div>
+          <div id="builderAddLayerBlock">
+            <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
+              <select id="builderGeoSelect" style="margin-bottom: 0; flex: 1; font-size: 12px;"></select>
+              <button type="button" class="btn-secondary btn-layer-add-geo" style="font-size: 12px; white-space: nowrap;" id="builderAddGeoLabel">+ Геосписок</button>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
+              <input type="text" id="builderLayerUrl" placeholder="https://.../geosite.dat или .txt" style="margin-bottom: 0; flex: 3; font-size: 12px;" />
+              <input type="text" id="builderLayerTag" placeholder="TAG (.dat)" style="margin-bottom: 0; flex: 1; font-size: 12px;" />
+              <button type="button" class="btn-secondary btn-layer-add-url" style="font-size: 12px; white-space: nowrap;" id="builderAddUrlLabel">+ Из URL</button>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
+              <input type="file" id="builderLayerFileInput" accept=".dat,.txt,.list" style="flex: 1; font-size: 12px;" />
+            </div>
+            <div style="margin-bottom: 6px;">
+              <textarea id="builderManualEntries" rows="3" placeholder="Ручной список: по одному домену/CIDR на строку" style="width: 100%; box-sizing: border-box; font-family: var(--mono, monospace); font-size: 12px;"></textarea>
+              <button type="button" class="btn-secondary btn-layer-add-manual" style="font-size: 12px; margin-top: 4px;" id="builderAddManualLabel">+ Список вручную</button>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <input type="file" id="builderImportJsonInput" accept=".json,application/json" style="flex: 1; font-size: 12px;" />
+              <span style="font-size: 11px; color: var(--text-muted);" id="builderImportJsonHint">импорт пресета JSON</span>
+            </div>
+            <div id="builderLayerStatus" style="display: none; margin-top: 8px; padding: 6px 8px; background: rgba(224, 82, 82, 0.08); border: 1px solid rgba(224, 82, 82, 0.3); border-radius: 6px; font-size: 12px; color: var(--danger);"></div>
+          </div>
+        </div>
+
+        <!-- Right: composition -->
+        <div style="flex: 2 1 420px; min-width: 340px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--card-inner);">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <h4 style="font-size: 13px; font-weight: 600; margin: 0;" id="builderEntriesTitle">Состав</h4>
+            <span id="builderEntriesTotal" style="font-size: 11px; color: var(--text-muted);"></span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+            <input type="text" id="builderEntrySearch" class="inspector-search-input" placeholder="Поиск по записям..." style="flex: 1; min-width: 140px;" />
+            <button type="button" class="btn-secondary" id="btnBuilderSelectAll" style="font-size: 11px; padding: 3px 8px;" data-i18n-title="lblSelectAll">Выбрать все</button>
+            <button type="button" class="btn-danger btn-builder-delete-selected" id="btnBuilderDeleteSelected" style="font-size: 11px; padding: 3px 8px;">🗑 <span id="builderDeleteSelectedLabel">Удалить выбранных</span></button>
+            <span id="builderSelectedCount" style="font-size: 11px; color: var(--text-muted);">Выбрано: 0</span>
+          </div>
+          <div class="inspector-table-container">
+            <table class="inspector-table">
+              <thead>
+                <tr>
+                  <th style="width: 36px;"><input type="checkbox" id="builderSelectAllBox" /></th>
+                  <th id="builderThEntry">Запись</th>
+                  <th style="width: 160px;" id="builderThOrigin">Слой</th>
+                  <th style="width: 40px;"></th>
+                </tr>
+              </thead>
+              <tbody id="builderEntriesBody">
+                <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Нет слоёв — добавьте слой слева</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="text-align: center; margin-top: 8px;">
+            <button type="button" class="btn-secondary btn-builder-show-more" id="btnBuilderShowMore" style="display: none; font-size: 11px; padding: 3px 10px;">Показать ещё</button>
+          </div>
+        </div>
       </div>
 
-      <!-- Action Footer -->
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <label for="inspectorActionSelect" style="margin: 0; font-size: 12px; font-weight: 600;">Действие:</label>
-          <select id="inspectorActionSelect" style="margin: 0; font-size: 12px; width: auto;">
-            <option value="proxy">PROXY</option>
-            <option value="direct">DIRECT</option>
-            <option value="block">BLOCK</option>
-          </select>
+      <!-- Footer: add domain + Save/Cancel -->
+      <div id="builderFooter" style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); flex-wrap: wrap;">
+        <div style="display: flex; gap: 6px; align-items: center; flex: 1; min-width: 220px;">
+          <input type="text" id="builderAddDomain" placeholder="Домен + (Enter)" style="margin-bottom: 0; flex: 1; font-size: 12px;" />
+          <span style="font-size: 11px; color: var(--text-muted);" id="builderAddDomainHint">→ ручной слой</span>
         </div>
         <div style="display: flex; gap: 8px;">
-          <button type="button" id="btnDeleteSelectedEntries" onclick="deleteInspectorSelectedEntries()" style="font-size: 12px;" data-i18n="btnDeleteSelectedEntries">🗑 Удалить выбранные записи</button>
-          <button type="button" id="btnAddSelectedToProfile" onclick="addSelectedToProfile()" style="font-size: 12px;">Добавить выбранные в профиль</button>
-          <button type="button" onclick="closeGeobaseInspector()" class="btn-secondary" style="font-size: 12px;">Закрыть</button>
+          <button type="button" class="btn btn-builder-save" id="btnBuilderSave" style="font-size: 12px;">💾 <span id="builderSaveLabel">Сохранить</span></button>
+          <button type="button" class="btn-secondary btn-builder-cancel" id="btnBuilderCancel" style="font-size: 12px;" data-i18n-title="btnCancel">Отмена</button>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal: Import Presets -->
-  
-  <!-- Modal: Edit Preset (GEO-PRESET-EDIT-1) -->
-  <div id="modalPresetEdit" class="modal-import-presets" style="display: none;">
-    <div class="modal-import-presets-content" style="background: var(--card-inner); color: var(--text);">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
-        <h2 style="margin: 0; font-size: 17px;" data-i18n="titleEditPreset">Edit Preset</h2>
-        <button type="button" onclick="closePresetEditModal()" class="btn-icon" title="Close" style="font-size: 18px; line-height: 1;">&times;</button>
-      </div>
-      <div id="presetEditError" style="display: none; margin-bottom: 12px; padding: 8px 10px; background: rgba(224, 82, 82, 0.08); border: 1px solid rgba(224, 82, 82, 0.3); border-radius: 6px; font-size: 12px; color: var(--danger);"></div>
-      <div style="margin-bottom: 12px;">
-        <label for="presetEditName" style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;" data-i18n="lblPresetEditName">Название пресета</label>
-        <input type="text" id="presetEditName" style="width: 100%; box-sizing: border-box;" />
-      </div>
-      <div style="margin-bottom: 12px;">
-        <span style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;" data-i18n="lblPresetEditType">Тип (read-only)</span>
-        <span id="presetEditTypeBadge" class="badge badge-action-proxy" style="font-size: 11px;"></span>
-        <input type="hidden" id="presetEditType" />
-      </div>
-      <div style="margin-bottom: 12px;">
-        <label for="presetEditDescription" style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;" data-i18n="lblPresetEditDescription">Описание</label>
-        <input type="text" id="presetEditDescription" style="width: 100%; box-sizing: border-box;" />
-      </div>
-      <div style="margin-bottom: 16px;">
-        <label for="presetEditEntries" style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;" data-i18n="lblPresetEditEntries">Записи (по одной на строку)</label>
-        <textarea id="presetEditEntries" rows="14" style="width: 100%; box-sizing: border-box; font-family: var(--mono, monospace); font-size: 12px; white-space: pre; resize: vertical;"></textarea>
-      </div>
-      <div style="display: flex; gap: 8px; justify-content: flex-end;">
-        <button type="button" id="btnCancelPresetEdit" class="btn-secondary" onclick="closePresetEditModal()" style="font-size: 12px;" data-i18n="btnCancel">Отмена</button>
-        <button type="button" id="btnSavePresetEdit" class="btn" style="font-size: 12px;" onclick="savePresetEdit()" data-i18n="btnSave">Сохранить</button>
-      </div>
-    </div>
-  </div>
-
-<div id="modalImportPresets" class="modal-import-presets" style="display: none;">
-    <div class="modal-import-presets-content" style="background: var(--card-inner); color: var(--text);">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
-        <div>
-          <h2 style="margin: 0; font-size: 17px;" data-i18n="titleImportPresets">Import GeoData & Presets</h2>
-          <p style="margin: 2px 0 0 0; font-size: 12px; color: var(--text-muted);" data-i18n="subImportPresets">Import geosite.dat, geoip.dat or plaintext domain lists</p>
-        </div>
-        <button type="button" onclick="closeImportPresetsModal()" class="btn-icon" title="Close" style="font-size: 18px; line-height: 1;">&times;</button>
-      </div>
-
-      <!-- Tabs: URL vs File -->
-      <div style="display: flex; gap: 8px; margin-bottom: 14px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
-        <button type="button" id="tabImportUrlBtn" class="tab-btn active" onclick="switchImportTab('url')" style="font-size: 12px; padding: 4px 10px;">URL Import</button>
-        <button type="button" id="tabImportFileBtn" class="tab-btn" onclick="switchImportTab('file')" style="font-size: 12px; padding: 4px 10px;">File Upload (.dat / .txt)</button>
-      </div>
-
-      <!-- Panel: URL Import -->
-      <div id="panelImportUrl">
-        <label for="importPresetUrl" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">URL Источника (.dat или .txt)</label>
-        <input type="text" id="importPresetUrl" placeholder="https://raw.githubusercontent.com/.../geosite.dat" style="width: 100%; box-sizing: border-box; margin-bottom: 12px;" />
-      </div>
-
-      <!-- Panel: File Upload -->
-      <div id="panelImportFile" style="display: none;">
-        <label for="importPresetFileInput" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Файл на диске (.dat или .txt)</label>
-        <input type="file" id="importPresetFileInput" accept=".dat,.txt,.list" style="width: 100%; box-sizing: border-box; margin-bottom: 12px;" />
-      </div>
-
-      <!-- Common fields: Tag, Name, Category, Type -->
-      <div class="grid-form-2col" style="margin-bottom: 12px;">
-        <div>
-          <label for="importPresetTag" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Тег списка (для .dat, например RU, GOOGLE, TELEGRAM)</label>
-          <input type="text" id="importPresetTag" placeholder="RU" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
-        </div>
-        <div>
-          <label for="importPresetName" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Название пресета (опционально)</label>
-          <input type="text" id="importPresetName" placeholder="My Imported Preset" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
-        </div>
-      </div>
-
-      <div class="grid-form-2col" style="margin-bottom: 14px;">
-        <div>
-          <label for="importPresetCategory" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Категория</label>
-          <select id="importPresetCategory" style="width: 100%; box-sizing: border-box; margin-bottom: 0;">
-            <option value="custom">Custom</option>
-            <option value="ru">RU Services</option>
-            <option value="ai">AI / LLM</option>
-            <option value="social">Social & Media</option>
-            <option value="security">Security & Ads</option>
-          </select>
-        </div>
-        <div>
-          <label for="importPresetType" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Тип записей</label>
-          <select id="importPresetType" style="width: 100%; box-sizing: border-box; margin-bottom: 0;">
-            <option value="domain">Домены (Domains)</option>
-            <option value="cidr">IP / Подсети (CIDR)</option>
-          </select>
-        </div>
-      </div>
-
-      <div id="importPresetError" style="display: none; color: #ef4444; font-size: 12px; margin-bottom: 12px;"></div>
-
-      <div style="display: flex; gap: 8px;">
-        <button type="button" id="btnSubmitImportPreset" onclick="submitImportPreset()" style="flex: 1;">Импортировать</button>
-        <button type="button" onclick="closeImportPresetsModal()" class="btn-secondary" style="flex: 1;">Отмена</button>
       </div>
     </div>
   </div>

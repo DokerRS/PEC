@@ -3,7 +3,7 @@ import { state } from '../core/state.js';
 import { adminFetch, esc, escapeHtml, extractError } from '../core/api.js';
 import { toast, pecConfirm, pecPrompt, registerModalCloser } from '../core/notify.js';
 import { t, I18N } from '../core/theme.js';
-import { openEditRuleModal, moveRuleUp, moveRuleDown, removeRule, openGeobaseInspector, addPresetRule, toggleRuleEnabled, toggleInspectorEntry } from './routing.js';
+import { openEditRuleModal, moveRuleUp, moveRuleDown, removeRule, addPresetRule, toggleRuleEnabled } from './routing.js';
 import { deleteAppProcessRule, updateAppProcessRuleField } from './studio.js';
 import { activateProxy, checkProxy, syncProxy, openEditProxyModal, deleteProxy, fetchProxies } from './proxies.js';
 import { compareSemver, bumpPatchVersion } from '../../../utils/semver.js';
@@ -768,12 +768,10 @@ export let lastLoadedDesktopInstances = [];
         if (id) deleteInstance(id);
         return;
       }
-      const inspectPresetBtn = e.target.closest('.btn-inspect-geobase');
-      if (inspectPresetBtn) {
-        const id = inspectPresetBtn.getAttribute('data-id');
-        if (id) openGeobaseInspector(id);
-        return;
-      }
+      // GEO-PRESET-UX-2: the .btn-inspect-geobase branch was removed with the
+      // geobase inspector; card actions (edit/view/refresh/export/delete/
+      // duplicate) live in the per-card «⋮» menu — .btn-preset-menu and
+      // .preset-menu-item pm-* handlers in tabs/routing.ts.
       const addPresetBtn = e.target.closest('.btn-add-preset-rule');
       if (addPresetBtn) {
         const id = addPresetBtn.getAttribute('data-id');
@@ -933,12 +931,6 @@ export let lastLoadedDesktopInstances = [];
       if (toggleRule) {
         const idx = toggleRule.getAttribute('data-index');
         if (idx !== null) toggleRuleEnabled(parseInt(idx, 10));
-        return;
-      }
-      const toggleInspector = e.target.closest('.toggle-inspector-entry');
-      if (toggleInspector) {
-        const entry = toggleInspector.getAttribute('data-entry');
-        if (entry) toggleInspectorEntry(entry, toggleInspector.checked);
         return;
       }
       const appRuleSel = e.target.closest('.app-rule-select');

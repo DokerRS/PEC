@@ -2,7 +2,7 @@ import "./loadEnv.js";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { domainToASCII } from "node:url";
-import { GeoPreset, RoutingPresetItem, RoutingProfile, RoutingRule, ProxyConfiguration } from "./types.js";
+import { GeoPreset, PresetSource, RoutingPresetItem, RoutingProfile, RoutingRule, ProxyConfiguration } from "./types.js";
 import { writeJsonAtomic } from "./jsonStore.js";
 import { getRoutingProfilesPath, getRoutingPresets } from "./storage.js";
 
@@ -47,6 +47,79 @@ export const MAX_ROUTING_PRESET_ENTRIES = 500_000;
 
 export function isWithinPresetEntryLimit(count: number): boolean {
   return Number.isFinite(count) && count > 0 && count <= MAX_ROUTING_PRESET_ENTRIES;
+}
+
+// ============================================================================
+// GEO-PRESET-UX-2: layered preset model (sources[] -> materialized entries).
+// materializePresetSources() is THE single materialization function: PAC
+// generation (expandRuleDomains), the REST GET projections and the dashboard
+// constructor all consume it. The PAC contract stays a flat string list.
+// ============================================================================
+
+export function findGeoPresetById(ref: string): GeoPreset | undefined {
+  if (!ref) return undefined;
+  return (GEO_PRESETS || []).find((gp) => gp.id === ref);
+}
+
+/** Entries contributed by a single layer (geo-tag layers resolve live). */
+export function getPresetSourceEntries(src: PresetSource): string[] {
+  switch (src.kind) {
+    case "geo-tag": {
+      const geo = findGeoPresetById(src.ref);
+      return geo ? geo.domains : Array.isArray(src.entries) ? src.entries : [];
+    }
+    case "url":
+    case "file":
+    case "manual":
+      return Array.isArray(src.entries) ? src.entries : [];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Union of all layer entries in layer order with global dedup (first
+ * contributor wins). Hard-capped at MAX_ROUTING_PRESET_ENTRIES as a defensive
+ * invariant — callers additionally validate and reject over-limit unions
+ * with a 400 before persisting.
+ */
+export function materializePresetSources(
+  sources: PresetSource[] | undefined | null,
+  fallback: string[] = []
+): string[] {
+  if (!Array.isArray(sources) || sources.length === 0) {
+    return [...(Array.isArray(fallback) ? fallback : [])];
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const src of sources) {
+    for (const raw of getPresetSourceEntries(src)) {
+      const entry = String(raw ?? "").trim();
+      if (!entry || seen.has(entry)) continue;
+      seen.add(entry);
+      out.push(entry);
+      if (out.length >= MAX_ROUTING_PRESET_ENTRIES) {
+        return out;
+      }
+    }
+  }
+  return out;
+}
+
+/** Full-preset materialization: layer union when present, flat fallback otherwise. */
+export function materializePresetEntries(preset: Partial<RoutingPresetItem>): string[] {
+  return materializePresetSources(preset.sources, preset.entries || preset.domains || []);
+}
+
+/** A layer's entry type inferred from its content (CIDR entries contain "/"). */
+export function inferPresetSourceType(src: PresetSource): "domain" | "cidr" {
+  if (src.kind === "geo-tag") {
+    const geo = findGeoPresetById(src.ref);
+    const domains = geo ? geo.domains : Array.isArray(src.entries) ? src.entries : [];
+    return domains.some((d) => String(d).includes("/")) ? "cidr" : "domain";
+  }
+  const entries = getPresetSourceEntries(src);
+  return entries.some((e) => String(e).includes("/")) ? "cidr" : "domain";
 }
 
 const DEFAULT_PROFILES: RoutingProfile[] = [
@@ -287,10 +360,9 @@ export function expandRuleDomains(rule: RoutingRule): string[] {
       presets.find((p) => p.id === rule.pattern) ||
       (GEO_PRESETS ? GEO_PRESETS.find((p) => p.id === rule.pattern) : undefined);
     if (!preset) return [];
-    if ("entries" in preset && Array.isArray(preset.entries) && preset.entries.length > 0) {
-      return preset.entries;
-    }
-    return preset.domains || [];
+    // GEO-PRESET-UX-2: presets are layer-based; expand via the single
+    // materialization function (flat-string PAC contract unchanged).
+    return materializePresetEntries(preset);
   }
   return rule.pattern
     .split(",")

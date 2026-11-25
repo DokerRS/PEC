@@ -325,7 +325,7 @@ export function closeAnyOpenModal(): boolean {
 export function initModalBackdropHandlers() {
   const modalIds = [
     'credsModal', 'modalAdd3xui', 'modal3xuiPanel', 'modalProxyForm',
-    'modalEditRule', 'modalGeobaseInspector', 'modalImportPresets',
+    'modalEditRule',
     'modalCompilerWarning', 'modalBuildLog'
   ];
   modalIds.forEach((id) => {

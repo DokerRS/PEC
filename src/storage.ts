@@ -1,7 +1,7 @@
 import "./loadEnv.js";
 import fs from "node:fs";
 import path from "node:path";
-import type { RoutingPresetItem } from "./types.js";
+import type { PresetSource, RoutingPresetItem } from "./types.js";
 import { readJsonStore, writeJsonAtomic } from "./jsonStore.js";
 import { GEO_PRESETS } from "./defaultPresets.js";
 
@@ -88,6 +88,74 @@ export function clearRoutingPresetsCache(): void {
   cachedRoutingPresets = null;
 }
 
+/**
+ * GEO-PRESET-UX-2: one-time legacy migration (flat preset -> single layer).
+ * Idempotent: items that already carry a `sources` array pass through
+ * untouched. Kind inference follows the agreed table:
+ *   1. sourceUrl set            -> { kind: "url", url, tag: sourceTag }  (old remote imports)
+ *   2. only sourceTag set       -> { kind: "file", name, tag, entries } (old file imports with tag)
+ *   3. neither field set        -> { kind: "manual", entries }          (hand-made, builtin snapshots)
+ * The flat entries/domains/source* fields are preserved as-is so the
+ * materialized projection stays byte-identical after migration.
+ */
+function migratePresetItemToSources(item: RoutingPresetItem): RoutingPresetItem | null {
+  if (item && Array.isArray((item as any).sources)) {
+    return null; // already migrated
+  }
+  const snapshot: string[] = Array.isArray(item?.entries)
+    ? item.entries
+    : Array.isArray(item?.domains)
+      ? item.domains
+      : [];
+  const sourceUrl = typeof item?.sourceUrl === "string" ? item.sourceUrl.trim() : "";
+  const sourceTag = typeof item?.sourceTag === "string" ? item.sourceTag.trim() : "";
+
+  let layer: PresetSource;
+  if (sourceUrl) {
+    layer = {
+      kind: "url",
+      url: sourceUrl,
+      ...(sourceTag ? { tag: sourceTag } : {}),
+      entries: [...snapshot],
+      ...(item.lastUpdated ? { lastUpdated: item.lastUpdated } : {}),
+    };
+  } else if (sourceTag) {
+    layer = { kind: "file", name: item?.name || item?.id || "imported list", tag: sourceTag, entries: [...snapshot] };
+  } else {
+    layer = { kind: "manual", entries: [...snapshot] };
+  }
+  return { ...item, sources: [layer] };
+}
+
+/**
+ * Migrate a whole preset store. Returns the original array reference when
+ * nothing needs changing (common case after the first run).
+ */
+function migrateRoutingPresetsList(list: RoutingPresetItem[]): RoutingPresetItem[] | null {
+  let changed = false;
+  const migrated = list.map((item) => {
+    const next = migratePresetItemToSources(item);
+    if (next) {
+      changed = true;
+      return next;
+    }
+    return item;
+  });
+  return changed ? migrated : null;
+}
+
+function backupRoutingPresetsFile(filePath: string): string | null {
+  if (!fs.existsSync(filePath)) return null;
+  const backupPath = `${filePath}.backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  try {
+    fs.copyFileSync(filePath, backupPath);
+    return backupPath;
+  } catch (err) {
+    console.error("[storage] Failed to create routing presets backup:", err);
+    return null;
+  }
+}
+
 export function getRoutingPresetsPath(): string {
   return path.resolve(process.env.ROUTING_PRESETS_PATH || path.join(getDataDir(), "routing_presets.json"));
 }
@@ -129,21 +197,45 @@ export function getRoutingPresets(): RoutingPresetItem[] {
         console.error("[storage] Failed to update builtin routing presets:", err);
       }
     }
+
+    // GEO-PRESET-UX-2: legacy flat presets -> single-layer `sources` shape.
+    // Idempotent; the original file is backed up before the atomic rewrite.
+    const migrated = migrateRoutingPresetsList(loaded);
+    if (migrated) {
+      try {
+        backupRoutingPresetsFile(filePath);
+        saveRoutingPresets(migrated);
+        console.log("[storage] Migrated legacy routing presets to sources[] layers");
+      } catch (err) {
+        console.error("[storage] Failed to persist routing presets migration:", err);
+      }
+      cachedRoutingPresetsPath = filePath;
+      cachedRoutingPresets = migrated;
+      return migrated;
+    }
+
     cachedRoutingPresetsPath = filePath;
     cachedRoutingPresets = loaded;
     return loaded;
   }
-  const seeded: RoutingPresetItem[] = (GEO_PRESETS || []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    category: p.category,
-    description: p.description,
-    type: p.id === "preset:corporate_internal" ? "cidr" : "domain",
-    source: "builtin",
-    domains: [...p.domains],
-    entries: [...p.domains],
-    lastUpdated: new Date().toISOString(),
-  }));
+  const seeded: RoutingPresetItem[] = (GEO_PRESETS || []).map((p) => {
+    const entries = [...p.domains];
+    return {
+      id: p.id,
+      name: p.name,
+      category: p.category,
+      description: p.description,
+      type: p.id === "preset:corporate_internal" ? "cidr" : "domain",
+      source: "builtin",
+      domains: entries,
+      entries,
+      // GEO-PRESET-UX-2: builtin snapshots materialize as a manual layer
+      // (inference rule 3: no sourceUrl/sourceTag). "Duplicate to custom"
+      // copies this layer verbatim.
+      sources: [{ kind: "manual", entries: [...entries] }] as PresetSource[],
+      lastUpdated: new Date().toISOString(),
+    };
+  });
   try {
     saveRoutingPresets(seeded);
   } catch (err) {
