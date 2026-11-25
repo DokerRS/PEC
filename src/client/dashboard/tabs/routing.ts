@@ -568,6 +568,14 @@ let builderState: any = null;
 let builderRenderedCount = BUILDER_RENDER_LIMIT;
 const builderSelected = new Set<string>();
 
+// GEO-BUILDER-UX-3: inline layer editors + add-source panels.
+// Only one editor / one add-source panel is open at a time.
+let builderLayerEditor: { idx: number; kind: "file" | "url" | "geo" | "manual" } | null = null;
+let builderOpenSrcPanel: string | null = null; // geo | file | url | manual | json
+let builderAvailableTags: Array<{ tag: string; count: number }> = [];
+const builderTagSelection = new Set<string>();
+let builderTagSearch = "";
+
 // ============================================================================
 // GEO-PRESET-UX-2 CARD-MENU: per-card «⋮» dropdown state.
 // POPOVER-CLOSE discipline (observations @ 2026-11-17, 4th loss of the
@@ -629,6 +637,11 @@ export function closePresetBuilder() {
   builderState = null;
   builderRenderedCount = BUILDER_RENDER_LIMIT;
   builderSelected.clear();
+  builderLayerEditor = null;
+  builderOpenSrcPanel = null;
+  builderAvailableTags = [];
+  builderTagSelection.clear();
+  builderTagSearch = '';
   const page = document.getElementById('presetBuilderPage');
   const main = document.getElementById('branchExtView');
   const switcher = document.getElementById('routingBranchSwitcher');
@@ -691,16 +704,143 @@ function builderLayerIcon(kind: string): string {
   }
 }
 
+/** GEO-BUILDER-UX-3: display name of the layer SOURCE (not the tags). */
+function builderLayerSourceName(layer: any, isRu: boolean): string {
+  switch (layer.kind) {
+    case 'geo-tag': {
+      const geo = findLoadedPreset(layer.ref);
+      return geo ? (geo.name || layer.ref) : (layer.ref || 'geo');
+    }
+    case 'url': {
+      try {
+        return new URL(layer.url).hostname || layer.url;
+      } catch {
+        return layer.url || 'url';
+      }
+    }
+    case 'file':
+      return layer.fileName || layer.name || 'file';
+    case 'manual':
+      return isRu ? 'Ручной список' : 'Manual list';
+    default:
+      return String(layer.kind || '');
+  }
+}
+
+/** GEO-BUILDER-UX-3: layer tags (canonical tags[], legacy single tag fallback). */
+function builderLayerTags(layer: any): string[] {
+  if (layer.kind === 'file') {
+    if (Array.isArray(layer.tags) && layer.tags.length) return layer.tags;
+    return layer.tag ? [layer.tag] : [];
+  }
+  if (layer.kind === 'url') {
+    return layer.tag ? [layer.tag] : [];
+  }
+  return [];
+}
+
+/** GEO-BUILDER-UX-3: short unique origin badge label (see builderOriginMap). */
+function builderLayerOriginShort(layer: any, isRu: boolean): string {
+  switch (layer.kind) {
+    case 'geo-tag': {
+      const tail = String(layer.ref || '').split(':').pop() || layer.ref || 'geo';
+      const short = tail.replace(/^(geosite|geoip)_/, '');
+      return (isRu ? 'гео:' : 'geo:') + short;
+    }
+    case 'url': {
+      let host = layer.url || 'url';
+      try {
+        host = new URL(layer.url).hostname;
+      } catch {
+        /* keep raw */
+      }
+      const tags = builderLayerTags(layer);
+      return 'url:' + (tags.length ? tags[0].toLowerCase() : host);
+    }
+    case 'file': {
+      const name = layer.fileName || layer.name || 'file';
+      const tags = builderLayerTags(layer);
+      return name + (tags.length ? ':' + tags[0].toLowerCase() : '');
+    }
+    case 'manual':
+      return isRu ? 'вручную' : 'manual';
+    default:
+      return String(layer.kind || '');
+  }
+}
+
+/** GEO-BUILDER-UX-3: full origin path for badge title attributes. */
+function builderLayerOriginTitle(layer: any, isRu: boolean): string {
+  switch (layer.kind) {
+    case 'geo-tag':
+      return String(layer.ref || 'geo');
+    case 'url':
+      return String(layer.url || 'url');
+    case 'file': {
+      const base = layer.fileId
+        ? `data/geofiles/${layer.fileId}${layer.fileName ? ` (${layer.fileName})` : ''}`
+        : `${layer.fileName || layer.name || 'file'} — ${isRu ? 'снапшот' : 'snapshot'}`;
+      const tags = builderLayerTags(layer);
+      return tags.length ? `${base} — tags: ${tags.join(', ')}` : base;
+    }
+    case 'manual':
+      return isRu ? 'ручной слой' : 'manual layer';
+    default:
+      return String(layer.kind || '');
+  }
+}
+
+/** Live/snapshot status label of a layer. */
+function builderLayerStatus(layer: any, isRu: boolean): string {
+  switch (layer.kind) {
+    case 'file':
+      return layer.fileId ? (isRu ? 'живой (файл)' : 'live (file)') : (isRu ? 'снапшот' : 'snapshot');
+    case 'url':
+      return isRu ? 'живой (url)' : 'live (url)';
+    case 'geo-tag':
+      return isRu ? 'геосписок' : 'geo list';
+    case 'manual':
+      return isRu ? 'вручную' : 'manual';
+    default:
+      return '';
+  }
+}
+
+function layerIsLive(layer: any): boolean {
+  if (layer.kind === 'file') return !!layer.fileId;
+  if (layer.kind === 'url' || layer.kind === 'geo-tag') return true;
+  return false;
+}
+
 /** entry -> owning layer info (first layer that contributes the entry wins). */
-function builderOriginMap(): Map<string, { layerIdx: number; label: string; editable: boolean }> {
-  const map = new Map<string, { layerIdx: number; label: string; editable: boolean }>();
+function builderOriginMap(): Map<
+  string,
+  { layerIdx: number; label: string; title: string; editable: boolean }
+> {
+  const map = new Map<string, { layerIdx: number; label: string; title: string; editable: boolean }>();
   const isRu = builderIsRu();
-  ((builderState && builderState.sources) || []).forEach((layer: any, idx: number) => {
-    const editable = layer.kind === 'manual' || layer.kind === 'file';
+  const sources = (builderState && builderState.sources) || [];
+  // GEO-BUILDER-UX-3: unique short origin label per layer (duplicates get a
+  // numbered suffix), full path kept for the title attribute.
+  const shortCounts = new Map<string, number>();
+  const shortLabels = sources.map((layer: any) => {
+    const base = builderLayerOriginShort(layer, isRu);
+    const n = (shortCounts.get(base) || 0) + 1;
+    shortCounts.set(base, n);
+    return n > 1 ? `${base}·${n}` : base;
+  });
+  sources.forEach((layer: any, idx: number) => {
+    // editable rows: manual + SNAPSHOT file layers; live layers are managed at the source
+    const editable = layer.kind === 'manual' || (layer.kind === 'file' && !layer.fileId);
     for (const e of builderLayerEntries(layer)) {
       const v = String(e || '').trim();
       if (!v || map.has(v)) continue;
-      map.set(v, { layerIdx: idx, label: builderLayerLabel(layer, isRu), editable });
+      map.set(v, {
+        layerIdx: idx,
+        label: shortLabels[idx],
+        title: builderLayerOriginTitle(layer, isRu),
+        editable,
+      });
     }
   });
   return map;
@@ -730,6 +870,11 @@ export async function openPresetBuilder(presetId: string, opts: { readOnly?: boo
     };
     builderRenderedCount = BUILDER_RENDER_LIMIT;
     builderSelected.clear();
+    builderLayerEditor = null;
+    builderOpenSrcPanel = null;
+    builderAvailableTags = [];
+    builderTagSelection.clear();
+    builderTagSearch = '';
     showPresetBuilderPage();
     renderPresetBuilder();
   } catch (e: any) {
@@ -752,6 +897,11 @@ export function openPresetBuilderCreate() {
   };
   builderRenderedCount = BUILDER_RENDER_LIMIT;
   builderSelected.clear();
+  builderLayerEditor = null;
+  builderOpenSrcPanel = null;
+  builderAvailableTags = [];
+  builderTagSelection.clear();
+  builderTagSearch = '';
   showPresetBuilderPage();
   renderPresetBuilder();
 }
@@ -814,67 +964,251 @@ export function renderPresetBuilder() {
   const cancelBtn = document.getElementById('btnBuilderCancel');
   if (cancelBtn) cancelBtn.textContent = isRu ? (s.builtin ? 'Закрыть' : 'Отмена') : (s.builtin ? 'Close' : 'Cancel');
 
+  // GEO-BUILDER-UX-3: sectioned left column (layers count + add-source rows)
   const layersTitle = document.getElementById('builderLayersTitle');
-  if (layersTitle) layersTitle.textContent = isRu ? 'Слои' : 'Layers';
+  if (layersTitle) layersTitle.textContent = (isRu ? 'СЛОИ ПРЕСЕТА (' : 'PRESET LAYERS (') + ((s.sources || []).length) + ')';
   const entriesTitle = document.getElementById('builderEntriesTitle');
   if (entriesTitle) entriesTitle.textContent = isRu ? 'Состав' : 'Composition';
   const thEntry = document.getElementById('builderThEntry');
   if (thEntry) thEntry.textContent = isRu ? 'Запись' : 'Entry';
   const thOrigin = document.getElementById('builderThOrigin');
   if (thOrigin) thOrigin.textContent = isRu ? 'Слой' : 'Layer';
-  const addGeoLabel = document.getElementById('builderAddGeoLabel');
-  if (addGeoLabel) addGeoLabel.textContent = '+ ' + (isRu ? 'Геосписок' : 'Geo list');
-  const addUrlLabel = document.getElementById('builderAddUrlLabel');
-  if (addUrlLabel) addUrlLabel.textContent = '+ ' + (isRu ? 'Из URL' : 'From URL');
-  const addManualLabel = document.getElementById('builderAddManualLabel');
-  if (addManualLabel) addManualLabel.textContent = '+ ' + (isRu ? 'Список вручную' : 'Manual list');
+  const addSourceTitle = document.getElementById('builderAddSourceTitle');
+  if (addSourceTitle) addSourceTitle.textContent = isRu ? 'Добавить источник' : 'Add source';
+  const srcLabels: Record<string, [string, string]> = {
+    geo: ['🌐 Из геосписка', '🌐 From geo list'],
+    file: ['📄 Из файла (.dat / .txt)', '📄 From file (.dat / .txt)'],
+    url: ['🔗 Из URL', '🔗 From URL'],
+    manual: ['✏️ Вручную', '✏️ Manually'],
+    json: ['📥 Импорт JSON', '📥 Import JSON'],
+  };
+  for (const key of Object.keys(srcLabels)) {
+    const btn = document.getElementById('builderSrc' + key.charAt(0).toUpperCase() + key.slice(1) + 'Label');
+    if (btn) btn.textContent = isRu ? srcLabels[key][0] : srcLabels[key][1];
+  }
+  const addConfirmLabel = isRu ? 'Добавить слой' : 'Add layer';
+  ['builderAddGeoLabel', 'builderAddFileLabel', 'builderAddUrlLabel', 'builderAddManualLabel'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = addConfirmLabel;
+  });
   const jsonHint = document.getElementById('builderImportJsonHint');
-  if (jsonHint) jsonHint.textContent = isRu ? 'импорт пресета JSON' : 'import preset JSON';
+  if (jsonHint) jsonHint.textContent = isRu ? 'файл экспорта пресета (pec-preset JSON)' : 'preset export file (pec-preset JSON)';
+  const fileTag = document.getElementById('builderFileTag') as HTMLInputElement | null;
+  if (fileTag) fileTag.placeholder = isRu ? 'TAG (для .dat, напр. TELEGRAM)' : 'TAG (for .dat, e.g. TELEGRAM)';
+  const urlTag = document.getElementById('builderUrlTag') as HTMLInputElement | null;
+  if (urlTag) urlTag.placeholder = isRu ? 'TAG (для .dat, опционально)' : 'TAG (for .dat, optional)';
+  const urlInput = document.getElementById('builderLayerUrl') as HTMLInputElement | null;
+  if (urlInput) urlInput.placeholder = 'https://…/geosite.dat';
+  const manualTa = document.getElementById('builderManualEntries') as HTMLTextAreaElement | null;
+  if (manualTa) manualTa.placeholder = isRu ? 'По одному домену/CIDR на строку' : 'One domain/CIDR per line';
+  // add-source panels: exactly one open at a time
+  const panelIds: Record<string, string> = {
+    geo: 'builderPanelGeo',
+    file: 'builderPanelFile',
+    url: 'builderPanelUrl',
+    manual: 'builderPanelManual',
+    json: 'builderPanelJson',
+  };
+  for (const key of Object.keys(panelIds)) {
+    const panel = document.getElementById(panelIds[key]);
+    if (panel) panel.style.display = builderOpenSrcPanel === key ? 'block' : 'none';
+  }
   const selAllBtn = document.getElementById('btnBuilderSelectAll');
   if (selAllBtn) selAllBtn.textContent = isRu ? 'Выбрать все' : 'Select all';
   const delSelLabel = document.getElementById('builderDeleteSelectedLabel');
-  if (delSelLabel) delSelLabel.textContent = isRu ? 'Удалить выбранных' : 'Delete selected';
+  if (delSelLabel) delSelLabel.textContent = isRu ? 'Удалить выбранные' : 'Delete selected';
   const domainHint = document.getElementById('builderAddDomainHint');
-  if (domainHint) domainHint.textContent = isRu ? '→ ручной слой' : '→ manual layer';
+  if (domainHint) domainHint.textContent = isRu ? '→ в ручной слой' : '→ into a manual layer';
   const addDomain = document.getElementById('builderAddDomain') as HTMLInputElement | null;
   if (addDomain) addDomain.placeholder = isRu ? 'Домен + (Enter)' : 'Domain + (Enter)';
   const search = document.getElementById('builderEntrySearch') as HTMLInputElement | null;
-  if (search) search.placeholder = isRu ? 'Поиск по записям...' : 'Search entries...';
-  const manualTa = document.getElementById('builderManualEntries') as HTMLTextAreaElement | null;
-  if (manualTa) manualTa.placeholder = isRu
-    ? 'Ручной список: по одному домену/CIDR на строку'
-    : 'Manual list: one domain/CIDR per line';
-  const tagInput = document.getElementById('builderLayerTag') as HTMLInputElement | null;
-  if (tagInput) tagInput.placeholder = isRu ? 'TAG (для .dat)' : 'TAG (for .dat)';
+  if (search) {
+    search.placeholder = (isRu ? 'Поиск по всем ' : 'Search all ') + builderEntriesUnion().length + (isRu ? ' записям' : ' entries');
+  }
   const showMore = document.getElementById('btnBuilderShowMore');
   if (showMore) showMore.textContent = isRu ? 'Показать ещё' : 'Show more';
 
+  populateBuilderDomainTarget();
   populateBuilderGeoSelect();
   renderBuilderLayers();
   renderBuilderEntries();
 }
 
+/** GEO-BUILDER-UX-3: target manual layer selector for the «Домен +» footer input. */
+function populateBuilderDomainTarget() {
+  const sel = document.getElementById('builderDomainTarget') as HTMLSelectElement | null;
+  if (!sel || !builderState) return;
+  const isRu = builderIsRu();
+  const manualIdxs: number[] = [];
+  (builderState.sources || []).forEach((l: any, i: number) => {
+    if (l.kind === 'manual') manualIdxs.push(i);
+  });
+  const prev = sel.value;
+  let html = manualIdxs
+    .map((i, k) => `<option value="${i}">${esc(isRu ? `Ручной слой #${k + 1}` : `Manual layer #${k + 1}`)}</option>`)
+    .join('');
+  html += `<option value="new">${esc(isRu ? '+ новый ручной слой' : '+ new manual layer')}</option>`;
+  sel.innerHTML = html;
+  const values = Array.from(sel.options).map((o) => o.value);
+  sel.value = prev && values.indexOf(prev) !== -1 ? prev : String(manualIdxs.length ? manualIdxs[0] : 'new');
+}
+
+/**
+ * GEO-BUILDER-UX-3: structured layer card — SOURCE name header, tag chips
+ * with an inline tag editor, honest per-layer count + live/snapshot status.
+ * The inline editor (builderLayerEditor) renders directly under its card.
+ */
 export function renderBuilderLayers() {
   const list = document.getElementById('builderLayersList');
   if (!list || !builderState) return;
   const isRu = builderIsRu();
   const sources = builderState.sources || [];
   if (!sources.length) {
-    list.innerHTML = `<div style="font-size: 12px; color: var(--text-muted);">${isRu ? 'Слоёв пока нет — добавьте первый слой ниже.' : 'No layers yet — add the first layer below.'}</div>`;
+    list.innerHTML = `<div style="font-size: 12px; color: var(--text-muted);">${isRu ? 'Слоёв пока нет — добавьте первый источник ниже.' : 'No layers yet — add a source below.'}</div>`;
     return;
   }
   list.innerHTML = sources.map((layer: any, idx: number) => {
     const count = builderLayerEntries(layer).length;
-    const removable = !builderState.builtin;
-    const refreshable = layer.kind === 'url' && !builderState.builtin;
-    return `<div class="builder-layer-row" data-index="${idx}" style="display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card-subtle, rgba(255,255,255,0.02)); font-size: 12px;">
-      <span title="${esc(layer.kind)}">${builderLayerIcon(layer.kind)}</span>
-      <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${esc(builderLayerLabel(layer, isRu))}">${esc(builderLayerLabel(layer, isRu))}</span>
-      <span class="badge builder-layer-count" style="font-size: 10px;">${count}</span>
-      ${refreshable ? `<button type="button" class="btn-icon btn-layer-refresh" data-index="${idx}" title="${isRu ? 'Обновить слой' : 'Refresh layer'}" style="font-size: 11px; padding: 1px 4px;">↻</button>` : ''}
-      ${removable ? `<button type="button" class="btn-icon btn-layer-remove" data-index="${idx}" title="${isRu ? 'Удалить слой' : 'Remove layer'}" style="font-size: 11px; padding: 1px 4px;">✕</button>` : ''}
+    const editable = !builderState.builtin;
+    const live = layerIsLive(layer);
+    const refreshable = editable && live && (layer.kind === 'url' || (layer.kind === 'file' && layer.fileId));
+    const tags = builderLayerTags(layer);
+    const isSnapshotFile = layer.kind === 'file' && !layer.fileId;
+
+    const tagsRow = tags.length
+      ? `<div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 3px;">
+          <span style="font-size: 11px; color: var(--text-muted);">${isRu ? 'Теги:' : 'Tags:'}</span>
+          ${tags.map((t) => `<span class="badge builder-layer-tag" style="font-size: 10px; background: rgba(255,255,255,0.06);">${esc(t)}</span>`).join('')}
+        </div>`
+      : '';
+
+    const statusColor = live ? 'var(--success, #10b981)' : 'var(--warning, #f59e0b)';
+    const statusRow = `<div style="display: flex; align-items: center; gap: 8px; margin-top: 3px; font-size: 11px; color: var(--text-muted);">
+        <span class="builder-layer-count">${count} ${isRu ? 'записей' : 'entries'}</span>
+        <span>·</span>
+        <span class="builder-layer-status" style="color: ${statusColor};">${esc(builderLayerStatus(layer, isRu))}</span>
+        ${isSnapshotFile && editable ? `<button type="button" class="btn-secondary btn-layer-rebind" data-index="${idx}" style="font-size: 10px; padding: 1px 6px; margin-left: auto;">${isRu ? 'Привязать файл заново' : 'Re-attach file'}</button>` : ''}
+      </div>`;
+
+    let html = `<div class="builder-layer-row" data-index="${idx}" style="padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card-subtle, rgba(255,255,255,0.02)); font-size: 12px;">
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span title="${esc(layer.kind)}">${builderLayerIcon(layer.kind)}</span>
+        <span class="builder-layer-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${esc(builderLayerOriginTitle(layer, isRu))}">${esc(builderLayerSourceName(layer, isRu))}</span>
+        ${refreshable ? `<button type="button" class="btn-icon btn-layer-refresh" data-index="${idx}" title="${isRu ? 'Перечитать источник' : 'Re-read source'}" style="font-size: 11px; padding: 1px 4px;">↻</button>` : ''}
+        ${editable ? `<button type="button" class="btn-icon btn-layer-edit" data-index="${idx}" title="${isRu ? 'Редактировать слой' : 'Edit layer'}" style="font-size: 11px; padding: 1px 4px;">✎</button>` : ''}
+        ${editable ? `<button type="button" class="btn-icon btn-layer-remove" data-index="${idx}" title="${isRu ? 'Удалить слой' : 'Remove layer'}" style="font-size: 11px; padding: 1px 4px;">✕</button>` : ''}
+      </div>
+      ${tagsRow}
+      ${statusRow}
     </div>`;
+
+    if (builderLayerEditor && builderLayerEditor.idx === idx) {
+      html += renderLayerEditor(layer, idx, isRu);
+    }
+    return html;
   }).join('');
+}
+
+/** Inline editor panel for one layer (rendered under the layer card). */
+function rerenderTagChecklist() {
+  const editor = document.querySelector('.builder-layer-editor');
+  const listEl = editor ? editor.querySelector('.builder-tag-list') : null;
+  if (!listEl) return;
+  const isRu = builderIsRu();
+  const q = builderTagSearch.trim().toLowerCase();
+  const visibleTags = builderAvailableTags.filter((t) => !q || t.tag.toLowerCase().includes(q));
+  (listEl as HTMLElement).innerHTML = visibleTags.length
+    ? visibleTags
+        .map(
+          (t) => `<label style="display: flex; align-items: center; gap: 6px; padding: 3px 4px; font-size: 12px; cursor: pointer;">
+              <input type="checkbox" class="builder-tag-check" data-tag="${esc(t.tag)}" ${builderTagSelection.has(t.tag) ? 'checked' : ''} style="margin: 0; width: 13px; height: 13px;" />
+              <span style="flex: 1;">${esc(t.tag)}</span>
+              <span style="color: var(--text-muted); font-size: 11px;">${t.count}</span>
+            </label>`
+        )
+        .join('')
+    : `<div style="color: var(--text-muted); font-size: 12px; padding: 4px;">${isRu ? 'Теги не найдены' : 'No tags found'}</div>`;
+  updateTagEditorCounters();
+}
+
+function updateTagEditorCounters() {
+  const editor = document.querySelector('.builder-layer-editor');
+  const counter = editor ? editor.querySelector('.builder-tag-summary') : null;
+  if (!counter) return;
+  const isRu = builderIsRu();
+  const totalTagged = builderAvailableTags.reduce((sum, t) => sum + t.count, 0);
+  (counter as HTMLElement).textContent = isRu
+    ? `Выбрано тегов: ${builderTagSelection.size} · записей в файле: ${totalTagged}`
+    : `Tags selected: ${builderTagSelection.size} · entries in file: ${totalTagged}`;
+}
+
+/** Inline editor panel for one layer (rendered under the layer card). */
+function renderLayerEditor(layer: any, idx: number, isRu: boolean): string {
+  const panelStyle = 'padding: 8px; border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px; background: var(--bg-card-subtle, rgba(255,255,255,0.04)); font-size: 12px;';
+  const footerBtns = `<div style="display: flex; gap: 6px; margin-top: 8px;">
+      <button type="button" class="btn btn-editor-save" data-index="${idx}" style="font-size: 12px;">💾 ${isRu ? 'Сохранить' : 'Save'}</button>
+      <button type="button" class="btn-secondary btn-editor-cancel" data-index="${idx}" style="font-size: 12px;">${isRu ? 'Отмена' : 'Cancel'}</button>
+    </div>`;
+
+  if (builderLayerEditor!.kind === 'file') {
+    if (!layer.fileId) {
+      // snapshot layer: the only meaningful edit is re-attaching a file
+      return `<div class="builder-layer-editor" data-index="${idx}" style="${panelStyle}">
+        <div style="margin-bottom: 6px; color: var(--text-muted);">${isRu ? 'Снапшот-слой: привяжите файл, чтобы сделать слой живым.' : 'Snapshot layer: attach a file to make this layer live.'}</div>
+        <input type="file" class="builder-editor-file" data-index="${idx}" accept=".dat,.txt,.list" style="width: 100%; box-sizing: border-box; font-size: 12px; margin-bottom: 6px;" />
+        ${footerBtns}
+      </div>`;
+    }
+    const q = builderTagSearch.trim().toLowerCase();
+    const visibleTags = builderAvailableTags.filter((t) => !q || t.tag.toLowerCase().includes(q));
+    const totalTagged = builderAvailableTags.reduce((sum, t) => sum + t.count, 0);
+    return `<div class="builder-layer-editor" data-index="${idx}" style="${panelStyle}">
+      <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+        <span style="flex: 1; color: var(--text-muted);">${isRu ? 'Теги файла (мультивыбор):' : 'File tags (multi-select):'}</span>
+        <input type="file" class="builder-editor-file" data-index="${idx}" accept=".dat,.txt,.list" title="${isRu ? 'Сменить файл' : 'Replace file'}" style="max-width: 170px; font-size: 10px;" />
+      </div>
+      <input type="text" id="builderTagSearch" placeholder="${isRu ? 'Поиск по тегам…' : 'Search tags…'}" value="${esc(builderTagSearch)}" style="margin-bottom: 6px; width: 100%; box-sizing: border-box; font-size: 12px;" />
+      <div class="builder-tag-list" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px;">
+        ${visibleTags.length
+          ? visibleTags.map((t) => `<label style="display: flex; align-items: center; gap: 6px; padding: 3px 4px; font-size: 12px; cursor: pointer;">
+              <input type="checkbox" class="builder-tag-check" data-tag="${esc(t.tag)}" ${builderTagSelection.has(t.tag) ? 'checked' : ''} style="margin: 0; width: 13px; height: 13px;" />
+              <span style="flex: 1;">${esc(t.tag)}</span>
+              <span style="color: var(--text-muted); font-size: 11px;">${t.count}</span>
+            </label>`).join('')
+          : `<div style="color: var(--text-muted); font-size: 12px; padding: 4px;">${isRu ? 'Теги не найдены' : 'No tags found'}</div>`}
+      </div>
+      <div class="builder-tag-summary" style="margin-top: 4px; font-size: 11px; color: var(--text-muted);">${isRu ? `Выбрано тегов: ${builderTagSelection.size} · записей в файле: ${totalTagged}` : `Tags selected: ${builderTagSelection.size} · entries in file: ${totalTagged}`}</div>
+      ${footerBtns}
+    </div>`;
+  }
+
+  if (builderLayerEditor!.kind === 'url') {
+    return `<div class="builder-layer-editor" data-index="${idx}" style="${panelStyle}">
+      <label style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">URL</label>
+      <input type="text" id="builderEditorUrl" value="${esc(layer.url || '')}" style="margin-bottom: 6px; width: 100%; box-sizing: border-box; font-size: 12px;" />
+      <label style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">${isRu ? 'TAG (для .dat)' : 'TAG (for .dat)'}</label>
+      <input type="text" id="builderEditorTag" value="${esc(layer.tag || '')}" style="margin-bottom: 2px; width: 100%; box-sizing: border-box; font-size: 12px;" />
+      ${footerBtns}
+    </div>`;
+  }
+
+  if (builderLayerEditor!.kind === 'geo') {
+    const candidates = (lastLoadedPresets || []).filter((p: any) =>
+      p.source === 'builtin' && (p.type === 'cidr' ? 'cidr' : 'domain') === (builderState ? builderState.type : 'domain')
+    );
+    return `<div class="builder-layer-editor" data-index="${idx}" style="${panelStyle}">
+      <select id="builderEditorRef" style="margin-bottom: 2px; width: 100%; box-sizing: border-box; font-size: 12px;">
+        ${candidates.map((p: any) => `<option value="${esc(p.id)}" ${p.id === layer.ref ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+      </select>
+      ${footerBtns}
+    </div>`;
+  }
+
+  // manual
+  return `<div class="builder-layer-editor" data-index="${idx}" style="${panelStyle}">
+    <textarea id="builderEditorManual" rows="6" style="width: 100%; box-sizing: border-box; font-family: var(--mono, monospace); font-size: 12px; margin-bottom: 2px;">${esc((layer.entries || []).join('\n'))}</textarea>
+    ${footerBtns}
+  </div>`;
 }
 
 function builderFilteredEntries(): string[] {
@@ -890,10 +1224,24 @@ export function renderBuilderEntries() {
   const isRu = builderIsRu();
   const filtered = builderFilteredEntries();
   const origins = builderOriginMap();
+  // GEO-BUILDER-UX-3: honest counters — per-layer sum vs deduped union.
+  const union = builderEntriesUnion();
+  const perLayerSum = ((builderState && builderState.sources) || []).reduce(
+    (sum: number, layer: any) => sum + builderLayerEntries(layer).length,
+    0
+  );
+  const duplicatesHidden = Math.max(0, perLayerSum - union.length);
   const totalEl = document.getElementById('builderEntriesTotal');
   if (totalEl) {
-    totalEl.textContent = (isRu ? 'Записей: ' : 'Entries: ') + builderEntriesUnion().length +
-      (filtered.length !== builderEntriesUnion().length ? ` (${isRu ? 'найдено' : 'matched'}: ${filtered.length})` : '');
+    let line = (isRu ? 'Всего по слоям: ' : 'Across layers: ') + perLayerSum +
+      ' · ' + (isRu ? 'Уникальных: ' : 'Unique: ') + union.length;
+    if (duplicatesHidden > 0) {
+      line += ' · ' + (isRu ? 'дублей скрыто: ' : 'duplicates hidden: ') + duplicatesHidden;
+    }
+    if (filtered.length !== union.length) {
+      line += ' · ' + (isRu ? 'найдено: ' : 'matched: ') + filtered.length;
+    }
+    totalEl.textContent = line;
   }
 
   if (!filtered.length) {
@@ -914,11 +1262,11 @@ export function renderBuilderEntries() {
       : '';
     const removeBtn = editable
       ? `<button type="button" class="btn-icon btn-entry-remove" data-entry="${escapeHtml(entry)}" title="${isRu ? 'Удалить запись' : 'Remove entry'}" style="font-size: 11px; padding: 1px 4px;">✕</button>`
-      : `<span title="${isRu ? 'Живой слой: запись удаляется только в источнике' : 'Live layer: entries are managed at the source'}" style="color: var(--text-muted);">🔒</span>`;
+      : `<span title="${isRu ? 'Живой слой: запись управляется в источнике' : 'Live layer: entries are managed at the source'}" style="color: var(--text-muted);">🔒</span>`;
     return `<tr class="builder-entry-row">
       <td style="width: 36px;">${cellCheckbox}</td>
       <td><code>${esc(entry)}</code></td>
-      <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="badge builder-entry-origin" style="font-size: 10px; background: rgba(255,255,255,0.06);">${esc(origin ? origin.label : '')}</span></td>
+      <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="badge builder-entry-origin" title="${esc(origin ? origin.title : '')}" style="font-size: 10px; background: rgba(255,255,255,0.06); cursor: help;">${esc(origin ? origin.label : '')}</span></td>
       <td style="width: 40px; text-align: right;">${removeBtn}</td>
     </tr>`;
   }).join('');
@@ -1020,11 +1368,13 @@ async function addGeoLayerFromSelect() {
   const ref = sel ? sel.value : '';
   if (!ref) return;
   await addBuilderLayer({ kind: 'geo-tag', ref });
+  builderOpenSrcPanel = null;
+  renderPresetBuilder();
 }
 
 async function addUrlLayerFromInputs() {
   const urlEl = document.getElementById('builderLayerUrl') as HTMLInputElement | null;
-  const tagEl = document.getElementById('builderLayerTag') as HTMLInputElement | null;
+  const tagEl = document.getElementById('builderUrlTag') as HTMLInputElement | null;
   const url = (urlEl ? urlEl.value : '').trim();
   if (!url) {
     toast(builderIsRu() ? 'Укажите URL слоя' : 'Layer URL is required', 'error');
@@ -1034,6 +1384,8 @@ async function addUrlLayerFromInputs() {
   await addBuilderLayer({ kind: 'url', url, ...(tag ? { tag } : {}) });
   if (urlEl) urlEl.value = '';
   if (tagEl) tagEl.value = '';
+  builderOpenSrcPanel = null;
+  renderPresetBuilder();
 }
 
 async function addManualLayerFromTextarea() {
@@ -1046,6 +1398,8 @@ async function addManualLayerFromTextarea() {
   }
   await addBuilderLayer({ kind: 'manual', entries });
   if (ta) ta.value = '';
+  builderOpenSrcPanel = null;
+  renderPresetBuilder();
 }
 
 async function addBuilderFileLayer(file: any) {
@@ -1053,11 +1407,13 @@ async function addBuilderFileLayer(file: any) {
   const isRu = builderIsRu();
   try {
     const base64 = await fileToBase64(file);
-    const tagEl = document.getElementById('builderLayerTag') as HTMLInputElement | null;
+    const tagEl = document.getElementById('builderFileTag') as HTMLInputElement | null;
     const tag = (tagEl ? tagEl.value : '').trim();
     // .dat needs a tag; .txt/.list go without one (GEO-PRESET-UX-2 input table)
     await addBuilderLayer({ kind: 'file', name: file.name, ...(tag ? { tag } : {}), content: base64 });
     if (tagEl) tagEl.value = '';
+    builderOpenSrcPanel = null;
+    renderPresetBuilder();
   } catch (e: any) {
     toast(e?.message || (isRu ? 'Не удалось прочитать файл' : 'Failed to read file'), 'error');
   }
@@ -1090,12 +1446,181 @@ async function importPresetJsonFile(file: any) {
 async function refreshBuilderLayer(index: number) {
   if (!builderState || builderState.builtin) return;
   const layer = (builderState.sources || [])[index];
-  if (!layer || layer.kind !== 'url') return;
-  const resolved = await resolveBuilderLayer({ kind: 'url', url: layer.url, ...(layer.tag ? { tag: layer.tag } : {}) });
-  if (!resolved) return;
+  if (!layer) return;
+  const isRu = builderIsRu();
+  let resolved: any = null;
+  if (layer.kind === 'url') {
+    resolved = await resolveBuilderLayer({ kind: 'url', url: layer.url, ...(layer.tag ? { tag: layer.tag } : {}) });
+  } else if (layer.kind === 'file' && layer.fileId) {
+    // GEO-BUILDER-UX-3: re-read the stored geofile by the layer tags
+    resolved = await resolveBuilderLayer({ kind: 'file', fileId: layer.fileId, tags: builderLayerTags(layer) });
+  } else {
+    return;
+  }
+  if (!resolved) {
+    toast(isRu ? 'Не удалось перечитать источник' : 'Failed to re-read the source', 'error');
+    return;
+  }
   builderState.sources[index] = resolved;
   builderRenderedCount = BUILDER_RENDER_LIMIT;
   renderPresetBuilder();
+}
+
+// ============================================================================
+// GEO-BUILDER-UX-3: inline layer editors (✎) + add-source panels.
+// ============================================================================
+
+function closeLayerEditor() {
+  builderLayerEditor = null;
+  builderTagSelection.clear();
+  builderTagSearch = '';
+  renderBuilderLayers();
+}
+
+async function openLayerEditor(index: number) {
+  if (!builderState || builderState.builtin) return;
+  const layer = (builderState.sources || [])[index];
+  if (!layer) return;
+  if (layer.kind === 'manual') {
+    builderLayerEditor = { idx: index, kind: 'manual' };
+  } else if (layer.kind === 'url') {
+    builderLayerEditor = { idx: index, kind: 'url' };
+  } else if (layer.kind === 'geo-tag') {
+    builderLayerEditor = { idx: index, kind: 'geo' };
+  } else if (layer.kind === 'file') {
+    builderLayerEditor = { idx: index, kind: 'file' };
+    builderTagSelection.clear();
+    for (const t of builderLayerTags(layer)) builderTagSelection.add(t);
+    builderTagSearch = '';
+    if (layer.fileId) {
+      // fetch available tags (search + per-tag counts) for the checklist
+      try {
+        const res = await adminFetch('/api/routing/geofiles/' + encodeURIComponent(layer.fileId) + '/tags');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+        builderAvailableTags = Array.isArray(data.availableTags) ? data.availableTags : [];
+      } catch (e: any) {
+        builderAvailableTags = [];
+        toast(e?.message || 'Failed to load file tags', 'error');
+      }
+    } else {
+      builderAvailableTags = [];
+    }
+  } else {
+    return;
+  }
+  builderOpenSrcPanel = null;
+  renderBuilderLayers();
+}
+
+async function saveLayerEditor(index: number) {
+  if (!builderState || !builderLayerEditor || builderLayerEditor.idx !== index) return;
+  const layer = (builderState.sources || [])[index];
+  if (!layer) return;
+  const isRu = builderIsRu();
+
+  if (builderLayerEditor.kind === 'manual') {
+    const ta = document.getElementById('builderEditorManual') as HTMLTextAreaElement | null;
+    const entries = (ta ? ta.value : '').split('\n').map((l) => l.trim()).filter(Boolean);
+    for (const tok of entries) {
+      const isCidrTok = tok.includes('/');
+      if (builderState.type === 'domain' && isCidrTok) {
+        toast(isRu ? 'CIDR-запись нельзя добавить в domain-пресет' : 'CIDR entries are not allowed in a domain preset', 'error');
+        return;
+      }
+      if (builderState.type === 'cidr' && !isCidrTok) {
+        toast(isRu ? 'Домен нельзя добавить в cidr-пресет' : 'Domain entries are not allowed in a cidr preset', 'error');
+        return;
+      }
+    }
+    if (!entries.length) {
+      toast(isRu ? 'Список записей пуст' : 'Entries list is empty', 'error');
+      return;
+    }
+    layer.entries = entries;
+    closeLayerEditor();
+    renderPresetBuilder();
+    toast(isRu ? 'Слой обновлён' : 'Layer updated', 'success');
+    return;
+  }
+
+  if (builderLayerEditor.kind === 'url') {
+    const urlEl = document.getElementById('builderEditorUrl') as HTMLInputElement | null;
+    const tagEl = document.getElementById('builderEditorTag') as HTMLInputElement | null;
+    const url = (urlEl ? urlEl.value : '').trim();
+    if (!url) {
+      toast(isRu ? 'Укажите URL слоя' : 'Layer URL is required', 'error');
+      return;
+    }
+    const tag = (tagEl ? tagEl.value : '').trim();
+    const resolved = await resolveBuilderLayer({ kind: 'url', url, ...(tag ? { tag } : {}) });
+    if (!resolved) return;
+    builderState.sources[index] = resolved;
+    closeLayerEditor();
+    renderPresetBuilder();
+    toast(isRu ? 'Слой обновлён' : 'Layer updated', 'success');
+    return;
+  }
+
+  if (builderLayerEditor.kind === 'geo') {
+    const refEl = document.getElementById('builderEditorRef') as HTMLSelectElement | null;
+    const ref = refEl ? refEl.value : '';
+    if (!ref) return;
+    const resolved = await resolveBuilderLayer({ kind: 'geo-tag', ref });
+    if (!resolved) return;
+    builderState.sources[index] = resolved;
+    closeLayerEditor();
+    renderPresetBuilder();
+    toast(isRu ? 'Слой обновлён' : 'Layer updated', 'success');
+    return;
+  }
+
+  if (builderLayerEditor.kind === 'file') {
+    if (!layer.fileId) {
+      toast(isRu ? 'Привяжите файл, чтобы редактировать теги' : 'Attach a file to edit tags', 'error');
+      return;
+    }
+    const tags = Array.from(builderTagSelection);
+    const resolved = await resolveBuilderLayer({ kind: 'file', fileId: layer.fileId, tags });
+    if (!resolved) return;
+    builderState.sources[index] = resolved;
+    closeLayerEditor();
+    renderPresetBuilder();
+    toast(isRu ? `Слой пересобран: ${builderLayerEntries(builderState.sources[index]).length} записей` : `Layer rebuilt: ${builderLayerEntries(builderState.sources[index]).length} entries`, 'success');
+  }
+}
+
+/** «Сменить файл» / «Привязать файл заново»: upload a new .dat into the SAME layer. */
+async function replaceLayerFile(index: number, file: any) {
+  if (!builderState || !file) return;
+  const isRu = builderIsRu();
+  try {
+    const base64 = await fileToBase64(file);
+    const resolved = await resolveBuilderLayer({ kind: 'file', name: file.name, content: base64 });
+    if (!resolved) return;
+    builderState.sources[index] = resolved;
+    builderRenderedCount = BUILDER_RENDER_LIMIT;
+    // keep the editor open so the user can pick tags for the new file
+    if (builderLayerEditor && builderLayerEditor.idx === index) {
+      builderTagSelection.clear();
+      builderAvailableTags = [];
+      if (resolved.fileId) {
+        try {
+          const res = await adminFetch('/api/routing/geofiles/' + encodeURIComponent(resolved.fileId) + '/tags');
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) builderAvailableTags = Array.isArray(data.availableTags) ? data.availableTags : [];
+        } catch (_) {
+          /* keep current list */
+        }
+      }
+      renderBuilderLayers();
+    } else {
+      renderPresetBuilder();
+    }
+    toast(isRu ? `Файл заменён: ${builderLayerEntries(builderState.sources[index]).length} записей` : `File replaced: ${builderLayerEntries(builderState.sources[index]).length} entries`, 'success');
+  } catch (e: any) {
+    toast(e?.message || (isRu ? 'Не удалось прочитать файл' : 'Failed to read file'), 'error');
+  }
 }
 
 async function removeBuilderLayer(index: number) {
@@ -1129,12 +1654,24 @@ function removeBuilderEntry(entry: string) {
   renderBuilderLayers();
 }
 
-function deleteSelectedBuilderEntries() {
+async function deleteSelectedBuilderEntries() {
   if (!builderState || builderState.builtin) return;
   const isRu = builderIsRu();
   if (!builderSelected.size) {
     toast(isRu ? 'Не выбрано ни одной записи' : 'No entries selected', 'error');
     return;
+  }
+  // GEO-BUILDER-UX-3: bulk delete asks for confirmation above a single entry
+  if (builderSelected.size > 1) {
+    const ok = await pecConfirm({
+      title: isRu ? 'Удалить выбранные записи?' : 'Delete selected entries?',
+      message: isRu
+        ? `Будет удалено записей: ${builderSelected.size}. Действие нельзя отменить без повторного сохранения источника.`
+        : `${builderSelected.size} entries will be removed. This cannot be undone without re-saving the source.`,
+      isDanger: true,
+      confirmText: isRu ? 'Удалить' : 'Delete',
+    });
+    if (!ok) return;
   }
   const origins = builderOriginMap();
   let removed = 0;
@@ -1178,10 +1715,20 @@ export function addBuilderDomain() {
       return;
     }
   }
-  let layer = builderState.sources.find((s: any) => s.kind === 'manual');
-  if (!layer) {
+  // GEO-BUILDER-UX-3: explicit target manual layer (default: first manual layer)
+  const targetSel = document.getElementById('builderDomainTarget') as HTMLSelectElement | null;
+  const target = targetSel ? targetSel.value : 'new';
+  let layer: any;
+  if (target === 'new') {
     layer = { kind: 'manual', entries: [] };
     builderState.sources.push(layer);
+  } else {
+    const idx = parseInt(target, 10);
+    layer = builderState.sources[idx];
+    if (!layer || layer.kind !== 'manual') {
+      layer = { kind: 'manual', entries: [] };
+      builderState.sources.push(layer);
+    }
   }
   for (const tok of tokens) {
     if (!layer.entries.includes(tok)) layer.entries.push(tok);
@@ -1455,19 +2002,55 @@ if (typeof document !== 'undefined') {
       savePresetBuilder();
       return;
     }
-    const addGeoBtn = (target as any).closest('.btn-layer-add-geo');
+    // GEO-BUILDER-UX-3: add-source panel toggles (one open at a time)
+    const srcBtn = (target as any).closest('.builder-src-btn');
+    if (srcBtn) {
+      const src = srcBtn.getAttribute('data-src');
+      builderOpenSrcPanel = src && builderOpenSrcPanel !== src ? src : null;
+      renderPresetBuilder();
+      return;
+    }
+    const addGeoBtn = (target as any).closest('.btn-add-geo-confirm');
     if (addGeoBtn) {
       addGeoLayerFromSelect();
       return;
     }
-    const addUrlBtn = (target as any).closest('.btn-layer-add-url');
+    const addFileBtn = (target as any).closest('.btn-add-file-confirm');
+    if (addFileBtn) {
+      const fileInput = document.getElementById('builderLayerFileInput') as HTMLInputElement | null;
+      const file = fileInput && fileInput.files ? fileInput.files[0] : null;
+      if (!file) {
+        toast(builderIsRu() ? 'Выберите файл для загрузки' : 'Select a file to upload', 'error');
+        return;
+      }
+      addBuilderFileLayer(file);
+      return;
+    }
+    const addUrlBtn = (target as any).closest('.btn-add-url-confirm');
     if (addUrlBtn) {
       addUrlLayerFromInputs();
       return;
     }
-    const addManualBtn = (target as any).closest('.btn-layer-add-manual');
+    const addManualBtn = (target as any).closest('.btn-add-manual-confirm');
     if (addManualBtn) {
       addManualLayerFromTextarea();
+      return;
+    }
+    const layerEditBtn = (target as any).closest('.btn-layer-edit, .btn-layer-rebind');
+    if (layerEditBtn) {
+      const idx = layerEditBtn.getAttribute('data-index');
+      if (idx !== null) openLayerEditor(parseInt(idx, 10));
+      return;
+    }
+    const editorSaveBtn = (target as any).closest('.btn-editor-save');
+    if (editorSaveBtn) {
+      const idx = editorSaveBtn.getAttribute('data-index');
+      if (idx !== null) saveLayerEditor(parseInt(idx, 10));
+      return;
+    }
+    const editorCancelBtn = (target as any).closest('.btn-editor-cancel');
+    if (editorCancelBtn) {
+      closeLayerEditor();
       return;
     }
     const layerRefreshBtn = (target as any).closest('.btn-layer-refresh');
@@ -1536,6 +2119,25 @@ if (typeof document !== 'undefined') {
       importPresetJsonFile(f);
       return;
     }
+    // GEO-BUILDER-UX-3: tag editor checklist + in-editor file replacement
+    if (typeof t.classList.contains === 'function' && t.classList.contains('builder-tag-check')) {
+      const tag = t.getAttribute('data-tag');
+      if (!tag) return;
+      if (t.checked) {
+        builderTagSelection.add(tag);
+      } else {
+        builderTagSelection.delete(tag);
+      }
+      updateTagEditorCounters();
+      return;
+    }
+    if (typeof t.classList.contains === 'function' && t.classList.contains('builder-editor-file')) {
+      const idx = t.getAttribute('data-index');
+      const f = t.files && t.files[0] ? t.files[0] : null;
+      t.value = '';
+      if (idx !== null && f) replaceLayerFile(parseInt(idx, 10), f);
+      return;
+    }
   });
 
   document.addEventListener('input', function(e: any) {
@@ -1545,6 +2147,12 @@ if (typeof document !== 'undefined') {
       builderState.search = t.value || '';
       builderRenderedCount = BUILDER_RENDER_LIMIT;
       renderBuilderEntries();
+      return;
+    }
+    if (t.id === 'builderTagSearch') {
+      // GEO-BUILDER-UX-3: re-render only the checklist (keeps the input focus)
+      builderTagSearch = t.value || '';
+      rerenderTagChecklist();
       return;
     }
     if (t.id === 'builderNameInput' && builderState) {

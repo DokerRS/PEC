@@ -36,13 +36,27 @@ export interface GeoPreset {
  * - geo-tag: live reference to a builtin GEO_PRESETS entry (ref = preset id).
  * - url:     remote list; `entries` caches the last fetched snapshot (refresh
  *            re-downloads only this layer).
- * - file:    uploaded geodata parsed once into an entries snapshot.
+ * - file:    uploaded geodata. GEO-BUILDER-UX-3: uploads are stored
+ *            content-addressed (data/geofiles/<sha256>.dat) and the layer
+ *            becomes LIVE ({fileId, fileName, tags[]}) — materialization
+ *            re-reads the file and re-parses by tags. `entries` remains the
+ *            fallback snapshot for legacy layers without fileId (old layers
+ *            are snapshots by definition) and for import round-trips where
+ *            the target server does not hold the same file.
  * - manual:  hand-typed entries (constructor textarea / "+ Domain" input).
  */
 export type PresetSource =
   | { kind: "geo-tag"; ref: string; entries?: string[] }
   | { kind: "url"; url: string; tag?: string; entries?: string[]; lastUpdated?: string }
-  | { kind: "file"; name: string; tag?: string; entries: string[] }
+  | {
+      kind: "file";
+      name?: string;
+      tag?: string;
+      tags?: string[];
+      fileId?: string;
+      fileName?: string;
+      entries: string[];
+    }
   | { kind: "manual"; entries: string[] };
 
 export interface RoutingPresetItem {

@@ -90,7 +90,7 @@ test("GEO-UX2 (a): ✏️ click-path (⋮ → Редактировать) opens 
     // layers panel: one url layer with count + no manual layer
     const layerRows = document.querySelectorAll(".builder-layer-row");
     assert.equal(layerRows.length, 1);
-    assert.match(layerRows[0].textContent || "", /ads\.txt/);
+    assert.match(layerRows[0].textContent || "", /example\.com/, "url layer header shows the source host");
     assert.equal(document.querySelectorAll(".btn-layer-refresh").length, 1, "url layer gets a ↻ button");
 
     // composition: rows with origin badges, url rows are not editable
@@ -260,10 +260,14 @@ test("GEO-UX2 (d): «Домен +» (Enter) appends to a manual layer; ✕ remov
       label: "entry removed",
     });
 
-    // 3. re-add via textarea manual layer, then remove the whole layer with confirm
+    // 3. re-add via the add-source panel (✏️ Вручную), then remove the layer with confirm
+    click(window, document.querySelector('.builder-src-btn[data-src="manual"]')!);
+    await waitFor(() => document.getElementById("builderPanelManual")!.style.display === "block", {
+      label: "manual panel open",
+    });
     const manualTa = document.getElementById("builderManualEntries") as HTMLTextAreaElement;
     manualTa.value = "m1.example\nm2.example";
-    click(window, document.querySelector(".btn-layer-add-manual")!);
+    click(window, document.querySelector(".btn-add-manual-confirm")!);
     await waitFor(() => document.querySelectorAll(".builder-layer-row").length === 3, {
       label: "manual layer added",
     });
@@ -330,9 +334,10 @@ test("GEO-UX2 (e): layer ✕ with declined confirm keeps the layer; 400 limit su
 
     // 400 from resolve-layer -> toast with the limit message, builder stays open
     (window as any).pecConfirm = async () => true;
+    click(window, document.querySelector('.builder-src-btn[data-src="manual"]')!);
     const manualTa = document.getElementById("builderManualEntries") as HTMLTextAreaElement;
     manualTa.value = "boom.example";
-    click(window, document.querySelector(".btn-layer-add-manual")!);
+    click(window, document.querySelector(".btn-add-manual-confirm")!);
     await waitFor(() => {
       const host = document.getElementById("toastHost");
       return !!host && (host.textContent || "").includes("entry limit");
@@ -472,7 +477,8 @@ test("GEO-UX2 (h): «+ Геосписок» from the dropdown resolves a geo-tag
     console.log("DBG-h0:", "opts:", geoSelect.querySelectorAll("option").length,
       "val:", JSON.stringify(geoSelect.value), "optVal:", JSON.stringify(option!.value));
     geoSelect.value = option!.value;
-    click(window, document.querySelector(".btn-layer-add-geo")!);
+    click(window, document.querySelector('.builder-src-btn[data-src="geo"]')!);
+    click(window, document.querySelector(".btn-add-geo-confirm")!);
     await new Promise((r) => setTimeout(r, 60));
     console.log("DBG-h1:", "resolveCalls:", fetchCalls.filter((c: any) => c.url.includes("resolve-layer")).length,
       "layers:", document.querySelectorAll(".builder-layer-row").length,

@@ -2130,30 +2130,40 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
       </div>
 
       <div style="display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap;">
-        <!-- Left: layers -->
+        <!-- Left: layers + add-source dialogs -->
         <div style="flex: 1 1 300px; min-width: 280px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--card-inner);">
-          <h4 style="font-size: 13px; font-weight: 600; margin-bottom: 8px;" id="builderLayersTitle">Слои</h4>
-          <div id="builderLayersList" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;"></div>
+          <h4 style="font-size: 13px; font-weight: 600; margin-bottom: 8px;" id="builderLayersTitle">СЛОИ ПРЕСЕТА (0)</h4>
+          <div id="builderLayersList" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;"></div>
           <div id="builderAddLayerBlock">
-            <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
-              <select id="builderGeoSelect" style="margin-bottom: 0; flex: 1; font-size: 12px;"></select>
-              <button type="button" class="btn-secondary btn-layer-add-geo" style="font-size: 12px; white-space: nowrap;" id="builderAddGeoLabel">+ Геосписок</button>
-            </div>
-            <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
-              <input type="text" id="builderLayerUrl" placeholder="https://.../geosite.dat или .txt" style="margin-bottom: 0; flex: 3; font-size: 12px;" />
-              <input type="text" id="builderLayerTag" placeholder="TAG (.dat)" style="margin-bottom: 0; flex: 1; font-size: 12px;" />
-              <button type="button" class="btn-secondary btn-layer-add-url" style="font-size: 12px; white-space: nowrap;" id="builderAddUrlLabel">+ Из URL</button>
-            </div>
-            <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
-              <input type="file" id="builderLayerFileInput" accept=".dat,.txt,.list" style="flex: 1; font-size: 12px;" />
-            </div>
-            <div style="margin-bottom: 6px;">
-              <textarea id="builderManualEntries" rows="3" placeholder="Ручной список: по одному домену/CIDR на строку" style="width: 100%; box-sizing: border-box; font-family: var(--mono, monospace); font-size: 12px;"></textarea>
-              <button type="button" class="btn-secondary btn-layer-add-manual" style="font-size: 12px; margin-top: 4px;" id="builderAddManualLabel">+ Список вручную</button>
-            </div>
-            <div style="display: flex; gap: 6px; align-items: center;">
-              <input type="file" id="builderImportJsonInput" accept=".json,application/json" style="flex: 1; font-size: 12px;" />
-              <span style="font-size: 11px; color: var(--text-muted);" id="builderImportJsonHint">импорт пресета JSON</span>
+            <h5 style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin: 0 0 6px 0;" id="builderAddSourceTitle">Добавить источник</h5>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <button type="button" class="btn-secondary builder-src-btn" data-src="geo" style="font-size: 12px; text-align: left;" id="builderSrcGeoLabel">🌐 Из геосписка</button>
+              <div id="builderPanelGeo" class="builder-src-panel" style="display: none; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin: 2px 0 4px 0; background: var(--bg-card-subtle, rgba(255,255,255,0.02));">
+                <select id="builderGeoSelect" style="margin-bottom: 6px; width: 100%; box-sizing: border-box; font-size: 12px;"></select>
+                <button type="button" class="btn btn-add-geo-confirm" style="font-size: 12px; width: 100%;" id="builderAddGeoLabel">Добавить слой</button>
+              </div>
+              <button type="button" class="btn-secondary builder-src-btn" data-src="file" style="font-size: 12px; text-align: left;" id="builderSrcFileLabel">📄 Из файла (.dat / .txt)</button>
+              <div id="builderPanelFile" class="builder-src-panel" style="display: none; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin: 2px 0 4px 0; background: var(--bg-card-subtle, rgba(255,255,255,0.02));">
+                <input type="file" id="builderLayerFileInput" accept=".dat,.txt,.list" style="width: 100%; box-sizing: border-box; font-size: 12px; margin-bottom: 6px;" />
+                <input type="text" id="builderFileTag" placeholder="TAG (для .dat, напр. TELEGRAM)" style="margin-bottom: 6px; width: 100%; box-sizing: border-box; font-size: 12px;" />
+                <button type="button" class="btn btn-add-file-confirm" style="font-size: 12px; width: 100%;" id="builderAddFileLabel">Добавить слой</button>
+              </div>
+              <button type="button" class="btn-secondary builder-src-btn" data-src="url" style="font-size: 12px; text-align: left;" id="builderSrcUrlLabel">🔗 Из URL</button>
+              <div id="builderPanelUrl" class="builder-src-panel" style="display: none; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin: 2px 0 4px 0; background: var(--bg-card-subtle, rgba(255,255,255,0.02));">
+                <input type="text" id="builderLayerUrl" placeholder="https://…/geosite.dat или list.txt" style="margin-bottom: 6px; width: 100%; box-sizing: border-box; font-size: 12px;" />
+                <input type="text" id="builderUrlTag" placeholder="TAG (для .dat, опционально)" style="margin-bottom: 6px; width: 100%; box-sizing: border-box; font-size: 12px;" />
+                <button type="button" class="btn btn-add-url-confirm" style="font-size: 12px; width: 100%;" id="builderAddUrlLabel">Добавить слой</button>
+              </div>
+              <button type="button" class="btn-secondary builder-src-btn" data-src="manual" style="font-size: 12px; text-align: left;" id="builderSrcManualLabel">✏️ Вручную</button>
+              <div id="builderPanelManual" class="builder-src-panel" style="display: none; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin: 2px 0 4px 0; background: var(--bg-card-subtle, rgba(255,255,255,0.02));">
+                <textarea id="builderManualEntries" rows="4" placeholder="По одному домену/CIDR на строку" style="width: 100%; box-sizing: border-box; font-family: var(--mono, monospace); font-size: 12px; margin-bottom: 6px;"></textarea>
+                <button type="button" class="btn btn-add-manual-confirm" style="font-size: 12px; width: 100%;" id="builderAddManualLabel">Добавить слой</button>
+              </div>
+              <button type="button" class="btn-secondary builder-src-btn" data-src="json" style="font-size: 12px; text-align: left;" id="builderSrcJsonLabel">📥 Импорт JSON</button>
+              <div id="builderPanelJson" class="builder-src-panel" style="display: none; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin: 2px 0 4px 0; background: var(--bg-card-subtle, rgba(255,255,255,0.02));">
+                <input type="file" id="builderImportJsonInput" accept=".json,application/json" style="width: 100%; box-sizing: border-box; font-size: 12px; margin-bottom: 6px;" />
+                <span style="font-size: 11px; color: var(--text-muted);" id="builderImportJsonHint">файл экспорта пресета (pec-preset JSON)</span>
+              </div>
             </div>
             <div id="builderLayerStatus" style="display: none; margin-top: 8px; padding: 6px 8px; background: rgba(224, 82, 82, 0.08); border: 1px solid rgba(224, 82, 82, 0.3); border-radius: 6px; font-size: 12px; color: var(--danger);"></div>
           </div>
@@ -2194,9 +2204,10 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
 
       <!-- Footer: add domain + Save/Cancel -->
       <div id="builderFooter" style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); flex-wrap: wrap;">
-        <div style="display: flex; gap: 6px; align-items: center; flex: 1; min-width: 220px;">
+        <div style="display: flex; gap: 6px; align-items: center; flex: 1; min-width: 260px;">
           <input type="text" id="builderAddDomain" placeholder="Домен + (Enter)" style="margin-bottom: 0; flex: 1; font-size: 12px;" />
-          <span style="font-size: 11px; color: var(--text-muted);" id="builderAddDomainHint">→ ручной слой</span>
+          <select id="builderDomainTarget" style="margin-bottom: 0; max-width: 170px; font-size: 12px;"></select>
+          <span style="font-size: 11px; color: var(--text-muted); white-space: nowrap;" id="builderAddDomainHint">→ в ручной слой</span>
         </div>
         <div style="display: flex; gap: 8px;">
           <button type="button" class="btn btn-builder-save" id="btnBuilderSave" style="font-size: 12px;">💾 <span id="builderSaveLabel">Сохранить</span></button>

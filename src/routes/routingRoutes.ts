@@ -3,13 +3,26 @@ import { Router, Request, Response } from "express";
 import { GEO_PRESETS, getAllProfiles, saveProfile, deleteProfile } from "../routing.js";
 import {
   findGeoPresetById,
+  getPresetSourceEntries,
   inferPresetSourceType,
   materializePresetEntries,
   materializePresetSources,
 } from "../routing.js";
-import { getRoutingPresets, saveRoutingPresets } from "../storage.js";
+import {
+  getRoutingPresets,
+  saveRoutingPresets,
+  saveGeofile,
+  readGeofile,
+  getGeofileName,
+} from "../storage.js";
 import { PresetSource, RoutingPresetItem } from "../types.js";
-import { parseGeoSite, parseGeoIp, parsePlaintextList } from "../geodata/datParser.js";
+import {
+  parseGeoSite,
+  parseGeoIp,
+  parsePlaintextList,
+  parseGeodataBuffer,
+  listGeodataTags,
+} from "../geodata/datParser.js";
 import { validateSafeEndpointUrlAsync, createSsrfPinnedFetch } from "../rotate.js";
 import { MAX_ROUTING_PRESET_ENTRIES, isWithinPresetEntryLimit } from "../routing.js";
 import { recordAudit, getClientIp } from "../audit.js";
@@ -48,76 +61,6 @@ async function downloadBodyWithLimit(response: globalThis.Response, maxSize: num
     }
   }
   return Buffer.concat(chunks);
-}
-
-function parseGeodataBuffer(
-  buffer: Buffer,
-  filenameOrUrl: string,
-  requestedType?: "domain" | "cidr",
-  tag?: string
-): { entries: string[]; inferredType: "domain" | "cidr" } {
-  const lowerName = filenameOrUrl.toLowerCase();
-  const isDat = lowerName.endsWith(".dat") || buffer.includes(0x00);
-  const rawTags = (tag || "RU")
-    .split(/[,;]+/)
-    .map((t) => t.trim().toUpperCase())
-    .filter(Boolean);
-  const targetTags = rawTags.length > 0 ? rawTags : ["RU"];
-
-  if (isDat) {
-    if (requestedType === "cidr" || lowerName.includes("geoip")) {
-      const ipMap = parseGeoIp(buffer);
-      const matchedCidrs: string[] = [];
-
-      for (const t of targetTags) {
-        const entry = ipMap.get(t);
-        if (entry) {
-          for (const c of entry.cidrs) {
-            matchedCidrs.push(`${c.ip}/${c.prefix}`);
-          }
-        }
-      }
-
-      if (matchedCidrs.length === 0) {
-        const available = Array.from(ipMap.keys()).slice(0, 20).join(", ");
-        throw new Error(
-          targetTags.length === 1
-            ? `Tag '${targetTags[0]}' not found in GeoIP file. Available tags: ${available || "none"}`
-            : `None of tags [${targetTags.join(", ")}] found in GeoIP file. Available tags: ${available || "none"}`
-        );
-      }
-      const uniqueEntries = Array.from(new Set(matchedCidrs));
-      return { entries: uniqueEntries, inferredType: "cidr" };
-    } else {
-      const siteMap = parseGeoSite(buffer);
-      const matchedDomains: string[] = [];
-
-      for (const t of targetTags) {
-        const entry = siteMap.get(t);
-        if (entry) {
-          for (const d of entry.domains) {
-            matchedDomains.push(d.value);
-          }
-        }
-      }
-
-      if (matchedDomains.length === 0) {
-        const available = Array.from(siteMap.keys()).slice(0, 20).join(", ");
-        throw new Error(
-          targetTags.length === 1
-            ? `Tag '${targetTags[0]}' not found in GeoSite file. Available tags: ${available || "none"}`
-            : `None of tags [${targetTags.join(", ")}] found in GeoSite file. Available tags: ${available || "none"}`
-        );
-      }
-      const uniqueEntries = Array.from(new Set(matchedDomains));
-      return { entries: uniqueEntries, inferredType: "domain" };
-    }
-  } else {
-    const text = buffer.toString("utf-8");
-    const entries = parsePlaintextList(text);
-    const inferredType = requestedType || (entries.some((e) => e.includes("/")) ? "cidr" : "domain");
-    return { entries, inferredType };
-  }
 }
 
 // ============================================================================
@@ -201,23 +144,37 @@ function validatePresetSource(raw: any, presetType: "domain" | "cidr", index: nu
       return { ok: true, source };
     }
     case "file": {
-      if (typeof raw.name !== "string" || !raw.name.trim()) {
-        return { ok: false, error: `sources[${index}].name is required for file layers` };
+      // GEO-BUILDER-UX-3: a file layer is live when it references a stored
+      // geofile ({fileId, fileName, tags[]}); a plain {name, entries} object
+      // stays a legacy snapshot layer.
+      const fileId = typeof raw.fileId === "string" && raw.fileId.trim() ? raw.fileId.trim() : undefined;
+      if (fileId && !/^[a-f0-9]{64}$/.test(fileId)) {
+        return { ok: false, error: `sources[${index}].fileId must be a sha256 hex digest` };
       }
+      const name = typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : undefined;
+      const fileName = typeof raw.fileName === "string" && raw.fileName.trim() ? raw.fileName.trim() : undefined;
+      const tags = Array.isArray(raw.tags)
+        ? raw.tags.map(String).map((t) => t.trim().toUpperCase()).filter(Boolean)
+        : undefined;
       const entries = cleanSourceEntries(raw.entries);
-      if (!entries || entries.length === 0) {
+      const hasEntries = !!entries && entries.length > 0;
+      if (!fileId && (!entries || entries.length === 0)) {
         return { ok: false, error: `sources[${index}].entries is required (non-empty) for file layers` };
       }
-      if (entries.length > MAX_ROUTING_PRESET_ENTRIES) {
+      if (hasEntries && entries.length > MAX_ROUTING_PRESET_ENTRIES) {
         return { ok: false, error: `sources[${index}] exceeds the ${MAX_ROUTING_PRESET_ENTRIES} entry limit` };
       }
+      const display = fileName || name || fileId || "file";
       const source: PresetSource = {
         kind: "file",
-        name: raw.name.trim(),
-        ...(typeof raw.tag === "string" && raw.tag.trim() ? { tag: raw.tag.trim() } : {}),
-        entries,
+        ...(name ? { name } : {}),
+        ...(typeof raw.tag === "string" && raw.tag.trim() ? { tag: raw.tag.trim().toUpperCase() } : {}),
+        ...(tags && tags.length ? { tags } : {}),
+        ...(fileId ? { fileId } : {}),
+        ...(fileName ? { fileName } : {}),
+        entries: hasEntries ? entries : [],
       };
-      const mismatch = assertSourceTypeMatch(source, presetType, source.name);
+      const mismatch = assertSourceTypeMatch(source, presetType, display);
       if (mismatch) return { ok: false, error: mismatch };
       return { ok: true, source };
     }
@@ -401,6 +358,13 @@ export function createRoutingRouter(): Router {
           return res.status(400).json({ error: validated.error });
         }
         cleanSources = validated.source as unknown as PresetSource[];
+        // GEO-BUILDER-UX-3: keep live file layers' entries snapshots in sync
+        // with the stored geofile so export round-trips carry the content.
+        for (const s of cleanSources) {
+          if (s.kind === "file" && s.fileId) {
+            s.entries = getPresetSourceEntries(s);
+          }
+        }
         cleanEntries = materializePresetSources(cleanSources, []);
         if (cleanEntries.length === 0) {
           return res.status(400).json({ error: "preset materializes to an empty entry list" });
@@ -635,6 +599,14 @@ export function createRoutingRouter(): Router {
       if (!isWithinPresetEntryLimit(entries.length)) {
         return res.status(400).json({ error: `Imported preset too large: ${entries.length} entries exceed the ${MAX_ROUTING_PRESET_ENTRIES} entry limit` });
       }
+      // GEO-BUILDER-UX-3: store the upload content-addressed so the layer can
+      // stay live (re-parse by tags without re-upload).
+      const stored = saveGeofile(buf, filename.toLowerCase().endsWith(".dat") ? ".dat" : ".txt");
+      const rawTags = (tag || "")
+        .split(/[,;]+/)
+        .map((t) => t.trim().toUpperCase())
+        .filter(Boolean);
+      const availableTags = listGeodataTags(buf, filename);
       const cleanName = name || filename;
       const id = req.body.id || `preset:${crypto.randomBytes(4).toString("hex")}`;
 
@@ -644,7 +616,7 @@ export function createRoutingRouter(): Router {
         category: req.body.category || "custom",
         description: description || `Imported from ${filename}`,
         type: type || inferredType,
-        // GEO-PRESET-UX-2: file imports become a snapshot file layer.
+        // GEO-BUILDER-UX-3: file imports become a LIVE geofile layer.
         source: "file",
         sourceTag: tag,
         lastUpdated: new Date().toISOString(),
@@ -654,6 +626,9 @@ export function createRoutingRouter(): Router {
           {
             kind: "file",
             name: filename,
+            fileId: stored.fileId,
+            fileName: filename,
+            ...(rawTags.length ? { tags: rawTags } : {}),
             ...(tag ? { tag } : {}),
             entries,
           },
@@ -680,10 +655,18 @@ export function createRoutingRouter(): Router {
         endpoint: "/api/routing/presets/import-file",
         status: 200,
         result: "CONFIG_UPDATED",
-        details: `Imported ${entries.length} entries from file ${filename} as ${preset.name}`,
+        details: `Imported ${entries.length} entries from file ${filename} as ${preset.name} (geofile ${stored.fileId.slice(0, 12)}…)`,
       });
 
-      res.json({ ok: true, preset: { ...preset, entriesCount: entries.length } });
+      res.json({
+        ok: true,
+        preset: { ...preset, entriesCount: entries.length },
+        // GEO-BUILDER-UX-3: live file layer handles for the constructor
+        fileId: stored.fileId,
+        fileName: filename,
+        deduped: stored.deduped,
+        availableTags,
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(400).json({ error: msg });
@@ -808,6 +791,18 @@ export function createRoutingRouter(): Router {
     }
   });
 
+  // GEO-BUILDER-UX-3: available tags of a stored geofile (tag-editor checklist
+  // data: search + per-tag entry counts + multiselect).
+  router.get("/api/routing/geofiles/:fileId/tags", (req: Request, res: Response) => {
+    const fileId = String(req.params.fileId || "").trim();
+    const storedName = getGeofileName(fileId);
+    if (!storedName) {
+      return res.status(404).json({ error: "Stored geofile not found for the given fileId" });
+    }
+    const buf = readGeofile(fileId)!;
+    res.json({ fileId, fileName: storedName, availableTags: listGeodataTags(buf, storedName) });
+  });
+
   // GEO-PRESET-UX-2: resolve a raw layer into a validated PresetSource.
   // url layers are SSRF-checked + downloaded + parsed here; file layers are
   // decoded/parsed here; geo-tag/manual layers are shape/type-checked only.
@@ -868,22 +863,78 @@ export function createRoutingRouter(): Router {
       }
 
       if (raw.kind === "file") {
-        if (typeof raw.name !== "string" || !raw.name.trim()) {
-          return res.status(400).json({ error: "name is required for file layers" });
+        // GEO-BUILDER-UX-3: two modes.
+        // 1) {fileId} without content -> re-parse the STORED geofile by
+        //    (possibly changed) tags: the tag editor / rebind flows.
+        // 2) {content, name} -> upload (or file replacement): store the body
+        //    content-addressed and return a LIVE layer + available tags.
+        const rawTags = Array.isArray(raw.tags)
+          ? raw.tags.map(String).map((t) => t.trim().toUpperCase()).filter(Boolean)
+          : [];
+        const singleTag = typeof raw.tag === "string" && raw.tag.trim() ? raw.tag.trim().toUpperCase() : undefined;
+        const tags = rawTags.length ? rawTags : singleTag ? [singleTag] : [];
+
+        const hasContent = raw.content !== undefined && raw.content !== null;
+        const hasFileId = typeof raw.fileId === "string" && raw.fileId.trim().length > 0;
+
+        if (hasFileId && !hasContent) {
+          const fileId = String(raw.fileId).trim();
+          const storedName = getGeofileName(fileId);
+          if (!storedName) {
+            return res.status(404).json({ error: "Stored geofile not found for the given fileId" });
+          }
+          const buf = readGeofile(fileId)!;
+          let parsed: { entries: string[]; inferredType: "domain" | "cidr" };
+          try {
+            parsed = parseGeodataBuffer(buf, storedName, presetType, tags.join(","));
+          } catch (err: unknown) {
+            return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+          }
+          const validated = validatePresetSource(
+            { kind: "file", fileId, fileName: storedName, tags, entries: parsed.entries },
+            presetType,
+            0
+          );
+          if (validated.ok === false) return res.status(400).json({ error: validated.error });
+          if (parsed.inferredType !== presetType) {
+            return res.status(400).json({ error: `Stored geofile contains ${parsed.inferredType} entries which do not match the ${presetType} preset type` });
+          }
+          return res.json({
+            ok: true,
+            source: { kind: "file", fileId, fileName: storedName, tags, entries: parsed.entries },
+            availableTags: listGeodataTags(buf, storedName),
+          });
         }
-        if (raw.content === undefined || raw.content === null) {
-          return res.status(400).json({ error: "content is required for file layers" });
+
+        if (!hasContent) {
+          return res.status(400).json({ error: "content is required for file layers (or pass fileId to re-parse a stored geofile)" });
         }
-        const name = raw.name.trim();
-        const tag = typeof raw.tag === "string" && raw.tag.trim() ? raw.tag.trim() : undefined;
+        const name = typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "upload.dat";
         const buf = decodeUploadedFileContent(name, raw.content);
-        const { entries, inferredType } = parseGeodataBuffer(buf, name, presetType, tag);
-        const validated = validatePresetSource({ kind: "file", name, ...(tag ? { tag } : {}), entries }, presetType, 0);
+        const parsed = parseGeodataBuffer(buf, name, presetType, tags.join(","));
+        const stored = saveGeofile(buf, name.toLowerCase().endsWith(".dat") ? ".dat" : ".txt");
+        const validated = validatePresetSource(
+          { kind: "file", name, fileId: stored.fileId, fileName: name, tags, entries: parsed.entries },
+          presetType,
+          0
+        );
         if (validated.ok === false) return res.status(400).json({ error: validated.error });
-        if (inferredType !== presetType) {
-          return res.status(400).json({ error: `Layer "${name}" contains ${inferredType} entries which do not match the ${presetType} preset type` });
+        if (parsed.inferredType !== presetType) {
+          return res.status(400).json({ error: `Layer "${name}" contains ${parsed.inferredType} entries which do not match the ${presetType} preset type` });
         }
-        return res.json({ ok: true, source: validated.source });
+        return res.json({
+          ok: true,
+          source: {
+            kind: "file",
+            name,
+            fileId: stored.fileId,
+            fileName: name,
+            tags,
+            entries: parsed.entries,
+          },
+          availableTags: listGeodataTags(buf, name),
+          deduped: stored.deduped,
+        });
       }
 
       // geo-tag / manual layers need no ingestion — shape + type validation only.
@@ -908,8 +959,14 @@ export function createRoutingRouter(): Router {
     res.setHeader("Content-Disposition", `attachment; filename="${safeName}.json"`);
     res.json({
       format: "pec-preset",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
+      // GEO-BUILDER-UX-3: file layers are exported with their entries SNAPSHOT.
+      // The referenced geofile (fileId = sha256 of the content) is NOT
+      // transferred: on a server that does not hold the same content-addressed
+      // file the layer degrades to a plain snapshot; where the identical file
+      // exists, the layer re-binds live by fileId.
+      note: "file layers with fileId degrade to entries snapshots on servers without the same stored geofile (content-addressed by sha256)",
       preset: {
         id: preset.id,
         name: preset.name,

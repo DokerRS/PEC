@@ -4,7 +4,8 @@ import crypto from "node:crypto";
 import { domainToASCII } from "node:url";
 import { GeoPreset, PresetSource, RoutingPresetItem, RoutingProfile, RoutingRule, ProxyConfiguration } from "./types.js";
 import { writeJsonAtomic } from "./jsonStore.js";
-import { getRoutingProfilesPath, getRoutingPresets } from "./storage.js";
+import { getRoutingProfilesPath, getRoutingPresets, readGeofile } from "./storage.js";
+import { parseGeodataBuffer } from "./geodata/datParser.js";
 
 import { getActiveProxy } from "./proxies.js";
 
@@ -61,7 +62,50 @@ export function findGeoPresetById(ref: string): GeoPreset | undefined {
   return (GEO_PRESETS || []).find((gp) => gp.id === ref);
 }
 
-/** Entries contributed by a single layer (geo-tag layers resolve live). */
+/** Layer tags: canonical `tags[]`, legacy single `tag` as fallback. */
+export function getPresetSourceTags(src: PresetSource): string[] {
+  if (src.kind === "file") {
+    if (Array.isArray(src.tags) && src.tags.length > 0) return src.tags;
+    return src.tag ? [src.tag] : [];
+  }
+  if (src.kind === "url") {
+    return src.tag ? [src.tag] : [];
+  }
+  return [];
+}
+
+/**
+ * GEO-BUILDER-UX-3: live file layers ({fileId} + tags[]) materialize by
+ * re-reading the content-addressed geofile and re-parsing it by tags.
+ * Geofiles are immutable (fileId IS the content sha256), so the cache key
+ * fileId+tags is stable; entries snapshots stay as the fallback for unknown
+ * files (import on another server) and for legacy snapshot layers.
+ */
+const liveFileLayerCache = new Map<string, string[]>();
+
+function materializeLiveFileLayer(src: Extract<PresetSource, { kind: "file" }>): string[] {
+  const tags = getPresetSourceTags(src);
+  const cacheKey = `${src.fileId}\u0000${tags.join(",")}`;
+  const cached = liveFileLayerCache.get(cacheKey);
+  if (cached) return cached;
+
+  const buffer = readGeofile(src.fileId!);
+  if (!buffer) {
+    return Array.isArray(src.entries) ? src.entries : [];
+  }
+  try {
+    const name = src.fileName || `${src.fileId}.dat`;
+    const { entries } = parseGeodataBuffer(buffer, name, undefined, tags.join(","));
+    if (liveFileLayerCache.size > 64) liveFileLayerCache.clear();
+    liveFileLayerCache.set(cacheKey, entries);
+    return entries;
+  } catch (err) {
+    console.warn("[routing] Live geofile layer re-parse failed, using entries snapshot:", err);
+    return Array.isArray(src.entries) ? src.entries : [];
+  }
+}
+
+/** Entries contributed by a single layer (geo-tag/file resolve live). */
 export function getPresetSourceEntries(src: PresetSource): string[] {
   switch (src.kind) {
     case "geo-tag": {
@@ -69,7 +113,9 @@ export function getPresetSourceEntries(src: PresetSource): string[] {
       return geo ? geo.domains : Array.isArray(src.entries) ? src.entries : [];
     }
     case "url":
+      return Array.isArray(src.entries) ? src.entries : [];
     case "file":
+      return src.fileId ? materializeLiveFileLayer(src) : Array.isArray(src.entries) ? src.entries : [];
     case "manual":
       return Array.isArray(src.entries) ? src.entries : [];
     default:

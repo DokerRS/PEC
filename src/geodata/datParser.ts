@@ -377,3 +377,104 @@ export function parsePlaintextList(content: string): string[] {
 
   return result;
 }
+
+/**
+ * GEO-BUILDER-UX-3: unified geodata body parsing, moved here from
+ * routingRoutes.ts so preset materialization (src/routing.ts) and the REST
+ * routes share one parser. Decides .dat vs plaintext by extension/NUL scan,
+ * splits multi-tags on [,;], selects geosite vs geoip by name/requestedType,
+ * and dedupes the matched entries.
+ */
+export function parseGeodataBuffer(
+  buffer: Buffer,
+  filenameOrUrl: string,
+  requestedType?: "domain" | "cidr",
+  tag?: string
+): { entries: string[]; inferredType: "domain" | "cidr" } {
+  const lowerName = filenameOrUrl.toLowerCase();
+  const isDat = lowerName.endsWith(".dat") || buffer.includes(0x00);
+  const rawTags = (tag || "RU")
+    .split(/[,;]+/)
+    .map((t) => t.trim().toUpperCase())
+    .filter(Boolean);
+  const targetTags = rawTags.length > 0 ? rawTags : ["RU"];
+
+  if (isDat) {
+    if (requestedType === "cidr" || lowerName.includes("geoip")) {
+      const ipMap = parseGeoIp(buffer);
+      const matchedCidrs: string[] = [];
+
+      for (const t of targetTags) {
+        const entry = ipMap.get(t);
+        if (entry) {
+          for (const c of entry.cidrs) {
+            matchedCidrs.push(`${c.ip}/${c.prefix}`);
+          }
+        }
+      }
+
+      if (matchedCidrs.length === 0) {
+        const available = Array.from(ipMap.keys()).slice(0, 20).join(", ");
+        throw new Error(
+          targetTags.length === 1
+            ? `Tag '${targetTags[0]}' not found in GeoIP file. Available tags: ${available || "none"}`
+            : `None of tags [${targetTags.join(", ")}] found in GeoIP file. Available tags: ${available || "none"}`
+        );
+      }
+      const uniqueEntries = Array.from(new Set(matchedCidrs));
+      return { entries: uniqueEntries, inferredType: "cidr" };
+    } else {
+      const siteMap = parseGeoSite(buffer);
+      const matchedDomains: string[] = [];
+
+      for (const t of targetTags) {
+        const entry = siteMap.get(t);
+        if (entry) {
+          for (const d of entry.domains) {
+            matchedDomains.push(d.value);
+          }
+        }
+      }
+
+      if (matchedDomains.length === 0) {
+        const available = Array.from(siteMap.keys()).slice(0, 20).join(", ");
+        throw new Error(
+          targetTags.length === 1
+            ? `Tag '${targetTags[0]}' not found in GeoSite file. Available tags: ${available || "none"}`
+            : `None of tags [${targetTags.join(", ")}] found in GeoSite file. Available tags: ${available || "none"}`
+        );
+      }
+      const uniqueEntries = Array.from(new Set(matchedDomains));
+      return { entries: uniqueEntries, inferredType: "domain" };
+    }
+  } else {
+    const text = buffer.toString("utf-8");
+    const entries = parsePlaintextList(text);
+    const inferredType = requestedType || (entries.some((e) => e.includes("/")) ? "cidr" : "domain");
+    return { entries, inferredType };
+  }
+}
+
+/** Available tags of a geodata buffer with per-tag entry counts (editor checklist data). */
+export function listGeodataTags(
+  buffer: Buffer,
+  filenameOrUrl: string
+): Array<{ tag: string; count: number }> {
+  const lowerName = filenameOrUrl.toLowerCase();
+  const isDat = lowerName.endsWith(".dat") || buffer.includes(0x00);
+  if (!isDat) {
+    return []; // plaintext lists have no tags
+  }
+  if (requestedTypeIsCidr(lowerName)) {
+    return Array.from(parseGeoIp(buffer).entries())
+      .map(([tag, entry]) => ({ tag, count: entry.cidrs.length }))
+      .sort((a, b) => b.count - a.count);
+  }
+  return Array.from(parseGeoSite(buffer).entries())
+    .map(([tag, entry]) => ({ tag, count: entry.domains.length }))
+    .sort((a, b) => b.count - a.count);
+}
+
+function requestedTypeIsCidr(lowerName: string): boolean {
+  return lowerName.includes("geoip");
+}

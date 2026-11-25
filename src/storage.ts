@@ -1,8 +1,9 @@
 import "./loadEnv.js";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import type { PresetSource, RoutingPresetItem } from "./types.js";
-import { readJsonStore, writeJsonAtomic } from "./jsonStore.js";
+import { readJsonStore, writeJsonAtomic, writeFileAtomic } from "./jsonStore.js";
 import { GEO_PRESETS } from "./defaultPresets.js";
 
 
@@ -158,6 +159,66 @@ function backupRoutingPresetsFile(filePath: string): string | null {
 
 export function getRoutingPresetsPath(): string {
   return path.resolve(process.env.ROUTING_PRESETS_PATH || path.join(getDataDir(), "routing_presets.json"));
+}
+
+// ============================================================================
+// GEO-BUILDER-UX-3: content-addressed geofile store (data/geofiles/<sha256>.dat).
+// Uploaded .dat/.txt bodies are persisted once per content hash so file layers
+// can stay LIVE: materialization re-reads the file and re-parses by tags, and
+// identical uploads dedupe into a single stored file. fileId IS the sha256
+// hex digest (64 lowercase hex chars -> path-traversal safe by validation).
+// ============================================================================
+
+const GEOFILE_ID_PATTERN = /^[a-f0-9]{64}$/;
+
+export function getGeofilesDir(): string {
+  return path.resolve(process.env.GEOFILES_DIR || path.join(getDataDir(), "geofiles"));
+}
+
+function geofileExtension(buffer: Buffer, requestedExt: string): string {
+  return requestedExt === ".dat" || buffer.includes(0x00) ? ".dat" : ".txt";
+}
+
+/** Persist (or dedupe) an uploaded geodata body; returns its content id. */
+export function saveGeofile(buffer: Buffer, requestedExt: string): { fileId: string; fileName: string; deduped: boolean } {
+  const fileId = crypto.createHash("sha256").update(buffer).digest("hex");
+  const ext = geofileExtension(buffer, requestedExt);
+  const fileName = `${fileId}${ext}`;
+  const filePath = path.join(getGeofilesDir(), fileName);
+  if (!fs.existsSync(filePath)) {
+    writeFileAtomic(filePath, buffer);
+    return { fileId, fileName, deduped: false };
+  }
+  return { fileId, fileName, deduped: true };
+}
+
+/** Read a stored geofile by content id (null when unknown / malformed id). */
+export function readGeofile(fileId: string): Buffer | null {
+  if (!GEOFILE_ID_PATTERN.test(fileId)) return null;
+  const dir = getGeofilesDir();
+  for (const ext of [".dat", ".txt"]) {
+    const filePath = path.join(dir, `${fileId}${ext}`);
+    if (fs.existsSync(filePath)) {
+      try {
+        return fs.readFileSync(filePath);
+      } catch (err) {
+        console.error("[storage] Failed to read geofile:", err);
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/** Stored file name for an id (null when absent). */
+export function getGeofileName(fileId: string): string | null {
+  if (!GEOFILE_ID_PATTERN.test(fileId)) return null;
+  const dir = getGeofilesDir();
+  for (const ext of [".dat", ".txt"]) {
+    const filePath = path.join(dir, `${fileId}${ext}`);
+    if (fs.existsSync(filePath)) return path.basename(filePath);
+  }
+  return null;
 }
 
 export function saveRoutingPresets(items: RoutingPresetItem[]): void {
