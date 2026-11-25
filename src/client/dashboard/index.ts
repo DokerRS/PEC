@@ -195,6 +195,7 @@ export function switchTab(name: string, skipHashUpdate: boolean = false) {
     if (!studio.currentAppConfig || !studio.isAppStudioDirty) studio.loadAppStudioConfig();
   } else if (name === 'releases') {
     telemetry.loadReleases();
+    void telemetry.loadUpdateChannel();
   } else if (name === 'logs' || name === 'audit') {
     telemetry.fetchStatus();
   } else if (name === 'builder') {
