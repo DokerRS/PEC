@@ -10,7 +10,7 @@ import { createReleasesRouter } from "../src/routes/releasesRoutes.js";
 import { createTokenAuthMiddleware } from "../src/middleware/security.js";
 import { recordRelease, resetReleasesStore } from "../src/releases.js";
 import { renderDashboardHtml } from "../src/views/dashboardView.js";
-import { TEST_ADMIN_TOKEN } from "./helpers/setup.js";
+import { TEST_ADMIN_TOKEN, TEST_TMP_DIR } from "./helpers/setup.js";
 
 /**
  * REL-OBS-1: observability of the extension update channel.
@@ -28,7 +28,7 @@ const UPDATE_XML = `<?xml version='1.0' encoding='UTF-8'?>
 </gupdate>`;
 
 function setupEnv(): { updatesDir: string; metaPath: string; crxBytes: Buffer } {
-  const updatesDir = fs.mkdtempSync(path.join(process.env.TEST_TMP_DIR || ".", "upd-"));
+  const updatesDir = fs.mkdtempSync(path.join(TEST_TMP_DIR, "upd-"));
   const metaPath = path.join(updatesDir, "releases_meta.json");
   const crxBytes = Buffer.concat([Buffer.from("CRXFAKE"), crypto.randomBytes(64)]);
   fs.writeFileSync(path.join(updatesDir, "updates.xml"), UPDATE_XML, "utf-8");
