@@ -570,11 +570,81 @@ const builderSelected = new Set<string>();
 
 // GEO-BUILDER-UX-3: inline layer editors + add-source panels.
 // Only one editor / one add-source panel is open at a time.
-let builderLayerEditor: { idx: number; kind: "file" | "url" | "geo" | "manual" } | null = null;
+// (GEO-BUILDER-UX-4: the file-layer editor moved to the full-screen geobase
+// editor below; url/geo/manual stay as compact inline panels.)
+let builderLayerEditor: { idx: number; kind: "url" | "geo" | "manual" } | null = null;
 let builderOpenSrcPanel: string | null = null; // geo | file | url | manual | json
-let builderAvailableTags: Array<{ tag: string; count: number }> = [];
-const builderTagSelection = new Set<string>();
-let builderTagSearch = "";
+
+// ============================================================================
+// GEO-BUILDER-UX-4: full-screen geobase editor state (layered above the
+// preset constructor page). One editor instance; opens on ✎ of a file layer.
+// ============================================================================
+interface GeoEditorState {
+  layerIdx: number;
+  fileId: string | null;
+  fileName: string;
+  mode: "edit" | "rebind";
+  manifest: { fileName: string; type: string; lists: Array<{ tag: string; count: number }>; totalEntries: number } | null;
+  selection: Set<string>;
+  expanded: Set<string>;
+  entriesPages: Map<string, { offset: number; total: number; items: string[] }>;
+  search: string;
+  searchResults: { lists: Array<{ tag: string; count: number }>; domains: Array<{ domain: string; lists: string[] }>; totalDomainMatches: number } | null;
+  footerCount: number | null;
+  warning: string;
+}
+let geoEditorState: GeoEditorState | null = null;
+/** fileId -> manifest cache for the builder layer cards («списков: N»). */
+const geoManifestCache = new Map<string, { listCount: number; totalEntries: number }>();
+
+function showGeoEditorPage() {
+  const page = document.getElementById('geoEditorPage');
+  const builder = document.getElementById('presetBuilderPage');
+  const main = document.getElementById('branchExtView');
+  const switcher = document.getElementById('routingBranchSwitcher');
+  if (page) page.style.display = 'block';
+  if (builder) builder.style.display = 'none';
+  if (main) main.style.display = 'none';
+  if (switcher) switcher.style.display = 'none';
+}
+
+export function closeGeoBaseEditor() {
+  geoEditorState = null;
+  const page = document.getElementById('geoEditorPage');
+  const builder = document.getElementById('presetBuilderPage');
+  const main = document.getElementById('branchExtView');
+  const switcher = document.getElementById('routingBranchSwitcher');
+  if (page) page.style.display = 'none';
+  // return to the constructor page (it stays mounted underneath)
+  if (builder && builderState) builder.style.display = 'block';
+}
+
+/** Prefetch manifests for all live file layers of the working preset so layer cards can show «списков: N». */
+function prefetchGeoManifests() {
+  if (!builderState) return;
+  const ids = new Set<string>();
+  for (const layer of builderState.sources || []) {
+    if (layer.kind === 'file' && layer.fileId && !geoManifestCache.has(layer.fileId)) {
+      ids.add(layer.fileId);
+    }
+  }
+  for (const fileId of ids) {
+    adminFetch('/api/routing/geofiles/' + encodeURIComponent(fileId) + '/manifest')
+      .then((res) => res.json().catch(() => ({})))
+      .then((data: any) => {
+        if (data && Array.isArray(data.lists)) {
+          geoManifestCache.set(fileId, {
+            listCount: data.lists.length,
+            totalEntries: typeof data.totalEntries === 'number' ? data.totalEntries : 0,
+          });
+          renderBuilderLayers();
+        }
+      })
+      .catch(() => {
+        /* card keeps the «…» placeholder */
+      });
+  }
+}
 
 // ============================================================================
 // GEO-PRESET-UX-2 CARD-MENU: per-card «⋮» dropdown state.
@@ -639,9 +709,7 @@ export function closePresetBuilder() {
   builderSelected.clear();
   builderLayerEditor = null;
   builderOpenSrcPanel = null;
-  builderAvailableTags = [];
-  builderTagSelection.clear();
-  builderTagSearch = '';
+  geoEditorState = null;
   const page = document.getElementById('presetBuilderPage');
   const main = document.getElementById('branchExtView');
   const switcher = document.getElementById('routingBranchSwitcher');
@@ -872,11 +940,10 @@ export async function openPresetBuilder(presetId: string, opts: { readOnly?: boo
     builderSelected.clear();
     builderLayerEditor = null;
     builderOpenSrcPanel = null;
-    builderAvailableTags = [];
-    builderTagSelection.clear();
-    builderTagSearch = '';
+    geoEditorState = null;
     showPresetBuilderPage();
     renderPresetBuilder();
+    prefetchGeoManifests();
   } catch (e: any) {
     toast(e?.message || (isRu ? 'Не удалось открыть пресет' : 'Failed to open preset'), 'error');
   }
@@ -899,9 +966,7 @@ export function openPresetBuilderCreate() {
   builderSelected.clear();
   builderLayerEditor = null;
   builderOpenSrcPanel = null;
-  builderAvailableTags = [];
-  builderTagSelection.clear();
-  builderTagSearch = '';
+  geoEditorState = null;
   showPresetBuilderPage();
   renderPresetBuilder();
 }
@@ -1083,8 +1148,16 @@ export function renderBuilderLayers() {
       : '';
 
     const statusColor = live ? 'var(--success, #10b981)' : 'var(--warning, #f59e0b)';
+    // GEO-BUILDER-UX-4: file cards show the geobase shape — «списков: N · доменов: M»
+    let countLine = `${count} ${isRu ? 'записей' : 'entries'}`;
+    if (layer.kind === 'file' && layer.fileId) {
+      const manifest = geoManifestCache.get(layer.fileId);
+      countLine = (manifest
+        ? `${isRu ? 'списков' : 'lists'}: ${manifest.listCount} · ${isRu ? 'доменов' : 'domains'}: ${count}`
+        : `${count} ${isRu ? 'записей' : 'entries'} (${isRu ? 'списков: …' : 'lists: …'})`);
+    }
     const statusRow = `<div style="display: flex; align-items: center; gap: 8px; margin-top: 3px; font-size: 11px; color: var(--text-muted);">
-        <span class="builder-layer-count">${count} ${isRu ? 'записей' : 'entries'}</span>
+        <span class="builder-layer-count">${countLine}</span>
         <span>·</span>
         <span class="builder-layer-status" style="color: ${statusColor};">${esc(builderLayerStatus(layer, isRu))}</span>
         ${isSnapshotFile && editable ? `<button type="button" class="btn-secondary btn-layer-rebind" data-index="${idx}" style="font-size: 10px; padding: 1px 6px; margin-left: auto;">${isRu ? 'Привязать файл заново' : 'Re-attach file'}</button>` : ''}
@@ -1109,78 +1182,17 @@ export function renderBuilderLayers() {
   }).join('');
 }
 
-/** Inline editor panel for one layer (rendered under the layer card). */
-function rerenderTagChecklist() {
-  const editor = document.querySelector('.builder-layer-editor');
-  const listEl = editor ? editor.querySelector('.builder-tag-list') : null;
-  if (!listEl) return;
-  const isRu = builderIsRu();
-  const q = builderTagSearch.trim().toLowerCase();
-  const visibleTags = builderAvailableTags.filter((t) => !q || t.tag.toLowerCase().includes(q));
-  (listEl as HTMLElement).innerHTML = visibleTags.length
-    ? visibleTags
-        .map(
-          (t) => `<label style="display: flex; align-items: center; gap: 6px; padding: 3px 4px; font-size: 12px; cursor: pointer;">
-              <input type="checkbox" class="builder-tag-check" data-tag="${esc(t.tag)}" ${builderTagSelection.has(t.tag) ? 'checked' : ''} style="margin: 0; width: 13px; height: 13px;" />
-              <span style="flex: 1;">${esc(t.tag)}</span>
-              <span style="color: var(--text-muted); font-size: 11px;">${t.count}</span>
-            </label>`
-        )
-        .join('')
-    : `<div style="color: var(--text-muted); font-size: 12px; padding: 4px;">${isRu ? 'Теги не найдены' : 'No tags found'}</div>`;
-  updateTagEditorCounters();
-}
-
-function updateTagEditorCounters() {
-  const editor = document.querySelector('.builder-layer-editor');
-  const counter = editor ? editor.querySelector('.builder-tag-summary') : null;
-  if (!counter) return;
-  const isRu = builderIsRu();
-  const totalTagged = builderAvailableTags.reduce((sum, t) => sum + t.count, 0);
-  (counter as HTMLElement).textContent = isRu
-    ? `Выбрано тегов: ${builderTagSelection.size} · записей в файле: ${totalTagged}`
-    : `Tags selected: ${builderTagSelection.size} · entries in file: ${totalTagged}`;
-}
-
-/** Inline editor panel for one layer (rendered under the layer card). */
+/**
+ * Inline editor panel for one layer (rendered under the layer card).
+ * GEO-BUILDER-UX-4: file layers no longer edit inline — ✎ opens the
+ * full-screen geobase editor (openGeoBaseEditor); url/geo/manual stay here.
+ */
 function renderLayerEditor(layer: any, idx: number, isRu: boolean): string {
   const panelStyle = 'padding: 8px; border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px; background: var(--bg-card-subtle, rgba(255,255,255,0.04)); font-size: 12px;';
   const footerBtns = `<div style="display: flex; gap: 6px; margin-top: 8px;">
       <button type="button" class="btn btn-editor-save" data-index="${idx}" style="font-size: 12px;">💾 ${isRu ? 'Сохранить' : 'Save'}</button>
       <button type="button" class="btn-secondary btn-editor-cancel" data-index="${idx}" style="font-size: 12px;">${isRu ? 'Отмена' : 'Cancel'}</button>
     </div>`;
-
-  if (builderLayerEditor!.kind === 'file') {
-    if (!layer.fileId) {
-      // snapshot layer: the only meaningful edit is re-attaching a file
-      return `<div class="builder-layer-editor" data-index="${idx}" style="${panelStyle}">
-        <div style="margin-bottom: 6px; color: var(--text-muted);">${isRu ? 'Снапшот-слой: привяжите файл, чтобы сделать слой живым.' : 'Snapshot layer: attach a file to make this layer live.'}</div>
-        <input type="file" class="builder-editor-file" data-index="${idx}" accept=".dat,.txt,.list" style="width: 100%; box-sizing: border-box; font-size: 12px; margin-bottom: 6px;" />
-        ${footerBtns}
-      </div>`;
-    }
-    const q = builderTagSearch.trim().toLowerCase();
-    const visibleTags = builderAvailableTags.filter((t) => !q || t.tag.toLowerCase().includes(q));
-    const totalTagged = builderAvailableTags.reduce((sum, t) => sum + t.count, 0);
-    return `<div class="builder-layer-editor" data-index="${idx}" style="${panelStyle}">
-      <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
-        <span style="flex: 1; color: var(--text-muted);">${isRu ? 'Теги файла (мультивыбор):' : 'File tags (multi-select):'}</span>
-        <input type="file" class="builder-editor-file" data-index="${idx}" accept=".dat,.txt,.list" title="${isRu ? 'Сменить файл' : 'Replace file'}" style="max-width: 170px; font-size: 10px;" />
-      </div>
-      <input type="text" id="builderTagSearch" placeholder="${isRu ? 'Поиск по тегам…' : 'Search tags…'}" value="${esc(builderTagSearch)}" style="margin-bottom: 6px; width: 100%; box-sizing: border-box; font-size: 12px;" />
-      <div class="builder-tag-list" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px;">
-        ${visibleTags.length
-          ? visibleTags.map((t) => `<label style="display: flex; align-items: center; gap: 6px; padding: 3px 4px; font-size: 12px; cursor: pointer;">
-              <input type="checkbox" class="builder-tag-check" data-tag="${esc(t.tag)}" ${builderTagSelection.has(t.tag) ? 'checked' : ''} style="margin: 0; width: 13px; height: 13px;" />
-              <span style="flex: 1;">${esc(t.tag)}</span>
-              <span style="color: var(--text-muted); font-size: 11px;">${t.count}</span>
-            </label>`).join('')
-          : `<div style="color: var(--text-muted); font-size: 12px; padding: 4px;">${isRu ? 'Теги не найдены' : 'No tags found'}</div>`}
-      </div>
-      <div class="builder-tag-summary" style="margin-top: 4px; font-size: 11px; color: var(--text-muted);">${isRu ? `Выбрано тегов: ${builderTagSelection.size} · записей в файле: ${totalTagged}` : `Tags selected: ${builderTagSelection.size} · entries in file: ${totalTagged}`}</div>
-      ${footerBtns}
-    </div>`;
-  }
 
   if (builderLayerEditor!.kind === 'url') {
     return `<div class="builder-layer-editor" data-index="${idx}" style="${panelStyle}">
@@ -1472,8 +1484,6 @@ async function refreshBuilderLayer(index: number) {
 
 function closeLayerEditor() {
   builderLayerEditor = null;
-  builderTagSelection.clear();
-  builderTagSearch = '';
   renderBuilderLayers();
 }
 
@@ -1488,24 +1498,9 @@ async function openLayerEditor(index: number) {
   } else if (layer.kind === 'geo-tag') {
     builderLayerEditor = { idx: index, kind: 'geo' };
   } else if (layer.kind === 'file') {
-    builderLayerEditor = { idx: index, kind: 'file' };
-    builderTagSelection.clear();
-    for (const t of builderLayerTags(layer)) builderTagSelection.add(t);
-    builderTagSearch = '';
-    if (layer.fileId) {
-      // fetch available tags (search + per-tag counts) for the checklist
-      try {
-        const res = await adminFetch('/api/routing/geofiles/' + encodeURIComponent(layer.fileId) + '/tags');
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
-        builderAvailableTags = Array.isArray(data.availableTags) ? data.availableTags : [];
-      } catch (e: any) {
-        builderAvailableTags = [];
-        toast(e?.message || 'Failed to load file tags', 'error');
-      }
-    } else {
-      builderAvailableTags = [];
-    }
+    // GEO-BUILDER-UX-4: file layers open the full-screen geobase editor
+    await openGeoBaseEditor(index);
+    return;
   } else {
     return;
   }
@@ -1572,55 +1567,375 @@ async function saveLayerEditor(index: number) {
     closeLayerEditor();
     renderPresetBuilder();
     toast(isRu ? 'Слой обновлён' : 'Layer updated', 'success');
-    return;
-  }
-
-  if (builderLayerEditor.kind === 'file') {
-    if (!layer.fileId) {
-      toast(isRu ? 'Привяжите файл, чтобы редактировать теги' : 'Attach a file to edit tags', 'error');
-      return;
-    }
-    const tags = Array.from(builderTagSelection);
-    const resolved = await resolveBuilderLayer({ kind: 'file', fileId: layer.fileId, tags });
-    if (!resolved) return;
-    builderState.sources[index] = resolved;
-    closeLayerEditor();
-    renderPresetBuilder();
-    toast(isRu ? `Слой пересобран: ${builderLayerEntries(builderState.sources[index]).length} записей` : `Layer rebuilt: ${builderLayerEntries(builderState.sources[index]).length} entries`, 'success');
   }
 }
 
-/** «Сменить файл» / «Привязать файл заново»: upload a new .dat into the SAME layer. */
-async function replaceLayerFile(index: number, file: any) {
-  if (!builderState || !file) return;
+// ============================================================================
+// GEO-BUILDER-UX-4: full-screen geobase editor.
+// ✎ on a file layer opens this page: manifest of ALL lists with checkboxes,
+// paged [▾] previews, search by list name AND by domain (with in-place list
+// checkboxes), live dedup footer counter, «Сменить файл», snapshot rebind.
+// ============================================================================
+
+async function openGeoBaseEditor(index: number) {
+  if (!builderState || builderState.builtin) return;
+  const layer = (builderState.sources || [])[index];
+  if (!layer || layer.kind !== 'file') return;
+
+  geoEditorState = {
+    layerIdx: index,
+    fileId: layer.fileId || null,
+    fileName: layer.fileName || layer.name || '',
+    mode: layer.fileId ? 'edit' : 'rebind',
+    manifest: null,
+    selection: new Set<string>(builderLayerTags(layer)),
+    expanded: new Set<string>(),
+    entriesPages: new Map(),
+    search: '',
+    searchResults: null,
+    footerCount: null,
+    warning: '',
+  };
+  showGeoEditorPage();
+  renderGeoEditor();
+
+  if (geoEditorState.fileId) {
+    await loadGeoEditorManifest();
+  }
+  applyGeoEditorLabels();
+}
+
+async function loadGeoEditorManifest() {
+  if (!geoEditorState || !geoEditorState.fileId) return;
+  try {
+    const res = await adminFetch('/api/routing/geofiles/' + encodeURIComponent(geoEditorState.fileId) + '/manifest');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+    if (!data || !Array.isArray(data.lists)) {
+      throw new Error(data.error || 'Invalid manifest payload');
+    }
+    if (geoEditorState) {
+      geoEditorState.manifest = data;
+      geoEditorState.fileName = data.fileName || geoEditorState.fileName;
+      geoManifestCache.set(geoEditorState.fileId, {
+        listCount: Array.isArray(data.lists) ? data.lists.length : 0,
+        totalEntries: typeof data.totalEntries === 'number' ? data.totalEntries : 0,
+      });
+    }
+  } catch (e: any) {
+    if (geoEditorState) geoEditorState.warning = e?.message || 'Failed to load manifest';
+    toast(e?.message || 'Failed to load manifest', 'error');
+  }
+  renderGeoEditor();
+  updateGeoEditorFooter();
+}
+
+function closeGeoEditorToBuilder() {
+  closeGeoBaseEditor();
+  renderPresetBuilder();
+}
+
+function applyGeoEditorLabels() {
+  const isRu = builderIsRu();
+  const s = geoEditorState;
+  const title = document.getElementById('geoEditorTitle');
+  if (title) {
+    title.textContent = (isRu ? 'Редактор геобазы: ' : 'Geobase editor: ') + (s ? s.fileName || s.fileId || '' : '');
+  }
+  const typeBadge = document.getElementById('geoEditorTypeBadge');
+  if (typeBadge) typeBadge.textContent = String(s?.manifest?.type || 'geosite').toUpperCase();
+  const fileIdEl = document.getElementById('geoEditorFileId');
+  if (fileIdEl) fileIdEl.textContent = s?.fileId ? s.fileId.slice(0, 16) + '…' : '';
+  const replaceLabel = document.getElementById('geoEditorReplaceLabel');
+  if (replaceLabel) replaceLabel.textContent = '📂 ' + (isRu ? 'Сменить файл' : 'Replace file');
+  const search = document.getElementById('geoEditorSearch') as HTMLInputElement | null;
+  if (search) search.placeholder = isRu ? 'Поиск: имя списка или домен…' : 'Search: list name or domain…';
+  const listsTitle = document.getElementById('geoEditorListsTitle');
+  if (listsTitle) listsTitle.textContent = isRu ? 'Списки файла' : 'File lists';
+  const saveLabel = document.getElementById('geoEditorSaveLabel');
+  if (saveLabel) saveLabel.textContent = isRu ? 'Сохранить слой' : 'Save layer';
+  const cancelBtn = document.getElementById('btnGeoEditorCancel');
+  if (cancelBtn) cancelBtn.textContent = isRu ? 'Отмена' : 'Cancel';
+  const rebindHint = document.getElementById('geoEditorRebindHint');
+  if (rebindHint) {
+    rebindHint.textContent = isRu
+      ? 'Снапшот-слой: привяжите файл, чтобы открыть все списки геобазы.'
+      : 'Snapshot layer: attach a file to unlock all geobase lists.';
+  }
+}
+
+function updateGeoEditorSelectionLine() {
+  const el = document.getElementById('geoEditorSelectionCount');
+  if (el && geoEditorState) {
+    const isRu = builderIsRu();
+    const lists = geoEditorState.manifest ? geoEditorState.manifest.lists.length : 0;
+    el.textContent = (isRu ? 'Выбрано списков: ' : 'Lists selected: ') + geoEditorState.selection.size + (lists ? ' / ' + lists : '');
+  }
+}
+
+function updateGeoEditorFooter() {
+  const el = document.getElementById('geoEditorFooter');
+  if (!el || !geoEditorState) return;
+  const isRu = builderIsRu();
+  const tags = Array.from(geoEditorState.selection);
+  const fileId = geoEditorState.fileId || '';
+  el.textContent = (isRu ? 'Выбрано списков: ' : 'Lists selected: ') + geoEditorState.selection.size +
+    ' · ' + (isRu ? 'Доменов попадёт в слой: …' : 'Domains entering the layer: …');
+  adminFetch('/api/routing/geofiles/' + encodeURIComponent(fileId) + '/union-count', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tags }),
+  })
+    .then((res) => res.json().catch(() => ({})))
+    .then((data: any) => {
+      if (!geoEditorState || !el.isConnected) return;
+      geoEditorState.footerCount = typeof data.count === 'number' ? data.count : null;
+      el.textContent = (isRu ? 'Выбрано списков: ' : 'Lists selected: ') + geoEditorState.selection.size +
+        ' · ' + (isRu ? 'Доменов попадёт в слой: ' : 'Domains entering the layer: ') +
+        (geoEditorState.footerCount === null ? '…' : geoEditorState.footerCount) +
+        (isRu ? ' (дедуп)' : ' (dedup)');
+    })
+    .catch(() => {
+      /* footer keeps the «…» placeholder */
+    });
+}
+
+async function runGeoEditorSearch() {
+  if (!geoEditorState) return;
+  const q = geoEditorState.search.trim();
+  if (!q) {
+    geoEditorState.searchResults = null;
+    renderGeoEditorLists();
+    return;
+  }
+  try {
+    const res = await adminFetch('/api/routing/geofiles/' + encodeURIComponent(geoEditorState.fileId || '') + '/search?q=' + encodeURIComponent(q));
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+    if (geoEditorState) geoEditorState.searchResults = data;
+  } catch (e: any) {
+    toast(e?.message || 'Search failed', 'error');
+  }
+  renderGeoEditorLists();
+}
+
+async function loadGeoEntriesPage(tag: string, offset: number) {
+  if (!geoEditorState || !geoEditorState.fileId) return;
+  try {
+    const res = await adminFetch('/api/routing/geofiles/' + encodeURIComponent(geoEditorState.fileId) +
+      '/lists/' + encodeURIComponent(tag) + '/entries?offset=' + offset + '&limit=200');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+    if (!geoEditorState) return;
+    const existing = geoEditorState.entriesPages.get(tag);
+    if (existing && offset > 0) {
+      existing.items = existing.items.concat(data.items || []);
+      existing.offset = data.offset ?? offset;
+      existing.total = data.total ?? existing.total;
+    } else {
+      geoEditorState.entriesPages.set(tag, { offset: data.offset ?? offset, total: data.total ?? 0, items: data.items || [] });
+    }
+  } catch (e: any) {
+    toast(e?.message || 'Failed to load entries', 'error');
+  }
+  renderGeoEditorLists();
+}
+
+function renderGeoEditor() {
+  const page = document.getElementById('geoEditorPage');
+  if (!page || !geoEditorState) return;
+  const s = geoEditorState;
+  const isRu = builderIsRu();
+
+  const title = document.getElementById('geoEditorTitle');
+  if (title) title.textContent = (isRu ? 'Редактор геобазы: ' : 'Geobase editor: ') + (s.fileName || s.fileId || '');
+  const typeBadge = document.getElementById('geoEditorTypeBadge');
+  if (typeBadge) typeBadge.textContent = String(s.manifest?.type || 'geosite').toUpperCase();
+  const fileIdEl = document.getElementById('geoEditorFileId');
+  if (fileIdEl) fileIdEl.textContent = s.fileId ? s.fileId.slice(0, 16) + '…' : '';
+  const replaceLabel = document.getElementById('geoEditorReplaceLabel');
+  if (replaceLabel) replaceLabel.textContent = '📂 ' + (isRu ? 'Сменить файл' : 'Replace file');
+  const saveLabel = document.getElementById('geoEditorSaveLabel');
+  if (saveLabel) saveLabel.textContent = isRu ? 'Сохранить слой' : 'Save layer';
+  const cancelBtn = document.getElementById('btnGeoEditorCancel');
+  if (cancelBtn) cancelBtn.textContent = isRu ? 'Отмена' : 'Cancel';
+  const listsTitle = document.getElementById('geoEditorListsTitle');
+  if (listsTitle) listsTitle.textContent = isRu ? 'Списки файла' : 'File lists';
+  const rebindHint = document.getElementById('geoEditorRebindHint');
+  if (rebindHint) {
+    rebindHint.textContent = isRu
+      ? 'Снапшот-слой: привяжите файл, чтобы открыть все списки геобазы.'
+      : 'Snapshot layer: attach a file to unlock all geobase lists.';
+  }
+
+  const warning = document.getElementById('geoEditorWarning');
+  if (warning) {
+    warning.textContent = s.warning;
+    warning.style.display = s.warning ? 'block' : 'none';
+  }
+  const rebindBlock = document.getElementById('geoEditorRebindBlock');
+  if (rebindBlock) rebindBlock.style.display = s.mode === 'rebind' ? 'block' : 'none';
+  const body = document.getElementById('geoEditorBody');
+  if (body) body.style.display = s.mode === 'rebind' ? 'none' : 'block';
+
+  const search = document.getElementById('geoEditorSearch') as HTMLInputElement | null;
+  if (search) {
+    search.placeholder = isRu ? 'Поиск: имя списка или домен…' : 'Search: list name or domain…';
+    if (search.value !== s.search) search.value = s.search;
+  }
+
+  renderGeoEditorLists();
+  updateGeoEditorSelectionLine();
+  if (s.footerCount === null) updateGeoEditorFooter();
+}
+
+function renderGeoEditorLists() {
+  const container = document.getElementById('geoEditorLists');
+  if (!container || !geoEditorState) return;
+  const s = geoEditorState;
+  const isRu = builderIsRu();
+
+  if (s.mode === 'rebind') {
+    container.innerHTML = '';
+    return;
+  }
+  if (!s.manifest) {
+    container.innerHTML = '<div style="padding: 10px; color: var(--text-muted); font-size: 12px;">' + (isRu ? 'Загрузка манифеста…' : 'Loading manifest…') + '</div>';
+    return;
+  }
+
+  const html: string[] = [];
+
+  // Domain search block: matches carry in-place list checkboxes
+  const domains = s.searchResults?.domains || [];
+  if (s.search.trim() && domains.length) {
+    html.push('<div class="geo-editor-domain-results" style="padding: 8px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card-subtle, rgba(255,255,255,0.03));">');
+    html.push('<div style="font-size: 12px; margin-bottom: 6px;">' + esc(isRu ? 'Найденные домены — отметьте список не отходя от результата:' : 'Matched domains — tick a list right from the result:') + '</div>');
+    for (const d of domains) {
+      html.push('<div style="display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; flex-wrap: wrap;">');
+      html.push('<code>' + esc(d.domain) + '</code><span style="color: var(--text-muted);">→</span>');
+      for (const tag of d.lists) {
+        const checked = s.selection.has(tag);
+        const inManifest = (s.manifest?.lists || []).some((l) => l.tag === tag);
+        if (!inManifest) {
+          html.push('<span class="badge" style="font-size: 10px; background: rgba(255,255,255,0.06);">' + esc(tag) + ' ✓</span>');
+        } else {
+          html.push('<label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-size: 11px;">' +
+            '<input type="checkbox" class="geo-domain-check" data-tag="' + esc(tag) + '"' + (checked ? ' checked' : '') + ' style="margin: 0; width: 12px; height: 12px;" />' +
+            '<span>' + esc(tag) + (checked ? ' ✓' : '') + '</span></label>');
+        }
+      }
+      html.push('</div>');
+    }
+    const totalMatches = s.searchResults?.totalDomainMatches || 0;
+    if (totalMatches > domains.length) {
+      html.push('<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">' + (isRu ? 'Всего совпадений: ' : 'Total matches: ') + totalMatches + (isRu ? ' (показаны первые ' : ' (showing first ') + domains.length + ')' + '</div>');
+    }
+    html.push('</div>');
+  }
+  if (s.search.trim() && s.searchResults && !domains.length && !(s.searchResults.lists || []).length) {
+    html.push('<div style="padding: 8px; color: var(--text-muted); font-size: 12px;">' + (isRu ? 'Совпадений не найдено' : 'No matches found') + '</div>');
+  }
+
+  // List rows: selected lists always visible and sorted to the top
+  const allLists = s.manifest.lists;
+  const searchHitTags = new Set((s.searchResults?.lists || []).map((l) => l.tag));
+  const q = s.search.trim().toLowerCase();
+  const visibleLists = allLists
+    .filter((l) => !q || searchHitTags.has(l.tag) || s.selection.has(l.tag))
+    .sort((a, b) => {
+      const selDiff = (s.selection.has(b.tag) ? 1 : 0) - (s.selection.has(a.tag) ? 1 : 0);
+      return selDiff !== 0 ? selDiff : a.tag.localeCompare(b.tag);
+    });
+
+  if (!visibleLists.length) {
+    const msg = allLists.length ? (isRu ? 'Совпадений не найдено' : 'No matches found') : (isRu ? 'Файл не содержит тегированных списков' : 'File has no tagged lists');
+    html.push('<div style="padding: 10px; color: var(--text-muted); font-size: 12px;">' + msg + '</div>');
+  }
+
+  for (const list of visibleLists) {
+    const checked = s.selection.has(list.tag);
+    const expanded = s.expanded.has(list.tag);
+    const page = s.entriesPages.get(list.tag);
+    html.push('<div class="geo-editor-list-row" data-tag="' + esc(list.tag) + '" style="padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 12px;">');
+    html.push('<div style="display: flex; align-items: center; gap: 8px;">' +
+      '<input type="checkbox" class="geo-list-check" data-tag="' + esc(list.tag) + '"' + (checked ? ' checked' : '') + ' style="margin: 0; width: 14px; height: 14px;" />' +
+      '<span style="flex: 1; font-weight: ' + (checked ? '600' : '400') + ';">' + esc(list.tag) + '</span>' +
+      '<span style="color: var(--text-muted); font-size: 11px;" class="geo-list-count">' + list.count + ' ' + (isRu ? 'доменов' : 'domains') + '</span>' +
+      '<button type="button" class="btn-icon geo-list-expand" data-tag="' + esc(list.tag) + '" title="' + (isRu ? 'Предпросмотр доменов' : 'Preview domains') + '" style="font-size: 11px; padding: 1px 5px;">' + (expanded ? '▴' : '▾') + '</button>' +
+      '</div>');
+    if (expanded) {
+      const items = page?.items || [];
+      html.push('<div class="geo-editor-entries" data-tag="' + esc(list.tag) + '" style="padding: 4px 8px 6px 34px; font-size: 11px; color: var(--text-muted);">');
+      if (items.length) {
+        for (const entry of items) {
+          html.push('<div class="geo-editor-entry">' + esc(entry) + '</div>');
+        }
+      } else {
+        html.push(isRu ? 'Загрузка доменов…' : 'Loading domains…');
+      }
+      if (page && items.length < page.total) {
+        html.push('<button type="button" class="btn-secondary geo-list-more" data-tag="' + esc(list.tag) + '" data-offset="' + items.length + '" style="font-size: 11px; padding: 2px 8px; margin-top: 4px;">' +
+          (isRu ? 'Показать ещё' : 'Show more') + ' (' + items.length + '/' + page.total + ')</button>');
+      }
+      html.push('</div>');
+    }
+    html.push('</div>');
+  }
+
+  container.innerHTML = html.join('');
+  updateGeoEditorSelectionLine();
+  if (s.footerCount === null) updateGeoEditorFooter();
+}
+
+/** «Сменить файл» inside the editor: upload -> new manifest, selection reset + warning. */
+async function replaceGeoEditorFile(file: any) {
+  if (!geoEditorState || !builderState || !file) return;
   const isRu = builderIsRu();
   try {
     const base64 = await fileToBase64(file);
     const resolved = await resolveBuilderLayer({ kind: 'file', name: file.name, content: base64 });
-    if (!resolved) return;
-    builderState.sources[index] = resolved;
-    builderRenderedCount = BUILDER_RENDER_LIMIT;
-    // keep the editor open so the user can pick tags for the new file
-    if (builderLayerEditor && builderLayerEditor.idx === index) {
-      builderTagSelection.clear();
-      builderAvailableTags = [];
-      if (resolved.fileId) {
-        try {
-          const res = await adminFetch('/api/routing/geofiles/' + encodeURIComponent(resolved.fileId) + '/tags');
-          const data = await res.json().catch(() => ({}));
-          if (res.ok) builderAvailableTags = Array.isArray(data.availableTags) ? data.availableTags : [];
-        } catch (_) {
-          /* keep current list */
-        }
-      }
-      renderBuilderLayers();
-    } else {
-      renderPresetBuilder();
-    }
-    toast(isRu ? `Файл заменён: ${builderLayerEntries(builderState.sources[index]).length} записей` : `File replaced: ${builderLayerEntries(builderState.sources[index]).length} entries`, 'success');
+    if (!resolved || !resolved.fileId) return;
+    geoEditorState.fileId = resolved.fileId;
+    geoEditorState.fileName = file.name;
+    geoEditorState.mode = 'edit';
+    // the new file has different lists: reset the selection and warn
+    geoEditorState.selection.clear();
+    geoEditorState.expanded.clear();
+    geoEditorState.entriesPages.clear();
+    geoEditorState.search = '';
+    geoEditorState.searchResults = null;
+    geoEditorState.footerCount = null;
+    geoEditorState.warning = isRu
+      ? 'Файл заменён на «' + file.name + '» — выбор списков сброшен, отметьте списки заново.'
+      : 'File replaced with "' + file.name + '" — the list selection was reset, pick the lists again.';
+    await loadGeoEditorManifest();
   } catch (e: any) {
     toast(e?.message || (isRu ? 'Не удалось прочитать файл' : 'Failed to read file'), 'error');
   }
+}
+
+async function saveGeoEditorLayer() {
+  if (!geoEditorState || !builderState) return;
+  const isRu = builderIsRu();
+  const idx = geoEditorState.layerIdx;
+  const layer = (builderState.sources || [])[idx];
+  if (!layer) return;
+  if (geoEditorState.mode === 'rebind' || !geoEditorState.fileId) {
+    toast(isRu ? 'Привяжите файл, чтобы сохранить слой' : 'Attach a file to save the layer', 'error');
+    return;
+  }
+  const resolved = await resolveBuilderLayer({
+    kind: 'file',
+    fileId: geoEditorState.fileId,
+    tags: Array.from(geoEditorState.selection),
+  });
+  if (!resolved) return;
+  builderState.sources[idx] = resolved;
+  const rebuilt = builderLayerEntries(builderState.sources[idx]).length;
+  closeGeoBaseEditor();
+  renderPresetBuilder();
+  toast(isRu ? 'Слой пересобран: ' + rebuilt + ' записей' : 'Layer rebuilt: ' + rebuilt + ' entries', 'success');
 }
 
 async function removeBuilderLayer(index: number) {
@@ -2059,6 +2374,47 @@ if (typeof document !== 'undefined') {
       if (idx !== null) refreshBuilderLayer(parseInt(idx, 10));
       return;
     }
+    // GEO-BUILDER-UX-4: full-screen geobase editor buttons
+    const geoBackBtn = (target as any).closest('.btn-geo-editor-back');
+    if (geoBackBtn) {
+      closeGeoEditorToBuilder();
+      return;
+    }
+    const geoCancelBtn = (target as any).closest('.btn-geo-editor-cancel');
+    if (geoCancelBtn) {
+      closeGeoEditorToBuilder();
+      return;
+    }
+    const geoSaveBtn = (target as any).closest('.btn-geo-editor-save');
+    if (geoSaveBtn) {
+      saveGeoEditorLayer();
+      return;
+    }
+    const geoExpandBtn = (target as any).closest('.geo-list-expand');
+    if (geoExpandBtn) {
+      const tag = geoExpandBtn.getAttribute('data-tag');
+      if (tag && geoEditorState) {
+        if (geoEditorState.expanded.has(tag)) {
+          geoEditorState.expanded.delete(tag);
+          renderGeoEditorLists();
+        } else {
+          geoEditorState.expanded.add(tag);
+          if (!geoEditorState.entriesPages.has(tag)) {
+            loadGeoEntriesPage(tag, 0);
+          } else {
+            renderGeoEditorLists();
+          }
+        }
+      }
+      return;
+    }
+    const geoMoreBtn = (target as any).closest('.geo-list-more');
+    if (geoMoreBtn) {
+      const tag = geoMoreBtn.getAttribute('data-tag');
+      const offset = parseInt(geoMoreBtn.getAttribute('data-offset') || '0', 10);
+      if (tag) loadGeoEntriesPage(tag, offset);
+      return;
+    }
     const layerRemoveBtn = (target as any).closest('.btn-layer-remove');
     if (layerRemoveBtn) {
       const idx = layerRemoveBtn.getAttribute('data-index');
@@ -2119,23 +2475,42 @@ if (typeof document !== 'undefined') {
       importPresetJsonFile(f);
       return;
     }
-    // GEO-BUILDER-UX-3: tag editor checklist + in-editor file replacement
-    if (typeof t.classList.contains === 'function' && t.classList.contains('builder-tag-check')) {
+    // GEO-BUILDER-UX-4: geobase editor interactions
+    if (typeof t.classList.contains === 'function' && t.classList.contains('geo-list-check')) {
       const tag = t.getAttribute('data-tag');
-      if (!tag) return;
+      if (!tag || !geoEditorState) return;
       if (t.checked) {
-        builderTagSelection.add(tag);
+        geoEditorState.selection.add(tag);
       } else {
-        builderTagSelection.delete(tag);
+        geoEditorState.selection.delete(tag);
       }
-      updateTagEditorCounters();
+      updateGeoEditorSelectionLine();
+      updateGeoEditorFooter();
       return;
     }
-    if (typeof t.classList.contains === 'function' && t.classList.contains('builder-editor-file')) {
-      const idx = t.getAttribute('data-index');
-      const f = t.files && t.files[0] ? t.files[0] : null;
+    if (typeof t.classList.contains === 'function' && t.classList.contains('geo-domain-check')) {
+      const tag = t.getAttribute('data-tag');
+      if (!tag || !geoEditorState) return;
+      if (t.checked) {
+        geoEditorState.selection.add(tag);
+      } else {
+        geoEditorState.selection.delete(tag);
+      }
+      renderGeoEditorLists();
+      updateGeoEditorSelectionLine();
+      updateGeoEditorFooter();
+      return;
+    }
+    if (t.id === 'geoEditorFileInput' && t.files && t.files[0]) {
+      const f = t.files[0];
       t.value = '';
-      if (idx !== null && f) replaceLayerFile(parseInt(idx, 10), f);
+      replaceGeoEditorFile(f);
+      return;
+    }
+    if (t.id === 'geoEditorRebindInput' && t.files && t.files[0]) {
+      const f = t.files[0];
+      t.value = '';
+      replaceGeoEditorFile(f);
       return;
     }
   });
@@ -2149,10 +2524,10 @@ if (typeof document !== 'undefined') {
       renderBuilderEntries();
       return;
     }
-    if (t.id === 'builderTagSearch') {
-      // GEO-BUILDER-UX-3: re-render only the checklist (keeps the input focus)
-      builderTagSearch = t.value || '';
-      rerenderTagChecklist();
+    // GEO-BUILDER-UX-4: geobase editor search (list names + domains)
+    if (t.id === 'geoEditorSearch' && geoEditorState) {
+      geoEditorState.search = t.value || '';
+      runGeoEditorSearch();
       return;
     }
     if (t.id === 'builderNameInput' && builderState) {

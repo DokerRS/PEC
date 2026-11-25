@@ -158,9 +158,11 @@ export function setupDashboardDom(options: SetupDashboardDomOptions = {}): Dashb
       ok,
       status,
       statusText: ok ? "OK" : "Error",
-      json: async () => (typeof data === "function" ? data(init) : data),
+      // GEO-BUILDER-UX-4: function responses receive (init, rawInput) so
+      // query-dependent mocks (search/entries pagination) can read the URL.
+      json: async () => (typeof data === "function" ? data(init, input) : data),
       text: async () =>
-        typeof data === "string" ? data : JSON.stringify(typeof data === "function" ? data(init) : data),
+        typeof data === "string" ? data : JSON.stringify(typeof data === "function" ? data(init, input) : data),
       headers: new Map([["content-type", "application/json"]]),
     };
   };

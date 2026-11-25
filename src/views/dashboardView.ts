@@ -2217,6 +2217,51 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
     </div>
   </div>
 
+  <!-- GEO-BUILDER-UX-4: full-screen geobase editor (layered above the preset
+       constructor page, same detail-view mechanics) -->
+  <div id="geoEditorPage" style="display: none;">
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+          <button type="button" class="btn-secondary btn-geo-editor-back" style="font-size: 12px; padding: 4px 10px;" title="Back">&larr;</button>
+          <h3 style="margin: 0; font-size: 15px; font-weight: 600;" id="geoEditorTitle">Редактор геобазы</h3>
+          <span class="badge badge-active" style="font-size: 10px;" id="geoEditorTypeBadge">GEOSITE</span>
+          <code style="font-size: 11px; color: var(--text-muted);" id="geoEditorFileId"></code>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <label for="geoEditorFileInput" class="btn-secondary" style="font-size: 12px; padding: 4px 10px; cursor: pointer;" id="geoEditorReplaceLabel">📂 Сменить файл</label>
+          <input type="file" id="geoEditorFileInput" accept=".dat,.txt" style="display: none;" />
+        </div>
+      </div>
+
+      <div id="geoEditorWarning" style="display: none; margin-bottom: 10px; padding: 8px 10px; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; font-size: 12px; color: var(--warning, #f59e0b);"></div>
+
+      <div id="geoEditorRebindBlock" style="display: none; margin-bottom: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner);">
+        <p style="margin: 0 0 8px 0; font-size: 12px; color: var(--text-muted);" id="geoEditorRebindHint">Снапшот-слой: привяжите файл, чтобы открыть все списки геобазы.</p>
+        <input type="file" id="geoEditorRebindInput" accept=".dat,.txt" style="font-size: 12px;" />
+      </div>
+
+      <div id="geoEditorBody">
+        <div style="margin-bottom: 10px;">
+          <input type="text" id="geoEditorSearch" placeholder="Поиск: имя списка или домен…" style="width: 100%; box-sizing: border-box; font-size: 12px;" />
+        </div>
+        <div id="geoEditorSearchResults" style="display: none; margin-bottom: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card-subtle, rgba(255,255,255,0.03));"></div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted);" id="geoEditorListsTitle">Списки файла</span>
+          <span id="geoEditorSelectionCount" style="font-size: 11px; color: var(--text-muted);"></span>
+        </div>
+        <div id="geoEditorLists" style="border: 1px solid var(--border); border-radius: 8px; padding: 4px; max-height: 46vh; overflow-y: auto; background: var(--card-inner);"></div>
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); flex-wrap: wrap;">
+          <span id="geoEditorFooter" style="font-size: 12px; color: var(--text-muted);"></span>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-geo-editor-save" id="btnGeoEditorSave" style="font-size: 12px;">💾 <span id="geoEditorSaveLabel">Сохранить слой</span></button>
+            <button type="button" class="btn-secondary btn-geo-editor-cancel" id="btnGeoEditorCancel" style="font-size: 12px;">Отмена</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
     <!-- Modal: Compiler Warning -->
   <div id="modalCompilerWarning" class="modal-backdrop-theme" style="display: none;">
     <div class="modal-card-theme" style="max-width: 500px; width: 90%; padding: 24px;">

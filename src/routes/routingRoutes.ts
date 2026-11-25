@@ -803,6 +803,168 @@ export function createRoutingRouter(): Router {
     res.json({ fileId, fileName: storedName, availableTags: listGeodataTags(buf, storedName) });
   });
 
+  // ============================================================================
+  // GEO-BUILDER-UX-4: full geobase editor endpoints on top of the geofile
+  // store. A parsed-map cache keyed by fileId makes manifest/entries/search
+  // scans cheap; geofiles are content-addressed (fileId IS the sha256), so a
+  // cache entry is valid as long as the stored file name matches.
+  // ============================================================================
+
+  interface ParsedGeofile {
+    fileName: string;
+    kind: "geosite" | "geoip" | "plaintext";
+    /** tag -> entries (domains for geosite, CIDR strings for geoip). Plaintext files use a single '' key. */
+    lists: Map<string, string[]>;
+  }
+  const parsedGeofileCache = new Map<string, ParsedGeofile>();
+
+  function getParsedGeofile(fileId: string): ParsedGeofile | null {
+    const storedName = getGeofileName(fileId);
+    if (!storedName) return null;
+    const cached = parsedGeofileCache.get(fileId);
+    if (cached && cached.fileName === storedName) return cached;
+
+    const buf = readGeofile(fileId);
+    if (!buf) return null;
+    const lowerName = storedName.toLowerCase();
+    const isDat = lowerName.endsWith(".dat") || buf.includes(0x00);
+    let parsed: ParsedGeofile;
+    if (!isDat) {
+      parsed = { fileName: storedName, kind: "plaintext", lists: new Map([["", parsePlaintextList(buf.toString("utf-8"))]]) };
+    } else if (lowerName.includes("geoip")) {
+      const ipMap = parseGeoIp(buf);
+      const lists = new Map<string, string[]>();
+      for (const [tag, entry] of ipMap) {
+        lists.set(tag, entry.cidrs.map((c) => `${c.ip}/${c.prefix}`));
+      }
+      parsed = { fileName: storedName, kind: "geoip", lists };
+    } else {
+      const siteMap = parseGeoSite(buf);
+      const lists = new Map<string, string[]>();
+      for (const [tag, entry] of siteMap) {
+        lists.set(tag, entry.domains.map((d) => d.value));
+      }
+      parsed = { fileName: storedName, kind: "geosite", lists };
+    }
+    if (parsedGeofileCache.size > 16) parsedGeofileCache.clear();
+    parsedGeofileCache.set(fileId, parsed);
+    return parsed;
+  }
+
+  // Manifest: ALL lists of the file with entry counts (editor checklist data).
+  router.get("/api/routing/geofiles/:fileId/manifest", (req: Request, res: Response) => {
+    const fileId = String(req.params.fileId || "").trim();
+    const parsed = getParsedGeofile(fileId);
+    if (!parsed) {
+      return res.status(404).json({ error: "Stored geofile not found for the given fileId" });
+    }
+    const isPlain = parsed.kind === "plaintext";
+    res.json({
+      fileId,
+      fileName: parsed.fileName,
+      type: parsed.kind,
+      lists: isPlain
+        ? []
+        : Array.from(parsed.lists.entries())
+            .map(([tag, entries]) => ({ tag, count: entries.length }))
+            .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag)),
+      totalEntries: isPlain ? parsed.lists.get("")!.length : Array.from(parsed.lists.values()).reduce((s, e) => s + e.length, 0),
+    });
+  });
+
+  // Paged preview of one list's domains (editor [▾] expansion).
+  router.get("/api/routing/geofiles/:fileId/lists/:tag/entries", (req: Request, res: Response) => {
+    const fileId = String(req.params.fileId || "").trim();
+    const parsed = getParsedGeofile(fileId);
+    if (!parsed) {
+      return res.status(404).json({ error: "Stored geofile not found for the given fileId" });
+    }
+    const tag = String(req.params.tag || "");
+    const entries = parsed.lists.get(tag);
+    if (!entries) {
+      return res.status(404).json({ error: `List "${tag}" not found in the geofile` });
+    }
+    const offset = Math.max(0, parseInt(String(req.query.offset || "0"), 10) || 0);
+    const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || "200"), 10) || 200));
+    res.json({
+      fileId,
+      fileName: parsed.fileName,
+      tag,
+      total: entries.length,
+      offset,
+      limit,
+      items: entries.slice(offset, offset + limit),
+    });
+  });
+
+  // Search across the geofile: by list name AND by domain (substring,
+  // case-insensitive, capped results). Domain hits carry the lists they live
+  // in so the editor can tick a list right from the search result.
+  router.get("/api/routing/geofiles/:fileId/search", (req: Request, res: Response) => {
+    const fileId = String(req.params.fileId || "").trim();
+    const parsed = getParsedGeofile(fileId);
+    if (!parsed) {
+      return res.status(404).json({ error: "Stored geofile not found for the given fileId" });
+    }
+    const q = String(req.query.q || "").trim().toLowerCase();
+    if (!q) {
+      return res.json({ fileId, fileName: parsed.fileName, query: "", lists: [], domains: [], totalDomainMatches: 0 });
+    }
+    const RESULT_LIMIT = 50;
+    const lists = parsed.kind === "plaintext"
+      ? []
+      : Array.from(parsed.lists.entries())
+          .map(([tag, entries]) => ({ tag, count: entries.length }))
+          .filter((l) => l.tag.toLowerCase().includes(q))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, RESULT_LIMIT);
+
+    const domainMap = new Map<string, string[]>();
+    let totalDomainMatches = 0;
+    for (const [tag, entries] of parsed.lists) {
+      const tagLabel = tag || (parsed.kind === "plaintext" ? "-" : tag);
+      for (const entry of entries) {
+        if (entry.toLowerCase().includes(q)) {
+          totalDomainMatches++;
+          const tags = domainMap.get(entry);
+          if (tags) {
+            if (!tags.includes(tagLabel)) tags.push(tagLabel);
+          } else if (domainMap.size < RESULT_LIMIT) {
+            domainMap.set(entry, [tagLabel]);
+          }
+        }
+      }
+    }
+    res.json({
+      fileId,
+      fileName: parsed.fileName,
+      query: q,
+      lists,
+      domains: Array.from(domainMap.entries()).map(([domain, listTags]) => ({ domain, lists: listTags })),
+      totalDomainMatches,
+    });
+  });
+
+  // Live dedup counter for the editor footer: how many UNIQUE entries the
+  // currently selected lists contribute (a sum would overcount cross-list
+  // duplicates).
+  router.post("/api/routing/geofiles/:fileId/union-count", (req: Request, res: Response) => {
+    const fileId = String(req.params.fileId || "").trim();
+    const parsed = getParsedGeofile(fileId);
+    if (!parsed) {
+      return res.status(404).json({ error: "Stored geofile not found for the given fileId" });
+    }
+    const tags: string[] = Array.isArray(req.body?.tags) ? req.body.tags.map(String) : [];
+    const selected = tags.length
+      ? tags.map((t) => parsed.lists.get(t) || [])
+      : [parsed.kind === "plaintext" ? parsed.lists.get("") || [] : []];
+    const union = new Set<string>();
+    for (const entries of selected) {
+      for (const e of entries) union.add(e);
+    }
+    res.json({ fileId, tags, count: union.size });
+  });
+
   // GEO-PRESET-UX-2: resolve a raw layer into a validated PresetSource.
   // url layers are SSRF-checked + downloaded + parsed here; file layers are
   // decoded/parsed here; geo-tag/manual layers are shape/type-checked only.

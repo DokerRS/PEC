@@ -97,6 +97,21 @@ const CUSTOM_RESPONSES = {
     fileName: `${FILE_ID}.dat`,
     availableTags: Object.entries(TAG_TABLE).map(([tag, entries]) => ({ tag, count: entries.length })),
   },
+  // GEO-BUILDER-UX-4: manifest + dedup counter for the full-screen editor
+  [`/api/routing/geofiles/${FILE_ID}/manifest`]: {
+    fileId: FILE_ID,
+    fileName: "geosite (2).dat",
+    type: "geosite",
+    lists: Object.entries(TAG_TABLE).map(([tag, entries]) => ({ tag, count: entries.length })),
+    totalEntries: Object.values(TAG_TABLE).reduce((sum, entries) => sum + entries.length, 0),
+  },
+  [`/api/routing/geofiles/${FILE_ID}/union-count`]: (init: any, rawInput: any) => {
+    const body = typeof rawInput?.body === "string" ? JSON.parse(rawInput.body || "{}") : rawInput?.body || {};
+    const tags: string[] = Array.isArray(body.tags) ? body.tags : [];
+    const union = new Set<string>();
+    for (const t of tags) for (const e of TAG_TABLE[t] || []) union.add(e);
+    return { fileId: FILE_ID, tags, count: union.size };
+  },
 };
 
 function click(win: any, el: Element): void {
@@ -131,7 +146,12 @@ test("UX-3 (a): layer cards show SOURCE name, tag chips, honest per-layer count 
     assert.match(liveFile.querySelector(".builder-layer-name")!.textContent || "", /geosite \(2\)\.dat/, "header shows the SOURCE file name, not tags");
     const chips = Array.from(liveFile.querySelectorAll(".builder-layer-tag")).map((c) => c.textContent);
     assert.deepEqual(chips, ["TELEGRAM"]);
-    assert.match(liveFile.querySelector(".builder-layer-count")!.textContent || "", /^2/, "per-layer honest count");
+    // GEO-BUILDER-UX-4: file cards show the geobase shape «списков: N · доменов: M»
+    assert.match(
+      liveFile.querySelector(".builder-layer-count")!.textContent || "",
+      /списков: 3 · доменов: 2/,
+      "per-layer honest count with list total"
+    );
     assert.match(liveFile.querySelector(".builder-layer-status")!.textContent || "", /живой \(файл\)/);
     assert.ok(liveFile.querySelector(".btn-layer-refresh"), "live file layer gets ↻");
 
@@ -211,101 +231,57 @@ test("UX-3 (c): duplicates are counted honestly (Всего / Уникальны
   }
 });
 
-test("UX-3 (d): ✎ tag editor — checklist with counts, search, multiselect, Save rebuilds the layer", async () => {
+test("UX-3 (d, UX-4): ✎ on a live file layer opens the full-screen geobase editor; back returns to the constructor", async () => {
   const env = setupDashboardDom({ authenticated: true, customResponses: CUSTOM_RESPONSES });
   try {
     const { window, document, fetchCalls } = env;
     await openBuilder(window, document);
 
-    // open the tag editor on the live file layer
+    // ✎ on the live file layer -> full-screen geobase editor (UX-4)
     click(window, document.querySelector('.btn-layer-edit[data-index="0"]')!);
-    await waitFor(() => document.querySelectorAll(".builder-tag-check").length === 3, { label: "tag checklist rendered" });
-    const editor = document.querySelector(".builder-layer-editor")!;
-    assert.ok(editor.querySelector('.builder-tag-check[data-tag="NEWS"]'));
-
-    // tags endpoint was fetched for the checklist
-    assert.ok(fetchCalls.some((c: any) => c.url.includes(`/api/routing/geofiles/${FILE_ID}/tags`)));
-
-    // search filters the checklist
-    const tagSearch = document.getElementById("builderTagSearch") as HTMLInputElement;
-    tagSearch.value = "news";
-    tagSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
-    await waitFor(() => document.querySelectorAll(".builder-tag-check").length === 1, { label: "checklist filtered" });
-    tagSearch.value = "";
-    tagSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
-    await waitFor(() => document.querySelectorAll(".builder-tag-check").length === 3, { label: "checklist restored" });
-
-    // multiselect: add NEWS on top of TELEGRAM
-    const newsBox = document.querySelector('.builder-tag-check[data-tag="NEWS"]') as HTMLInputElement;
-    newsBox.checked = true;
-    newsBox.dispatchEvent(new window.Event("change", { bubbles: true }));
-    assert.match(document.querySelector(".builder-tag-summary")!.textContent || "", /Выбрано тегов: 2/);
-
-    // Save -> resolve-layer with both tags -> layer rebuilt
-    click(window, document.querySelector(".btn-editor-save")!);
-    await waitFor(() => {
-      const calls = fetchCalls.filter((c: any) => c.url.includes("/resolve-layer") && c.method === "POST");
-      return calls.length > 0;
-    }, { label: "resolve-layer POST" });
-    const resolveBody = JSON.parse(
-      fetchCalls.filter((c: any) => c.url.includes("/resolve-layer") && c.method === "POST").pop().body
-    );
-    assert.equal(resolveBody.source.kind, "file");
-    assert.equal(resolveBody.source.fileId, FILE_ID);
-    assert.deepEqual(resolveBody.source.tags.sort(), ["NEWS", "TELEGRAM"]);
-
-    // composition now shows the NEWS entries brought in by the rebuilt layer
-    await waitFor(() => document.getElementById("builderEntriesBody")!.textContent!.includes("bbc.co.uk"), {
-      label: "composition updated",
+    await waitFor(() => document.getElementById("geoEditorPage")?.style.display === "block", {
+      label: "geobase editor open",
     });
-    assert.ok(!document.querySelector(".builder-layer-editor"), "editor closed after save");
+    assert.equal(document.getElementById("presetBuilderPage")!.style.display, "none");
+    assert.ok(
+      fetchCalls.some((c: any) => c.url.includes("/api/routing/geofiles/") && c.url.includes("/manifest")),
+      "manifest fetched for the editor"
+    );
+    await waitFor(() => document.querySelectorAll(".geo-editor-list-row").length >= 1, { label: "manifest rows" });
+
+    // back returns to the constructor
+    click(window, document.querySelector(".btn-geo-editor-back")!);
+    await waitFor(() => document.getElementById("presetBuilderPage")!.style.display === "block", {
+      label: "back to constructor",
+    });
   } finally {
     env.teardown();
   }
 });
 
-test("UX-3 (e): «Сменить файл» replaces the layer in place; «Привязать файл заново» revives a snapshot", async () => {
+test("UX-3 (e, UX-4): snapshot layer ✎ opens the rebind editor; «Привязать файл заново» does the same (full flow in geobaseEditorUi)", async () => {
   const env = setupDashboardDom({ authenticated: true, customResponses: CUSTOM_RESPONSES });
   try {
-    const { window, document, fetchCalls } = env;
+    const { window, document } = env;
     await openBuilder(window, document);
 
-    // replace the file of the live layer from inside the editor
-    click(window, document.querySelector('.btn-layer-edit[data-index="0"]')!);
-    await waitFor(() => !!document.querySelector(".builder-editor-file"), { label: "editor with file input" });
-    const file = new window.File(["replaced"], "new-geosite.dat", { type: "octet-stream" });
-    const input = document.querySelector(".builder-editor-file") as HTMLInputElement;
-    Object.defineProperty(input, "files", { value: [file], configurable: true });
-    input.dispatchEvent(new window.Event("change", { bubbles: true }));
+    // ✎ on the snapshot layer -> rebind editor
+    click(window, document.querySelector('.btn-layer-edit[data-index="1"]')!);
+    await waitFor(() => document.getElementById("geoEditorRebindBlock")?.style.display === "block", {
+      label: "rebind editor open",
+    });
+    assert.equal(document.getElementById("geoEditorBody")!.style.display, "none");
+    click(window, document.querySelector(".btn-geo-editor-back")!);
+    await waitFor(() => document.getElementById("geoEditorPage")?.style.display === "none", {
+      label: "editor closed",
+    });
 
-    await waitFor(() => {
-      const layerName = document.querySelector('.builder-layer-row[data-index="0"] .builder-layer-name');
-      return layerName && (layerName.textContent || "").includes("new-geosite.dat");
-    }, { label: "layer switched to the new file" });
-
-    const uploadCall = fetchCalls
-      .filter((c: any) => c.url.includes("/resolve-layer") && c.method === "POST")
-      .map((c: any) => JSON.parse(c.body))
-      .find((b: any) => b.source.content);
-    assert.ok(uploadCall, "file replacement must upload the content");
-    assert.equal(uploadCall.source.name, "new-geosite.dat");
-
-    // snapshot -> «Привязать файл заново» -> live
+    // «Привязать файл заново» opens the same editor
     click(window, document.querySelector('.btn-layer-rebind[data-index="1"]')!);
-    await waitFor(() => !!document.querySelector('.builder-layer-editor[data-index="1"]'), { label: "rebind editor open" });
-    const file2 = new window.File(["snapshot-revive"], "revived.dat", { type: "octet-stream" });
-    const input2 = document.querySelector('.builder-editor-file[data-index="1"]') as HTMLInputElement;
-    Object.defineProperty(input2, "files", { value: [file2], configurable: true });
-    input2.dispatchEvent(new window.Event("change", { bubbles: true }));
-
-    await waitFor(() => {
-      const status = document.querySelector('.builder-layer-row[data-index="1"] .builder-layer-status');
-      return status && (status.textContent || "").includes("живой (файл)");
-    }, { label: "snapshot revived to live" });
-    assert.ok(
-      document.querySelector('.builder-layer-row[data-index="1"] .btn-layer-refresh'),
-      "revived layer gains ↻"
-    );
+    await waitFor(() => document.getElementById("geoEditorRebindBlock")?.style.display === "block", {
+      label: "rebind via card button",
+    });
+    click(window, document.querySelector(".btn-geo-editor-back")!);
   } finally {
     env.teardown();
   }
