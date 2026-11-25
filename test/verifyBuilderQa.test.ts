@@ -69,7 +69,7 @@ test("VERIFY-QA (1): live file layer with a MISSING geofile falls back to the en
   fs.unlinkSync(stored);
 
   const restored = getRoutingPresets().find((p) => p.id === preset.id) as RoutingPresetItem;
-  const materialized = materializePresetSources(restored.sources as PresetSource[], "domain");
+  const materialized = materializePresetSources(restored.sources as PresetSource[]);
   // manual layer + the snapshot fallback of the orphaned file layer — NOT empty
   assert.deepEqual(
     materialized,
@@ -102,7 +102,7 @@ test("VERIFY-QA (2): a USER layered preset referenced by a profile expands throu
     category: "qa",
     description: "",
     type: "domain",
-    source: "manual",
+    source: "file",
     entries: [manualEntry, fileEntry],
     sources: [
       { kind: "manual", entries: [manualEntry] },
