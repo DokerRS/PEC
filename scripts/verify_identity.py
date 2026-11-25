@@ -16,9 +16,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 try:  # shared helpers (ADR #22): package-style import (tests: from
     # scripts.verify_identity import ...)
-    from scripts._common import _error_envelope
+    from scripts._common import _error_envelope, detect_host_harness
 except ImportError:  # direct script execution: python scripts/verify_identity.py
-    from _common import _error_envelope
+    from _common import _error_envelope, detect_host_harness
 
 DEFAULT_REGISTRY_REL = Path(".agents/meta-project.json")
 
@@ -47,6 +47,66 @@ SUPPORTED_REGISTRY_SCHEMA_VERSIONS = ("1.0", "1.1")
 # installation (see evaluate_actor_admission).
 VALID_INSTALLATION_STATUSES = {"planned", "active", "disabled", "archived"}
 VALID_BINDING_STATUSES = {"planned", "active", "disabled", "archived"}
+
+# Wave J: optional per-installation `orchestration` block (agent-intake-
+# dispatcher runtime binding). The declaration is ADDITIVE under registry
+# schema 1.1.0 — the schema version is NOT bumped. An absent block or an
+# explicit null means "not declared" (equivalent to standalone).
+VALID_DISPATCHER_BINDINGS = ("standalone", "orchestrator-hosted")
+ORCHESTRATION_FIELDS = ("native_orchestrator", "dispatcher_binding")
+
+
+def validate_orchestration_block(inst_id: str, block: Any) -> List[str]:
+    """
+    Validates the optional installation `orchestration` block (Wave J):
+
+        "orchestration": {
+            "native_orchestrator": true,            # JSON boolean, optional
+            "dispatcher_binding": "orchestrator-hosted"  # optional
+        }
+
+    - native_orchestrator: the operator's declaration that this
+      installation's harness provides a native orchestrator agent
+      (availability CANNOT be detected from the environment — 2026-11-23
+      live evidence: an orchestrator session and a subagent session expose
+      identical environments, yet only the orchestrator can launch
+      subagents).
+    - dispatcher_binding: how the agent-intake-dispatcher role is bound at
+      runtime; absent means "standalone".
+    - "orchestrator-hosted" requires native_orchestrator = true in the same
+      block (the dispatcher cannot be hosted by a harness without one).
+
+    Returns a list of error messages (empty when the block is valid).
+    """
+    errors: List[str] = []
+    if not isinstance(block, dict):
+        return [f"Installation '{inst_id}' orchestration must be an object"]
+    unknown = sorted(set(block) - set(ORCHESTRATION_FIELDS))
+    if unknown:
+        errors.append(
+            f"Installation '{inst_id}' orchestration carries unsupported "
+            f"fields: {', '.join(sorted(unknown))} "
+            "(allowed: native_orchestrator, dispatcher_binding)"
+        )
+    native = block.get("native_orchestrator")
+    if "native_orchestrator" in block and type(native) is not bool:
+        errors.append(
+            f"Installation '{inst_id}' orchestration.native_orchestrator "
+            f"must be a boolean (true/false), got {native!r}"
+        )
+    binding = block.get("dispatcher_binding")
+    if "dispatcher_binding" in block and binding not in VALID_DISPATCHER_BINDINGS:
+        errors.append(
+            f"Installation '{inst_id}' orchestration.dispatcher_binding "
+            f"{binding!r} is unsupported (allowed: standalone, "
+            "orchestrator-hosted)"
+        )
+    if binding == "orchestrator-hosted" and block.get("native_orchestrator") is not True:
+        errors.append(
+            f"Installation '{inst_id}' orchestration.dispatcher_binding "
+            "'orchestrator-hosted' requires native_orchestrator = true"
+        )
+    return errors
 
 
 def validate_schema_version(value: Any) -> List[str]:
@@ -236,6 +296,12 @@ def validate_identity_registry(repo_root: Path) -> Tuple[bool, List[str]]:
                 f"Installation '{inst_id}' has unsupported status '{status}'. "
                 f"Allowed: {sorted(VALID_INSTALLATION_STATUSES)}"
             )
+        # Wave J: optional orchestration declaration (agent-intake-dispatcher
+        # runtime binding). An absent block or explicit null = not declared.
+        if inst_data.get("orchestration") is not None:
+            errors.extend(
+                validate_orchestration_block(inst_id, inst_data.get("orchestration"))
+            )
 
     for role_id, role_data in roles.items():
         if not isinstance(role_data, dict):
@@ -411,6 +477,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     root = Path(args.repo_root).resolve()
 
     if args.actor:
+        parts = args.actor.split("::")
+        harness_id = parts[1] if len(parts) == 4 else None
+        detected = detect_host_harness()
+        mismatch_warning: Optional[str] = None
+        if detected is not None and harness_id and detected != harness_id:
+            mismatch_warning = (
+                f"[WARNING] Host harness mismatch: Current process environment appears to be '{detected}', "
+                f"but checked actor_id specifies harness '{harness_id}'. "
+                f"Verify that you are not running in a foreign harness session.\n"
+            )
+
         found, binding = resolve_actor_binding(root, args.actor)
         if not found:
             sys.stderr.write(_error_envelope(
@@ -425,6 +502,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "--check",
             ) + "\n")
             sys.stderr.write(f"[ERROR] Unresolved identity: actor_id '{args.actor}' not found in registry.\n")
+            if mismatch_warning:
+                sys.stderr.write(mismatch_warning)
             return 1
         # Admission control (audit §3): lookup success does not authorize
         # runtime actions; the binding and its installation must be 'active'.
@@ -441,7 +520,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "before performing runtime actions",
             ) + "\n")
             sys.stderr.write(f"[ERROR] {denial}\n")
+            if mismatch_warning:
+                sys.stderr.write(mismatch_warning)
             return 1
+        if mismatch_warning:
+            sys.stderr.write(mismatch_warning)
         sys.stdout.write(f"[OK] Identity resolved and admitted: {args.actor} -> role={binding['role_id']}, installation={binding['installation_id']}, status={binding.get('status')}\n")
         return 0
 

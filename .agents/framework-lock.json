@@ -4,29 +4,29 @@
     {
       "path": "scripts/_common.py",
       "kind": "script",
-      "base_sha256": "99a42aa285ede99951134720e114747feffece69aba04bbe651a41a0dcc2bef7",
-      "installed_sha256": "99a42aa285ede99951134720e114747feffece69aba04bbe651a41a0dcc2bef7",
+      "base_sha256": "ea850ce24205b511a219131eeb4f2e2e2128fe4fdc6e891507c20235126d77ae",
+      "installed_sha256": "ea850ce24205b511a219131eeb4f2e2e2128fe4fdc6e891507c20235126d77ae",
       "target": "scripts/_common.py"
     },
     {
       "path": "scripts/verify_identity.py",
       "kind": "script",
-      "base_sha256": "14ad2e030cd465669ca35a32367230910aaf1efa08ddefc258d24b0ec225a3da",
-      "installed_sha256": "14ad2e030cd465669ca35a32367230910aaf1efa08ddefc258d24b0ec225a3da",
+      "base_sha256": "3039fce88a673e78624771557899c37b099a7ccfa6a5a091aeb51e8a14d632db",
+      "installed_sha256": "3039fce88a673e78624771557899c37b099a7ccfa6a5a091aeb51e8a14d632db",
       "target": "scripts/verify_identity.py"
     },
     {
       "path": "scripts/inspect_meta_project.py",
       "kind": "script",
-      "base_sha256": "aa38d5c307bfbc41d811600663440f12e54cea6097acd58aea5b9d0b84c07a01",
-      "installed_sha256": "aa38d5c307bfbc41d811600663440f12e54cea6097acd58aea5b9d0b84c07a01",
+      "base_sha256": "962918e4c586375edc1da079440e6ffa05c2a439be6fbe913a3438a017d27e50",
+      "installed_sha256": "962918e4c586375edc1da079440e6ffa05c2a439be6fbe913a3438a017d27e50",
       "target": "scripts/inspect_meta_project.py"
     },
     {
       "path": "scripts/manage_reports.py",
       "kind": "script",
-      "base_sha256": "9ddbe5243b68c0d76f2eba57d241c605db7891de1a24c9c0550820952f59f845",
-      "installed_sha256": "9ddbe5243b68c0d76f2eba57d241c605db7891de1a24c9c0550820952f59f845",
+      "base_sha256": "1e5166987bee03a9c2b176d92ac615def68482e51df8b5d4055f361b64120d8d",
+      "installed_sha256": "1e5166987bee03a9c2b176d92ac615def68482e51df8b5d4055f361b64120d8d",
       "target": "scripts/manage_reports.py"
     },
     {
@@ -46,22 +46,22 @@
     {
       "path": "scripts/sync_templates.py",
       "kind": "script",
-      "base_sha256": "e522f226adf4e09dcbb4fc9f5335fceb3d026de6b569d670d6fef04969d1f768",
-      "installed_sha256": "e522f226adf4e09dcbb4fc9f5335fceb3d026de6b569d670d6fef04969d1f768",
+      "base_sha256": "86fa18eec13b96e96c42fd0c6d7a9214fa3acd1fbfa0f30c99fdf2c529282450",
+      "installed_sha256": "86fa18eec13b96e96c42fd0c6d7a9214fa3acd1fbfa0f30c99fdf2c529282450",
       "target": "scripts/sync_templates.py"
     },
     {
       "path": "scripts/update_meta_project.py",
       "kind": "script",
-      "base_sha256": "d327469c3c5b9b23ebfffe98d9446d64aba20807e4c9770adc0be82fcfa84161",
-      "installed_sha256": "d327469c3c5b9b23ebfffe98d9446d64aba20807e4c9770adc0be82fcfa84161",
+      "base_sha256": "8976e3fcb495841364172480011e0c487436f4b614914eb9ea1659c920629007",
+      "installed_sha256": "8976e3fcb495841364172480011e0c487436f4b614914eb9ea1659c920629007",
       "target": "scripts/update_meta_project.py"
     },
     {
       "path": "skills/init-meta-project/SKILL.md",
       "kind": "skill",
-      "base_sha256": "48454edb878f8831cafed35d0e2c8db483fd4a8b9c576d2f84a5879ae7a76224",
-      "installed_sha256": "48454edb878f8831cafed35d0e2c8db483fd4a8b9c576d2f84a5879ae7a76224",
+      "base_sha256": "715a1d53f1ec7f79f927e7114e2c076d35adbeeee807d42ba69daba6f4d024b9",
+      "installed_sha256": "715a1d53f1ec7f79f927e7114e2c076d35adbeeee807d42ba69daba6f4d024b9",
       "target": ".agents/skills/init-meta-project/SKILL.md"
     },
     {
@@ -88,15 +88,15 @@
     {
       "path": "skills/init-meta-project/resources/tasks.md",
       "kind": "resource",
-      "base_sha256": "5278d7c7fcba8150920b4243f5a17084727adfd5a112899b17e7c2eaf0602409",
-      "installed_sha256": "5278d7c7fcba8150920b4243f5a17084727adfd5a112899b17e7c2eaf0602409",
+      "base_sha256": "3ae83af62ab98e47a3b4b2bbeb9bdcade0cd6d7c43916fdf96b0d37fb5d6245f",
+      "installed_sha256": "3ae83af62ab98e47a3b4b2bbeb9bdcade0cd6d7c43916fdf96b0d37fb5d6245f",
       "target": ".agents/skills/init-meta-project/resources/tasks.md"
     },
     {
       "path": "skills/init-meta-project/resources/AGENTS.md",
       "kind": "resource",
-      "base_sha256": "483dd32fb875f8f192a88eba4b91cb1962a1cc5b4d2b77e3c22ea931c26caaa9",
-      "installed_sha256": "483dd32fb875f8f192a88eba4b91cb1962a1cc5b4d2b77e3c22ea931c26caaa9",
+      "base_sha256": "99b864ccc36c96d12629fdb626534d9b057699fe02e9e58c0abaf1aec9118273",
+      "installed_sha256": "99b864ccc36c96d12629fdb626534d9b057699fe02e9e58c0abaf1aec9118273",
       "target": ".agents/skills/init-meta-project/resources/AGENTS.md"
     },
     {
@@ -116,22 +116,22 @@
     {
       "path": "skills/init-meta-project/resources/ground-meta-project-SKILL.md",
       "kind": "resource",
-      "base_sha256": "b07af4dfb04b988ff475636ffecf0dafbefbf37cbc23297f214bfe26af64e0bf",
-      "installed_sha256": "b07af4dfb04b988ff475636ffecf0dafbefbf37cbc23297f214bfe26af64e0bf",
+      "base_sha256": "5b66702dda885769c775f90e2459341c5b5633902f56531e704c424c4ba22527",
+      "installed_sha256": "5b66702dda885769c775f90e2459341c5b5633902f56531e704c424c4ba22527",
       "target": ".agents/skills/init-meta-project/resources/ground-meta-project-SKILL.md"
     },
     {
       "path": "skills/manage-meta-project/SKILL.md",
       "kind": "skill",
-      "base_sha256": "63c18d113f9d5af33c6dad564daa5458fdd395d1e69c9cd9578e2f003602be7b",
-      "installed_sha256": "63c18d113f9d5af33c6dad564daa5458fdd395d1e69c9cd9578e2f003602be7b",
+      "base_sha256": "5991f10f32f513e68de95b240401ab32de38bc413f6610abf742a5057c00545e",
+      "installed_sha256": "5991f10f32f513e68de95b240401ab32de38bc413f6610abf742a5057c00545e",
       "target": ".agents/skills/manage-meta-project/SKILL.md"
     },
     {
       "path": "skills/manage-meta-project/resources/profile.md",
       "kind": "resource",
-      "base_sha256": "928c3da2158771965f712f18288410a1856098b5a324a37ff2a287a432527068",
-      "installed_sha256": "928c3da2158771965f712f18288410a1856098b5a324a37ff2a287a432527068",
+      "base_sha256": "84e0210204ac7bb73abfcec41b677427514b5eccdfe94a0b3fa6d0a696547f65",
+      "installed_sha256": "84e0210204ac7bb73abfcec41b677427514b5eccdfe94a0b3fa6d0a696547f65",
       "target": ".agents/skills/manage-meta-project/resources/profile.md"
     },
     {
@@ -144,8 +144,8 @@
     {
       "path": "skills/manage-meta-project/resources/system_prompt.md",
       "kind": "resource",
-      "base_sha256": "6166acee62145c44a1ecbbaa1ffdf9f506899bd23464043ec2eac00cb196ca73",
-      "installed_sha256": "6166acee62145c44a1ecbbaa1ffdf9f506899bd23464043ec2eac00cb196ca73",
+      "base_sha256": "eca4dccc6b35197fea59e43e1587bd5979a9e30e8d0d7319a3b790d01194f937",
+      "installed_sha256": "eca4dccc6b35197fea59e43e1587bd5979a9e30e8d0d7319a3b790d01194f937",
       "target": ".agents/skills/manage-meta-project/resources/system_prompt.md"
     },
     {
@@ -165,8 +165,8 @@
     {
       "path": "skills/ground-meta-project/SKILL.md",
       "kind": "skill",
-      "base_sha256": "b07af4dfb04b988ff475636ffecf0dafbefbf37cbc23297f214bfe26af64e0bf",
-      "installed_sha256": "b07af4dfb04b988ff475636ffecf0dafbefbf37cbc23297f214bfe26af64e0bf",
+      "base_sha256": "5b66702dda885769c775f90e2459341c5b5633902f56531e704c424c4ba22527",
+      "installed_sha256": "5b66702dda885769c775f90e2459341c5b5633902f56531e704c424c4ba22527",
       "target": ".agents/skills/ground-meta-project/SKILL.md"
     },
     {
@@ -200,8 +200,8 @@
     {
       "path": "templates/AGENTS.md",
       "kind": "template",
-      "base_sha256": "483dd32fb875f8f192a88eba4b91cb1962a1cc5b4d2b77e3c22ea931c26caaa9",
-      "installed_sha256": "483dd32fb875f8f192a88eba4b91cb1962a1cc5b4d2b77e3c22ea931c26caaa9",
+      "base_sha256": "99b864ccc36c96d12629fdb626534d9b057699fe02e9e58c0abaf1aec9118273",
+      "installed_sha256": "99b864ccc36c96d12629fdb626534d9b057699fe02e9e58c0abaf1aec9118273",
       "target": "templates/AGENTS.md"
     },
     {
@@ -228,8 +228,8 @@
     {
       "path": "templates/project_knowledge/tasks.md",
       "kind": "template",
-      "base_sha256": "5278d7c7fcba8150920b4243f5a17084727adfd5a112899b17e7c2eaf0602409",
-      "installed_sha256": "5278d7c7fcba8150920b4243f5a17084727adfd5a112899b17e7c2eaf0602409",
+      "base_sha256": "3ae83af62ab98e47a3b4b2bbeb9bdcade0cd6d7c43916fdf96b0d37fb5d6245f",
+      "installed_sha256": "3ae83af62ab98e47a3b4b2bbeb9bdcade0cd6d7c43916fdf96b0d37fb5d6245f",
       "target": "templates/project_knowledge/tasks.md"
     },
     {
@@ -242,8 +242,8 @@
     {
       "path": "templates/release_manifest.json",
       "kind": "template",
-      "base_sha256": "6756b5e34feec26a381499c9a402d9315b866defaf1487be3a89264cc47ce7a7",
-      "installed_sha256": "6756b5e34feec26a381499c9a402d9315b866defaf1487be3a89264cc47ce7a7",
+      "base_sha256": "810b9a6180176648a066139d47c8e1e4d403996606e0fa846c5e22cec6679770",
+      "installed_sha256": "810b9a6180176648a066139d47c8e1e4d403996606e0fa846c5e22cec6679770",
       "target": "templates/release_manifest.json"
     },
     {
@@ -256,15 +256,15 @@
     {
       "path": "templates/team/profile.md",
       "kind": "template",
-      "base_sha256": "928c3da2158771965f712f18288410a1856098b5a324a37ff2a287a432527068",
-      "installed_sha256": "928c3da2158771965f712f18288410a1856098b5a324a37ff2a287a432527068",
+      "base_sha256": "84e0210204ac7bb73abfcec41b677427514b5eccdfe94a0b3fa6d0a696547f65",
+      "installed_sha256": "84e0210204ac7bb73abfcec41b677427514b5eccdfe94a0b3fa6d0a696547f65",
       "target": "templates/team/profile.md"
     },
     {
       "path": "templates/team/system_prompt.md",
       "kind": "template",
-      "base_sha256": "6166acee62145c44a1ecbbaa1ffdf9f506899bd23464043ec2eac00cb196ca73",
-      "installed_sha256": "6166acee62145c44a1ecbbaa1ffdf9f506899bd23464043ec2eac00cb196ca73",
+      "base_sha256": "eca4dccc6b35197fea59e43e1587bd5979a9e30e8d0d7319a3b790d01194f937",
+      "installed_sha256": "eca4dccc6b35197fea59e43e1587bd5979a9e30e8d0d7319a3b790d01194f937",
       "target": "templates/team/system_prompt.md"
     },
     {
@@ -294,14 +294,28 @@
       "base_sha256": "83ad568bb25f8d702f220123275c13fbad47db252d22cccac38e3c2d7386cfa1",
       "installed_sha256": "83ad568bb25f8d702f220123275c13fbad47db252d22cccac38e3c2d7386cfa1",
       "target": "templates/reports/update_report.json"
+    },
+    {
+      "path": "scripts/triage_incident.py",
+      "kind": "script",
+      "base_sha256": "ced4651879e27ec1ce87d8134694d85abe744e3c269b296301b4fac32dc740cf",
+      "installed_sha256": "ced4651879e27ec1ce87d8134694d85abe744e3c269b296301b4fac32dc740cf",
+      "target": "scripts/triage_incident.py"
+    },
+    {
+      "path": "skills/triage-incident/SKILL.md",
+      "kind": "skill",
+      "base_sha256": "93555b419fb130d5a686559a47e20a57ee58bfabf60c399030819f2469ed65f3",
+      "installed_sha256": "93555b419fb130d5a686559a47e20a57ee58bfabf60c399030819f2469ed65f3",
+      "target": ".agents/skills/triage-incident/SKILL.md"
     }
   ],
   "source": {
-    "repository": "C:/Users/adm_zhuravlev/Documents/antigravity/meta-project",
+    "repository": "C:\\Users\\adm_zhuravlev\\Documents\\antigravity\\meta-project",
     "ref": "main",
-    "commit_sha": "1fd899635ae404b551cf5de3ed01ea5ed55f0c21",
+    "commit_sha": "0226fa708c785dfcdf2b77d445b96b509ddbd109",
     "origin": "upstream",
     "channel": "preview"
   },
-  "installed_at": "2026-11-19T04:18:07Z"
+  "installed_at": "2026-11-24T16:53:08Z"
 }

@@ -24,18 +24,40 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from scripts.verify_identity import validate_identity_registry
+    from scripts.verify_identity import (
+        VALID_DISPATCHER_BINDINGS,
+        validate_identity_registry,
+    )
 except ImportError:  # direct script execution: python scripts/inspect_meta_project.py
     try:
-        from verify_identity import validate_identity_registry
+        from verify_identity import (
+            VALID_DISPATCHER_BINDINGS,
+            validate_identity_registry,
+        )
     except ImportError:
         validate_identity_registry = None
+        VALID_DISPATCHER_BINDINGS = ("standalone", "orchestrator-hosted")
 
 try:  # shared helpers (ADR #22): package-style import (tests: from
     # scripts.inspect_meta_project import ...)
-    from scripts._common import _error_envelope
+    from scripts._common import (
+        _error_envelope, HOST_HARNESS_SIGNATURES as _host_harness_signatures,
+        detect_host_harness as _detect_host_harness,
+    )
 except ImportError:  # direct script execution: python scripts/inspect_meta_project.py
-    from _common import _error_envelope
+    from _common import (
+        _error_envelope, HOST_HARNESS_SIGNATURES as _host_harness_signatures,
+        detect_host_harness as _detect_host_harness,
+    )
+
+# Public names preserved: existing tests and skills import detect_host_harness
+# and the signature table from this module, while the implementation lives in
+# scripts/_common.py (single source of truth, ADR #22 — the stale per-script
+# copies are gone since the Wave J fix). Aliased import + tuple assignment
+# keeps pyflakes clean without a local redefinition.
+detect_host_harness, HOST_HARNESS_SIGNATURES = (
+    _detect_host_harness, _host_harness_signatures,
+)
 
 
 def _registry_validation_errors(repo_root: Path) -> List[str]:
@@ -51,6 +73,64 @@ def _registry_validation_errors(repo_root: Path) -> List[str]:
 
 SUPPORTED_SCHEMA_VERSIONS = {"1.0.0", "1.1.0", "1.0", "1.1", "1"}
 
+
+def resolve_orchestration(
+    installations: Any, installation_id: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """Resolve the DECLARED orchestration of a registry installation
+    (Wave J: agent-intake-dispatcher standalone vs orchestrator-hosted
+    binding). The declaration lives in .agents/meta-project.json because
+    native-orchestrator availability CANNOT be detected from the
+    environment (an orchestrator session and a subagent session expose
+    identical environments).
+
+    Returns None when there is no installation context (no installation id,
+    or the id does not resolve to a dict entry). Otherwise a dict:
+    - installation: the resolved installation id;
+    - native_orchestrator: declared boolean, or None when absent/invalid;
+    - dispatcher_binding: declared value when it is a supported binding,
+      "standalone" when undeclared or malformed, None when the block itself
+      is invalid;
+    - dispatcher_binding_source: "registry" (valid declared binding),
+      "default" (absent block / null / malformed binding -> standalone),
+      "invalid" (the block is not an object).
+    """
+    if not installation_id:
+        return None
+    if not isinstance(installations, dict):
+        return None
+    entry = installations.get(installation_id)
+    if not isinstance(entry, dict):
+        return None
+    block = entry.get("orchestration")
+    if block is None:
+        # Absent block or explicit null: "not declared" -> standalone default.
+        return {
+            "installation": installation_id,
+            "native_orchestrator": None,
+            "dispatcher_binding": "standalone",
+            "dispatcher_binding_source": "default",
+        }
+    if not isinstance(block, dict):
+        return {
+            "installation": installation_id,
+            "native_orchestrator": None,
+            "dispatcher_binding": None,
+            "dispatcher_binding_source": "invalid",
+        }
+    declared_binding = block.get("dispatcher_binding")
+    binding_is_declared = declared_binding in VALID_DISPATCHER_BINDINGS
+    native = block.get("native_orchestrator")
+    return {
+        "installation": installation_id,
+        "native_orchestrator": native if type(native) is bool else None,
+        "dispatcher_binding": (
+            declared_binding if binding_is_declared else "standalone"
+        ),
+        "dispatcher_binding_source": (
+            "registry" if binding_is_declared else "default"
+        ),
+    }
 
 # Wave G Lane I (facts digest): version of the digest payload contract.
 FACTS_DIGEST_VERSION = "1"
@@ -313,6 +393,20 @@ def inspect_repository(
     """Inspect repository and return structured diagnostic state."""
     repo_root = repo_root.resolve()
     is_worktree, gitdir = detect_git_worktree(repo_root)
+
+    detected_harness = detect_host_harness()
+    host_mismatch_warning: Optional[str] = None
+
+    if target_harness and target_harness.lower() == "auto":
+        target_harness = detected_harness
+    elif (
+        target_harness
+        and detected_harness
+        and target_harness.lower() != detected_harness.lower()
+    ):
+        host_mismatch_warning = (
+            f"CLI flag --harness '{target_harness}' contradicts detected host environment '{detected_harness}'"
+        )
 
     # Worktree directory resolution (audit §4): for a linked worktree,
     # `gitdir` points into <main>/.git/worktrees/<name>; resolve the main
@@ -584,6 +678,14 @@ def inspect_repository(
                         except Exception:
                             pass
 
+    runtime_context: Dict[str, Any] = {
+        "target_harness": target_harness,
+        "target_installation": target_installation,
+        "resolved": state in ("HEALTHY_REGISTERED",),
+    }
+    if host_mismatch_warning:
+        runtime_context["host_mismatch_warning"] = host_mismatch_warning
+
     return {
         "inspection_version": "1.0.0",
         "repo_root": str(repo_root).replace("\\", "/"),
@@ -592,14 +694,15 @@ def inspect_repository(
         "state": state,
         "state_description": STATE_DESCRIPTIONS.get(state, "Unknown state"),
         "recommended_action": CANONICAL_ACTIONS.get(state, "diagnose_and_repair"),
-        "runtime_context": {
-            "target_harness": target_harness,
-            "target_installation": target_installation,
-            "resolved": state in ("HEALTHY_REGISTERED",),
-        },
+        "runtime_context": runtime_context,
         "schema_version": schema_version,
         "project_id": project_id,
         "scenario": scenario,
+        # Wave J: declared orchestration of the target installation
+        # (None when no installation context is given). `installations` is
+        # {} when the registry is missing or corrupted. The --facts-digest
+        # payload is deliberately NOT extended (its key set is locked).
+        "orchestration": resolve_orchestration(installations, target_installation),
         "latest_init_report": latest_init_report,
         "installations": installations,
         "capabilities": {
@@ -631,9 +734,33 @@ def format_human_report(report: Dict[str, Any]) -> str:
     if report.get("scenario"):
         sc = report["scenario"]
         lines.append(f"Agreed Scenario:    {sc.get('profile', 'Unset')} (model: {sc.get('collaboration_model', 'unspecified')})")
+
+    # Wave J: declared dispatcher binding of the target installation
+    # (agent-intake-dispatcher standalone vs orchestrator-hosted).
+    orch = report.get("orchestration")
+    if orch is None:
+        binding_text = "unresolved (no installation context)"
+    elif orch.get("dispatcher_binding_source") == "invalid":
+        binding_text = "invalid in registry"
+    elif orch.get("dispatcher_binding_source") == "registry":
+        binding_text = (
+            f"{orch.get('dispatcher_binding')} (declared in the registry)"
+        )
+        if orch.get("native_orchestrator") is True:
+            binding_text += "; native orchestrator: declared"
+        elif orch.get("native_orchestrator") is False:
+            binding_text += "; native orchestrator: declared absent"
+    else:
+        binding_text = "standalone (default: not declared in the registry)"
+    lines.append(f"Dispatcher Binding:  {binding_text}")
+
     if report.get("latest_init_report"):
         ir = report["latest_init_report"]
         lines.append(f"Latest Init Report: {ir.get('run_id')} (status: {ir.get('status')})")
+
+    runtime_ctx = report.get("runtime_context", {})
+    if runtime_ctx.get("host_mismatch_warning"):
+        lines.append(f"Host Mismatch:      [WARNING] {runtime_ctx['host_mismatch_warning']}")
 
     lines.extend([
         "",
@@ -688,7 +815,7 @@ def main() -> int:
     parser.add_argument(
         "--harness",
         default=None,
-        help="Target execution harness identifier (e.g., antigravity, zcode).",
+        help="Target execution harness identifier (e.g., antigravity, zcode, or auto).",
     )
     parser.add_argument(
         "--installation",
@@ -729,6 +856,11 @@ def main() -> int:
     args = parser.parse_args()
     repo_path = Path(args.repo_root)
 
+    target_harness = args.harness
+    if target_harness and target_harness.lower() == "auto":
+        target_harness = detect_host_harness()
+        args.harness = target_harness
+
     # Wave I §6.1: --read-only is an enforced assertion, not a label. The
     # audit hook guards exactly the inspection call; without the flag the
     # run flow is untouched (nullcontext), so output stays byte-identical.
@@ -739,7 +871,7 @@ def main() -> int:
         with guard:
             report = inspect_repository(
                 repo_root=repo_path,
-                target_harness=args.harness,
+                target_harness=target_harness,
                 target_installation=args.installation,
             )
     except ReadOnlyViolation as exc:
@@ -768,10 +900,15 @@ def main() -> int:
             "in the registry",
             "no runtime context supplied or resolvable; refusing to "
             "silently adopt an arbitrary active installation",
-            "re-run with --harness <id> --installation <id> (see "
-            ".agents/meta-project.json), or resolve context via the "
-            "ground-meta-project skill",
+            "specify --harness <id> matching your ACTUAL agent host runtime "
+            "(e.g. antigravity, zcode, cursor, claude-code). DO NOT copy an active "
+            "harness from .agents/meta-project.json! If your harness is not yet "
+            "registered, this will correctly trigger HEALTHY_NEW_HARNESS.",
         ) + "\n")
+
+    mismatch_warning = report.get("runtime_context", {}).get("host_mismatch_warning")
+    if mismatch_warning:
+        sys.stderr.write(f"[WARNING] {mismatch_warning}\n")
 
     if args.facts_digest:
         # Wave G Lane I: the digest is the whole payload (compact, sorted,

@@ -71,6 +71,7 @@ Before defining or modifying roles, inspect initialization results and repositor
    - **Fail-Closed Block:** if the init report is missing, or its status is `awaiting_decision` or `blocked`, **HALT**. Do not plan or deploy the team; report the pending decisions or blockers to the user.
    - **Machine-Enforced Intake:** admission is executed by the engine, not by agent judgment. Team changes are recorded via `python scripts/manage_reports.py manage --action create ...`, which runs fail-closed intake (`evaluate_manage_intake`: local-registry project/installation/harness match, admitted actor, existing init run, completed + ready status, fresh input fingerprints). Hand-assembled manage reports are prohibited; a refused intake must be resolved (fresh init run), never bypassed.
    - **Staleness Protocol:** if the git commit in the report differs from current `HEAD`, execute a limited re-survey to verify that boundaries, stacks, and registry remain valid. Do NOT wipe the existing team or force a full re-initialization due to normal commits. Read the agreed `scenario` block from the report or `.agents/meta-project.json`.
+   - **Host Runtime Self-Identification (Anti-Anchoring Invariant):** The managing agent MUST identify its target execution context strictly from its actual host harness (e.g. environment variables `ANTIGRAVITY_AGENT`, `ZCODE_PROJECT_DIR` / `ZCODE_SESSION_ID`, system prompt, or AppData path). Roles and bindings are configured strictly for the agent's real host harness (`<harness_id>`). It is strictly prohibited to adopt or simulate a foreign installation from existing `.agents/meta-project.json` or report files to force admission.
 1. **Rapid repository scan for role-relevant markers:** hosting/CI (`.github/`, workflows, PR/issue templates); licenses and open-source governance (`LICENSE`, `CONTRIBUTING.md`, dependency manifests); containerization/orchestration (`Dockerfile`, `docker-compose*.yml`, `k8s/`, `helm/`); testing infrastructure (`tests/`, runner configs, fixtures); security and sensitive data (`auth/`, `security/`, token handling, encryption); UI and design (frontend modules, bot keyboards, assets, design tokens); current project passport (`AGENTS.md`, `.agents/project_knowledge/` slices); secondary / polyglot stacks (`.cpp`, `.c`, `.h`, `.rs`, `.go`, `.swift` in `client/`, `native/`, `core/`, `desktop/`).
 
 ---
@@ -78,6 +79,8 @@ Before defining or modifying roles, inspect initialization results and repositor
 ### Phase 2: Scenario-Driven Team Topology Planning & Sizing
 
 Team composition is determined by the agreed **`scenario`** and technology stack (codebase LOC is a secondary sizing guideline).
+
+**Anti-Anchoring Invariant (Host Runtime Awareness):** Roles and bindings MUST be planned and bound strictly to the real host harness of the acting agent (or the explicit multi-harness target designated by the user). It is strictly prohibited to assign roles to or borrow credentials/actor IDs from a foreign installation (e.g. adopting `zcode::zc-main` while executing in Antigravity) from existing configuration files.
 
 **Topology Precedence Invariants (`resolve_team_topology`):**
 1. The explicitly agreed `collaboration_model` is the USER'S DECISION and is never silently downgraded by size heuristics (LOC never turns an agreed triad into a duo).
@@ -99,7 +102,16 @@ When orchestrating the team, `manage-meta-project` must distinguish and explicit
 5. **Archive unused role:** move obsolete roles to `.agents/team/archive/<role_id>/` strictly after verifying that NO other installation references them.
 
 * **Polyglot Stack Isolation Rule (No Toxic Bundles):** strictly forbid bundling secondary compiled or specialized stacks (C/C++, Rust, Go, native GUI) into `agent-general-worker` without dedicated skills — either synthesize a dedicated role (e.g. `agent-native-desktop` with native compilers and toolchains) or explicitly map the native directories to Red Zone with a mandatory Handoff trigger.
-* **Mandatory Dispatcher Rule (No Multi-Role Chaos):** when deploying 3 or more specialized roles, an intake dispatcher (`agent-intake-dispatcher` or integrated in `agent-dev-lead`) is strictly mandatory. Forbid leaving the user with an unrouted bundle of multiple isolated roles without a single point of entry.
+* **Mandatory Dispatcher Rule (No Multi-Role Chaos):** when deploying 3 or more specialized roles, an intake dispatcher (`agent-intake-dispatcher` or integrated in `agent-dev-lead`) is strictly mandatory. Forbid leaving the user with an unrouted bundle of multiple isolated roles without a single point of entry. The dispatcher contract is executed by a role session or by the harness's native orchestrator — see *Dispatcher Runtime Binding* below.
+
+**Dispatcher Runtime Binding (harness-dependent):** a *native orchestrator* is an agent provided by the harness itself that can launch and collect other agents inside one session. The dispatcher contract — passport, registry binding, qualified `actor_id`, routing table, Red line and the scenario's verification policy — is identical in both bindings; only the executor changes.
+
+| Binding | Harness | Executor | How work reaches other roles |
+| :--- | :--- | :--- | :--- |
+| `standalone` (default) | no native orchestrator | a dedicated role session loaded from the dispatcher passport | user-mediated handoff packages only (rule 2) |
+| `orchestrator-hosted` | native orchestrator available | that orchestrator, loaded with the same dispatcher passport | by the agreed `delegation_level`: `strictly_manual` — handoff packages through the user; `controlled` — one approved delegation plan per batch, then the orchestrator dispatches; `autonomous` — the orchestrator dispatches directly |
+
+The binding is established per installation in Phase 4 — stated by the user or observed in the acting agent's own session — and recorded in the registry (`installations.<id>.orchestration`: `native_orchestrator`, `dispatcher_binding` — `orchestrator-hosted` requires `native_orchestrator: true`), declared in the manage report (`changes[]`: `set_orchestration`) and annotated on the Section 7 roster line; it is never inferred from the harness name, environment variables or another installation's records. Unknown or absent orchestrator means `standalone`, which works on every harness. Transient subagents (rule 7) stay allowed under every binding.
 
 #### 3. Open Competency Catalog (Role Matrix)
 > [!IMPORTANT]
@@ -108,7 +120,7 @@ When orchestrating the team, `manage-meta-project` must distinguish and explicit
 | Role | Deploy when (repository markers) | Stack skills | Red-zone defaults (never autonomous) |
 | :--- | :--- | :--- | :--- |
 | `agent-general-worker` | Any project — fundamental default role | `clean-code`, `code-reviewer`, `systematic-debugging` + stack skills | destructive actions; specialized domain modules without Handoff |
-| `agent-intake-dispatcher` | Any project with 2+ roles | `prompt-engineering`, `brainstorming` | direct modification of project source code |
+| `agent-intake-dispatcher` | Any project with 2+ roles; executed by a role session or by the harness's native orchestrator (binding above) | `prompt-engineering`, `brainstorming`, `triage-incident` | direct modification of project source code; speculative fix prompts on unverified hypotheses |
 | `agent-meta-guardian` | `meta-project` structure present | `clean-code`, `code-reviewer` | deleting the knowledge base without user confirmation |
 | `agent-consensus-judge` | Contested decisions | `architecture-decision-records`, `api-design-principles` | decisions without empirical evidence |
 | `agent-deep-auditor` | Mature codebase (>500 lines) | `systematic-debugging`, `code-reviewer` | destructive refactorings, autonomous file deletion |
@@ -152,6 +164,7 @@ Generate a concise advisory proposal for the user:
 2. **Recommended roles to enable:** baseline worker (`agent-general-worker`) + 2–4 most critical domain roles matching detected markers, with brief rationales.
 3. **Archive candidates:** (if inactive roles exist).
 4. **Approval prompt:** "Approve provisioning the following roles: [...]?"
+5. **Dispatcher binding** for the target installation — `standalone` or `orchestrator-hosted`; ask the user when the orchestrator availability is unknown, default `standalone`.
 
 ---
 
@@ -162,10 +175,10 @@ After user confirmation, perform the production write (READ each resource exactl
 2. Register the role in `.agents/meta-project.json` under `roles.<role_id>`:
    - Configure bindings for the project's active installation (`<active_installation_id>` with `status: "active"` and `profile_path: ".agents/team/<role_id>/profile.md"`).
    - Configure planned bindings only for installations the user EXPLICITLY plans (`<planned_installation_id>` with `status: "planned"` and `profile_path: null`); omit when none exist. (`ag-main`/`zc-main` are Meta-Project's own values — examples, never defaults.)
-   - Derive the qualified `actor_id`: `<project_id>::<harness_id>::<installation_id>::<role_id>`.
+   - Derive the qualified `actor_id`: `<project_id>::<harness_id>::<installation_id>::<role_id>`. Record the agreed dispatcher binding under `installations.<installation_id>.orchestration` (`native_orchestrator`, `dispatcher_binding`) and declare it in the manage report (`changes[]`: `{"kind": "set_orchestration", "installation": "<installation_id>"}`); the intake gate refuses an undeclared orchestration change.
 3. Scaffold `.agents/team/<role_id>/profile.md` from `resources/profile.md`: fill in role ID, qualified `actor_id`, `harness_id`, `installation_id`, scope, invocation triggers, active skills, and boundary permissions; initialize the telemetry table with current date, initiator, and `actor_id`.
 4. Create a private notes file `.agents/team/<role_id>/notes.md` from `resources/notes.md`.
-5. Generate the initial ready-to-use system prompt `.agents/team/<role_id>/system_prompt.md` from `resources/system_prompt.md`: populate role name, purpose, qualified `actor_id`, skill stack, and canonical boundary permissions (Green / Yellow / Red).
+5. Generate the initial ready-to-use system prompt `.agents/team/<role_id>/system_prompt.md` from `resources/system_prompt.md`: populate role name, purpose, qualified `actor_id`, skill stack, and canonical boundary permissions (Green / Yellow / Red). Under `orchestrator-hosted`, append to every generated prompt one line: `Role-to-role dispatch follows the agreed delegation_level (dispatcher binding: orchestrator-hosted).`
 6. Register roles in root `AGENTS.md` under the team section (Section 7 in the canonical passport):
    ```markdown
    ## 7. Project Agent Team & Multi-Harness Identity (.agents/team/)
@@ -193,7 +206,7 @@ Upon applying changes, record the management execution report:
    ```
    The report is written atomically to `.agents/reports/<installation_id>/manage/<manage_run_id>.json`, linking back to the source `init_run_id`.
 2. **Crucial Invariants of Team Orchestration:**
-   - **Profile Created ≠ Loaded by Harness:** creating `.agents/team/<role_id>/profile.md` does not mean the role is actively loaded or recognized by the agent harness.
+   - **Profile Created ≠ Loaded by Harness:** creating `.agents/team/<role_id>/profile.md` does not mean the role is actively loaded or recognized by the agent harness. Under `orchestrator-hosted`, the dispatcher passport takes effect only after it is loaded into the orchestrator — list that load as a manual step until it is verified.
    - **Execution Role Invariance:** completing `manage-meta-project` does NOT change the active agent's qualified identity (`actor_id`). The agent retains its qualified role identity and reports completion without mutating its session identity.
    - Output a concise human summary displaying preserved, created, and adapted roles, bindings, and remaining manual steps.
 
@@ -212,11 +225,12 @@ Every team agent must adhere to core coordination principles:
    - Recommended prompt for agent-B: <ready-to-use prompt text>
    ```
    When handing off mid-task, first record a `- [>]` checkpoint per tasks.md rules, so the receiving agent resumes from the last `- [>]` entry instead of re-reading the whole slice.
+   Under the `orchestrator-hosted` dispatcher binding, role-to-role dispatch follows the agreed `delegation_level` (Phase 2); the checkpoint rule above still applies. For unverified cross-domain defects, emit a **Probe Bundle** (`mode: investigate`) via `scripts/triage_incident.py` instead of speculative fix instructions.
 3. **Handoff Chain Limit:** maximum of 2 consecutive handoffs (hops = 2). On the 3rd step, control must return to the human.
 4. **Shared File Annotations Sanctity:** prohibited from editing others' notes in `tasks.md`, `observations.md`, and `architecture.md`; only own status/tasks can be updated. On conflict, present a clear description of the trade-off to the user.
 5. **Exclusive Ownership of `notes.md`:** only the role owner can modify `.agents/team/<role>/notes.md`.
 6. **Evidence-Based Arbitration:** `agent-consensus-judge` issues verdicts strictly based on test results, benchmark measurements, and official specifications.
 7. **Parallel Subagent Delegation (`dispatching-parallel-agents`):** when handling repetitive, parallel, or multi-directory batch workloads (e.g. multi-file migrations, generating multiple test suites, bulk linting/audits), primary agents MUST invoke the skill `dispatching-parallel-agents`. The parent agent partitions the workload across transient subagents by non-overlapping directories or tasks, passing down project invariants from `AGENTS.md` and role boundaries. The parent coordinates completion, runs integrity tests, and returns a consolidated report to the user without burdening the human with intermediate subagent handoffs.
-8. **Circuit Breaker & Flow Tracing:** repeatedly failing edits targeting one defect, or new regressions appearing in adjacent code while fixing it, are a semantic signal to STOP editing and trace the full data path (origin ➔ transport ➔ persistence ➔ consumer) before the next diff. A normal iterative TDD loop is NOT a violation.
+8. **Circuit Breaker & Flow Tracing:** repeatedly failing edits targeting one defect, contradictory evidence against the working hypothesis, or new regressions in adjacent code are a semantic signal to STOP editing, audit Error-Path and Fallback-Masking paths, and trace the full data path (origin ➔ transport ➔ persistence ➔ consumer) before the next diff. A normal iterative TDD loop is NOT a violation.
 9. **Target State Audit:** before modifying non-trivial modules in Yellow or Red zones, determine: Single Source of Truth (authoritative state owner), Persistence & Cache (disk, memory, `%APPDATA%`, registry and invalidation), and Contract Duplication (mirrored logic across languages/clients).
-10. **Toolchain Handoff Tripwire:** if an error originates from an unspecialized toolchain (e.g., MinGW, cross-compiler, WiX, Docker, kernel build pipelines) belonging to another role, do not attempt heuristic patching — immediately emit a structured Handoff Packet.
+10. **Toolchain Handoff Tripwire:** if an error originates from an unspecialized toolchain (e.g., MinGW, cross-compiler, WiX, Docker, kernel build pipelines) belonging to another role, do not attempt heuristic patching or issue speculative `FIX` prompts — immediately emit a structured Probe Bundle (`mode: investigate`) via `triage_incident.py`.

@@ -1,0 +1,323 @@
+{
+  "schema_version": "1.0.0",
+  "report_type": "update",
+  "project_id": "vlv-code/PEC",
+  "installation_id": "zc-main",
+  "harness_id": "zcode",
+  "actor_id": "vlv-code/PEC::zcode::zc-main::agent-meta-guardian",
+  "run_id": "apply-20261124T165306Z-c4cb077e",
+  "created_at": "2026-11-24T16:53:08Z",
+  "status": "completed",
+  "git_state": {
+    "commit_sha": "6ccd2ab6faeec13476a01ec9b7179475c3fd69a9",
+    "branch": "main",
+    "is_clean": false,
+    "modified_files": [
+      ".agents/approved_update_plan.json",
+      ".agents/framework-lock.json",
+      ".agents/skills/decommission-meta-project/SKILL.md",
+      ".agents/skills/ground-meta-project/SKILL.md",
+      ".agents/skills/init-meta-project/SKILL.md",
+      ".agents/skills/init-meta-project/resources/AGENTS.md",
+      ".agents/skills/init-meta-project/resources/architecture.md",
+      ".agents/skills/init-meta-project/resources/ground-meta-project-SKILL.md",
+      ".agents/skills/init-meta-project/resources/observations.md",
+      ".agents/skills/init-meta-project/resources/record-observation-SKILL.md",
+      ".agents/skills/init-meta-project/resources/sync-architecture-SKILL.md",
+      ".agents/skills/init-meta-project/resources/tasks.md",
+      ".agents/skills/init-meta-project/resources/weak_spots.md",
+      ".agents/skills/manage-meta-project/SKILL.md",
+      ".agents/skills/manage-meta-project/resources/notes.md",
+      ".agents/skills/manage-meta-project/resources/profile.md",
+      ".agents/skills/manage-meta-project/resources/system_prompt.md",
+      ".agents/skills/record-observation/SKILL.md",
+      ".agents/skills/scan-meta-project/SKILL.md",
+      ".agents/skills/sync-architecture/SKILL.md",
+      ".agents/skills/tune-meta-project/SKILL.md",
+      ".agents/skills/update-meta-project/SKILL.md",
+      ".agents/update-journal.json",
+      "scripts/_common.py",
+      "scripts/compact_memory.py",
+      "scripts/inspect_meta_project.py",
+      "scripts/manage_reports.py",
+      "scripts/record_obs.py",
+      "scripts/sync_templates.py",
+      "scripts/update_meta_project.py",
+      "scripts/verify_identity.py",
+      "src/client/dashboard/tabs/routing.ts",
+      "templates/AGENTS.md",
+      "templates/global/AGENTS.md",
+      "templates/project_knowledge/architecture.md",
+      "templates/project_knowledge/observations.md",
+      "templates/project_knowledge/tasks.md",
+      "templates/project_knowledge/weak_spots.md",
+      "templates/release_manifest.json",
+      "templates/reports/init_report.json",
+      "templates/reports/manage_report.json",
+      "templates/reports/tune_report.json",
+      "templates/reports/update_report.json",
+      "templates/team/notes.md",
+      "templates/team/profile.md",
+      "templates/team/system_prompt.md",
+      ".agents/skills/triage-incident/",
+      ".agents/triage_incident.py.bak",
+      ".agents/update-engine.lock",
+      "scripts/triage_incident.py",
+      "test/geoPresetEdit.test.ts"
+    ],
+    "git_state_error": null
+  },
+  "input_fingerprints": [
+    {
+      "path": ".agents/meta-project.json",
+      "sha256": "0422bcff3c2e6ed260b8703392107e1aa76312684159103ed99ef092fee1d06a"
+    },
+    {
+      "path": ".agents/project_knowledge/boundaries.md",
+      "sha256": "238fe044d588c31ccdd9d05a3c19055a07ddc4bd94264204be2c078c020d1432"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "59fb4e70bdfb6da60daf1c2f5f9756ef08ca32abc98767ae3e3074cf40692f3d"
+    },
+    {
+      "path": ".agents/framework-lock.json",
+      "sha256": "265388890bbfd6e93311a42ee8e2c50f6ac9e07dec6b94b51a2da089b377182b"
+    }
+  ],
+  "versions": {
+    "before": "1fd899635ae404b551cf5de3ed01ea5ed55f0c21",
+    "after": {
+      "framework_version": "1.0.0-alpha.8",
+      "commit_sha": "0226fa708c785dfcdf2b77d445b96b509ddbd109"
+    }
+  },
+  "source": {
+    "ref": "main",
+    "commit_sha": "0226fa708c785dfcdf2b77d445b96b509ddbd109",
+    "origin": "upstream"
+  },
+  "affected_components": [
+    {
+      "path": "scripts/_common.py",
+      "kind": "script",
+      "action": "update"
+    },
+    {
+      "path": "scripts/verify_identity.py",
+      "kind": "script",
+      "action": "update"
+    },
+    {
+      "path": "scripts/inspect_meta_project.py",
+      "kind": "script",
+      "action": "update"
+    },
+    {
+      "path": "scripts/manage_reports.py",
+      "kind": "script",
+      "action": "update"
+    },
+    {
+      "path": "scripts/sync_templates.py",
+      "kind": "script",
+      "action": "update"
+    },
+    {
+      "path": "scripts/update_meta_project.py",
+      "kind": "script",
+      "action": "update"
+    },
+    {
+      "path": "scripts/triage_incident.py",
+      "kind": "script",
+      "action": "create"
+    },
+    {
+      "path": "skills/init-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "update"
+    },
+    {
+      "path": "skills/init-meta-project/resources/tasks.md",
+      "kind": "resource",
+      "action": "update"
+    },
+    {
+      "path": "skills/init-meta-project/resources/AGENTS.md",
+      "kind": "resource",
+      "action": "update"
+    },
+    {
+      "path": "skills/init-meta-project/resources/record-observation-SKILL.md",
+      "kind": "resource",
+      "action": "update"
+    },
+    {
+      "path": "skills/init-meta-project/resources/sync-architecture-SKILL.md",
+      "kind": "resource",
+      "action": "merge"
+    },
+    {
+      "path": "skills/init-meta-project/resources/ground-meta-project-SKILL.md",
+      "kind": "resource",
+      "action": "update"
+    },
+    {
+      "path": "skills/manage-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "update"
+    },
+    {
+      "path": "skills/manage-meta-project/resources/profile.md",
+      "kind": "resource",
+      "action": "update"
+    },
+    {
+      "path": "skills/manage-meta-project/resources/notes.md",
+      "kind": "resource",
+      "action": "update"
+    },
+    {
+      "path": "skills/manage-meta-project/resources/system_prompt.md",
+      "kind": "resource",
+      "action": "update"
+    },
+    {
+      "path": "skills/record-observation/SKILL.md",
+      "kind": "skill",
+      "action": "update"
+    },
+    {
+      "path": "skills/sync-architecture/SKILL.md",
+      "kind": "skill",
+      "action": "merge"
+    },
+    {
+      "path": "skills/ground-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "update"
+    },
+    {
+      "path": "skills/update-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "merge"
+    },
+    {
+      "path": "skills/decommission-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "update"
+    },
+    {
+      "path": "skills/scan-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "update"
+    },
+    {
+      "path": "skills/tune-meta-project/SKILL.md",
+      "kind": "skill",
+      "action": "update"
+    },
+    {
+      "path": "skills/triage-incident/SKILL.md",
+      "kind": "skill",
+      "action": "create"
+    },
+    {
+      "path": "templates/AGENTS.md",
+      "kind": "template",
+      "action": "update"
+    },
+    {
+      "path": "templates/global/AGENTS.md",
+      "kind": "template",
+      "action": "update"
+    },
+    {
+      "path": "templates/project_knowledge/architecture.md",
+      "kind": "template",
+      "action": "update"
+    },
+    {
+      "path": "templates/project_knowledge/observations.md",
+      "kind": "template",
+      "action": "update"
+    },
+    {
+      "path": "templates/project_knowledge/tasks.md",
+      "kind": "template",
+      "action": "update"
+    },
+    {
+      "path": "templates/project_knowledge/weak_spots.md",
+      "kind": "template",
+      "action": "update"
+    },
+    {
+      "path": "templates/release_manifest.json",
+      "kind": "template",
+      "action": "update"
+    },
+    {
+      "path": "templates/team/notes.md",
+      "kind": "template",
+      "action": "update"
+    },
+    {
+      "path": "templates/team/profile.md",
+      "kind": "template",
+      "action": "update"
+    },
+    {
+      "path": "templates/team/system_prompt.md",
+      "kind": "template",
+      "action": "update"
+    },
+    {
+      "path": "templates/reports/init_report.json",
+      "kind": "report_schema",
+      "action": "update"
+    },
+    {
+      "path": "templates/reports/manage_report.json",
+      "kind": "report_schema",
+      "action": "update"
+    },
+    {
+      "path": "templates/reports/tune_report.json",
+      "kind": "report_schema",
+      "action": "update"
+    },
+    {
+      "path": "templates/reports/update_report.json",
+      "kind": "report_schema",
+      "action": "update"
+    }
+  ],
+  "approved_plan_file": ".agents/approved_update_plan.json",
+  "executed_migrations": [],
+  "preserved_adaptations": [
+    {
+      "path": "skills/init-meta-project/resources/sync-architecture-SKILL.md",
+      "detail": "local_repo_data block(s) preserved: TAG"
+    },
+    {
+      "path": "skills/sync-architecture/SKILL.md",
+      "detail": "local_repo_data block(s) preserved: TAG"
+    },
+    {
+      "path": "skills/update-meta-project/SKILL.md",
+      "detail": "local_repo_data block(s) preserved: TAG"
+    }
+  ],
+  "conflicts": [],
+  "checks": [
+    {
+      "name": "update_apply",
+      "command": "python scripts/update_meta_project.py apply",
+      "status": "pass",
+      "output_summary": "39 components affected, 0 conflicts, 0 needs-base, 0 protected-refused, journal written to .agents/update-journal.json"
+    }
+  ],
+  "remaining_manual_actions": []
+}
