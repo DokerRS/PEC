@@ -67,6 +67,7 @@ static int PecCompareVersion(const int a[3], const int b[3])
 #include <stdlib.h>
 #include <string.h>
 #include "../profile/json.h"
+#include "xray_rt.h"
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "winhttp.lib")
@@ -1273,6 +1274,13 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                                     }
                                                 }
                                             }
+                                            // REMNA-PERUSER-XRAY-1: per-user local Xray core runtime
+                                            JVal* xrBlock = json_get(respRoot, "xrayRuntime");
+                                            if (xrBlock)
+                                            {
+                                                PecXrayHandleSyncBlock(xrBlock, srvUrl, fltTok);
+                                            }
+
                                             json_free(respRoot);
                                         }
                                         free(rBuf);
@@ -1366,6 +1374,7 @@ static void PecSyncStart(HWND hwndMain)
 static void PecSyncStop(void)
 {
     g_syncRunning = FALSE;
+    PecXrayShutdown();
     if (g_hSyncWakeEvent) SetEvent(g_hSyncWakeEvent);
 
     if (g_loopbackSocket != INVALID_SOCKET)

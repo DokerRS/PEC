@@ -102,6 +102,27 @@ export function deriveProxySecret(username: string): string {
 }
 
 /**
+ * Deterministic per-user localhost listener port. On terminal servers many
+ * users are logged in simultaneously and each runs their own xray process,
+ * so a single fixed port would let only the first session bind. The server
+ * derives base + (HMAC(user) mod 4096) and ships the exact port in the sync
+ * block; clients/extensions never have to recompute it.
+ */
+export function deriveLocalPort(username: string, basePort: number): number {
+  const clean = normalizeRemnawaveUsername(username);
+  if (!clean) throw new Error("Username is required to derive the local port");
+  const base = Number(basePort);
+  if (!Number.isInteger(base) || base < 1 || base > 61438) {
+    throw new Error("listenPort must be between 1 and 61438 for per-user port derivation");
+  }
+  const digest = crypto
+    .createHmac("sha256", getOrCreateMasterSecret())
+    .update(`pec-xray-port-v1:${clean.toLowerCase()}`)
+    .digest();
+  return base + (digest.readUInt16BE(0) % 4096);
+}
+
+/**
  * AD identity ("DOMAIN\\user", "user@corp.local", "user") -> Remnawave
  * username / proxy account name. Agreed mapping: bare sAMAccountName.
  */
@@ -254,7 +275,10 @@ export function buildXrayUserConfig(params: {
         listen: "127.0.0.1",
         protocol: "http",
         settings: {
-          servers: [{ level: 0, user: params.secret, pass: params.secret, email: user }],
+          // Account user/pass match the proxyUser/proxyPass delivered in the
+          // sync block, so the extension can answer the 407 challenge with
+          // exactly the credentials the server published.
+          servers: [{ level: 0, user, pass: params.secret, email: user }],
         },
         sniffing: { enabled: true, destOverride: ["http", "tls"] },
       },
@@ -264,7 +288,7 @@ export function buildXrayUserConfig(params: {
         protocol: "socks",
         settings: {
           auth: "password",
-          accounts: [{ user: params.secret, pass: params.secret }],
+          accounts: [{ user, pass: params.secret }],
         },
       },
     ],
@@ -290,4 +314,86 @@ export function buildXrayUserConfig(params: {
     config,
     servers: servers.map((s) => ({ name: s.name, host: s.host, port: s.port })),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Per-user sync block (shared by /api/app/sync and /api/sync)         */
+/* ------------------------------------------------------------------ */
+
+export interface XraySyncBlock {
+  enabled: boolean;
+  version?: string;
+  listenPort?: number;
+  socksPort?: number;
+  proxyUser?: string;
+  proxyPass?: string;
+  config?: Record<string, unknown>;
+  servers?: Array<{ name: string; host: string; port: number }>;
+  reason?: string;
+}
+
+const XRAY_BLOCK_DISABLED: XraySyncBlock = { enabled: false };
+
+/**
+ * Build the `xrayRuntime` block delivered to clients/extensions for one AD
+ * user. Fail-closed by design: any problem (runtime off, user unknown, panel
+ * unreachable, subscription without usable servers) yields
+ * `{ enabled: false, reason }` and never throws, so the legacy PAC path keeps
+ * working. The subscription link itself is never included — only the rendered
+ * config and server names.
+ */
+export async function buildXraySyncBlock(params: {
+  username: string | null | undefined;
+  includeConfig?: boolean;
+}): Promise<XraySyncBlock> {
+  const settings = loadXrayRuntimeSettings();
+  if (!settings.enabled) return XRAY_BLOCK_DISABLED;
+  const user = normalizeRemnawaveUsername(params.username || "");
+  if (!user) return XRAY_BLOCK_DISABLED;
+
+  let subscription;
+  try {
+    const { fetchRemnawaveSubscription } = await import("./rotate.js");
+    subscription = await fetchRemnawaveSubscription(user);
+  } catch (err: any) {
+    return { enabled: false, reason: "panel_error", version: settings.version, listenPort: settings.listenPort };
+  }
+  if (!subscription) {
+    return { enabled: false, reason: "user_not_found", version: settings.version, listenPort: settings.listenPort };
+  }
+  if (subscription.user?.isActive === false || !(subscription.links || []).length) {
+    return { enabled: false, reason: "no_active_subscription", version: settings.version, listenPort: settings.listenPort };
+  }
+
+  try {
+    const secret = deriveProxySecret(user);
+    // Per-user deterministic localhost port: on terminal servers several
+    // users run their own core simultaneously, so a single fixed port would
+    // only bind for the first session. Clients/extensions use the port from
+    // this block verbatim and never recompute it.
+    const basePort = settings.listenPort;
+    const listenPort = basePort <= 61438 ? deriveLocalPort(user, basePort) : basePort;
+    const rendered = buildXrayUserConfig({
+      username: user,
+      secret,
+      listenPort,
+      subscription,
+    });
+    const block: XraySyncBlock = {
+      enabled: true,
+      version: settings.version,
+      listenPort,
+      socksPort: listenPort + 1,
+      proxyUser: user,
+      proxyPass: secret,
+      servers: rendered.servers,
+    };
+    // The extension only needs the local listener coordinates + credentials
+    // (PEC-App owns the config file); the native client receives the full
+    // rendered config to (re)write xray's config.json.
+    if (params.includeConfig) block.config = rendered.config;
+    return block;
+  } catch {
+    return { enabled: false, reason: "no_active_subscription", version: settings.version, listenPort: settings.listenPort };
+  }
 }

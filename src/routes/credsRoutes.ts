@@ -12,6 +12,7 @@ import { createRateLimiter, timingSafeEqualString } from "../middleware/security
 import { signPacUrlParams, verifyPacUrlParams } from "../pacSigner.js";
 import { sanitizeSingleLine, logger } from "../logger.js";
 import { resolveSyncThemeForClients } from "../serverTheme.js";
+import { buildXraySyncBlock, normalizeRemnawaveUsername, type XraySyncBlock } from "../xrayRuntime.js";
 
 function authenticateExtRequest(
   tokenProvided: string | undefined,
@@ -510,6 +511,21 @@ export function createCredsRouter(getSharedToken: () => string): Router {
       const pacInstanceQuery = instanceId ? `&instanceId=${encodeURIComponent(instanceId)}` : "";
       const pacUrl = `${getBaseUrl(req)}/proxy.pac?profileId=${encodeURIComponent(assignedProfile.id)}&exp=${exp}&sig=${sig}${pacProxyQuery}${pacInstanceQuery}`;
 
+      // REMNA-PERUSER-XRAY-1: per-user local Xray runtime block for the
+      // extension. Same gating as /api/app/sync (AD-authorized user only,
+      // fail-closed). The extension receives listener coordinates + creds but
+      // not the rendered config — PEC-App owns the config file on disk.
+      const xrayUser = normalizeRemnawaveUsername(cleanDomainUser || existingMeta?.domainUser || "");
+      let xrayBlock: XraySyncBlock | undefined;
+      if (xrayUser && adConfig.enabled && isDomainUserAllowed(xrayUser)) {
+        const block = await buildXraySyncBlock({ username: xrayUser });
+        if (block.enabled) {
+          xrayBlock = block;
+        } else if (block.reason) {
+          xrayBlock = { enabled: false, reason: block.reason };
+        }
+      }
+
       recordAudit({
         ip: clientHost,
         endpoint: "/api/sync",
@@ -566,6 +582,7 @@ export function createCredsRouter(getSharedToken: () => string): Router {
         profileDefaultPolicy: assignedProfile.defaultPolicy || "direct",
         profileRules,
         proxyReachable,
+        ...(xrayBlock ? { xrayRuntime: xrayBlock } : {}),
         uiLayout: bldCfg.uiLayout || "console",
         colorPalette: srcTheme.theme.palette,
         theme: srcTheme.theme,

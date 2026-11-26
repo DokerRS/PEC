@@ -396,6 +396,8 @@ if (typeof window !== 'undefined') {
     // REMNA-PERUSER-XRAY-1: Xray runtime settings card
     const btnSaveXrayRuntime = document.getElementById('btnSaveXrayRuntime');
     if (btnSaveXrayRuntime) btnSaveXrayRuntime.addEventListener('click', telemetry.saveXrayRuntimeSettingsAction);
+    const btnFetchXrayBinary = document.getElementById('btnFetchXrayBinary');
+    if (btnFetchXrayBinary) btnFetchXrayBinary.addEventListener('click', telemetry.fetchXrayBinaryAction);
 
     // Remnawave Panels table actions delegation
     document.addEventListener('click', function(e: any) {

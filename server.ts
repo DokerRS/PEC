@@ -293,7 +293,7 @@ app.use(createAppBuilderRouter(() => EXT_SHARED_TOKEN, () => ADMIN_TOKEN));
 app.use(createRotationRouter());
 app.use("/api/ad", createAdRouter(adminAuth));
 app.use("/api/server-theme", createServerThemeRouter(adminAuth));
-app.use("/api/xray-runtime", createXrayRuntimeRouter(adminAuth));
+app.use("/api/xray-runtime", createXrayRuntimeRouter(adminAuth, () => EXT_SHARED_TOKEN));
 app.use(createProxiesRouter());
 app.use(createReleasesRouter(() => ADMIN_TOKEN, createCookieAuthenticator(), () => EXT_SHARED_TOKEN));
 app.use(createAppSyncRouter(() => EXT_SHARED_TOKEN, () => ADMIN_TOKEN, createCookieAuthenticator()));

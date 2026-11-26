@@ -31,12 +31,15 @@ Architectural map, subsystem interaction, and data flows.
 +----------------------------+                +--------------+--------------+
               ^                                              |
               | Loopback                                     | Inbound Creds
-              v (127.0.0.1)                                  v Rotation
+              | (127.0.0.1)                                  v Rotation
+              | per-user HTTP/SOCKS                          |
+              | listener from local Xray core                |
 +----------------------------+                +-----------------------------+
 | Desktop Client (PEC-App)   | -------------> | Remnawave Panel             |
 | - DirectX 11 / Dear ImGui  |   Sync Telemetry| (SSRF Guard & DNS Rebinding |
 | - Service / Daemon         |                |  Protection)                |
-+----------------------------+                +-----------------------------+
+| - Local Xray Core (child)  |                +-----------------------------+
++----------------------------+
 ```
 
 ### 2.1 Server Core & Security Gateway
@@ -97,6 +100,12 @@ Architectural map, subsystem interaction, and data flows.
 - **Modules:** `src/loadEnv.ts` (`loadDockerSecrets`), `docker-compose.yml` / `docker-compose.prod.yml`, `.gitleaks.toml`, `.github/workflows/security.yml`.
 - **Function:** Compose deployments can inject all five sensitive variables (`ADMIN_TOKEN`, `EXT_SHARED_TOKEN`, `ADMIN_PASSWORD`, `PAC_SIGNING_SECRET`, `CODE_SIGN_MASTER_KEY`) as `<VAR>_FILE` Docker secrets, resolved by `loadDockerSecrets` with plain-env fallback. `.gitleaks.toml` extends the SHA-pinned gitleaks action with PEC-specific token patterns and fixture allowlists (AUDIT-INFRA-P3).
 
+### 2.11 Per-User Xray Runtime (REMNA-PERUSER-XRAY-1)
+- **Modules:** `src/xrayRuntime.ts`, `src/xrayBinaries.ts`, `src/routes/xrayRuntimeRoutes.ts`; consumers `extension/background.js` (mirrored in `src/templates/backgroundTemplate.ts`) and `client/Windows/gui/ui/xray_rt.h` (wired via `client/Windows/gui/ui/pec_sync.h`).
+- **Function:** The PEC server is a control plane only — it never runs Xray and never stores subscriptions. Admin pins one Xray core version in the dashboard; the server caches pinned GitHub release archives (`src/xrayBinaries.ts`) and serves them to the fleet over `GET /api/xray-runtime/binaries/:version/download` (fleet-token authenticated, SHA-256 verified).
+- **Per-user derivation:** For each AD user, `buildXraySyncBlock` derives a personal localhost listener port via `deriveLocalPort(username, basePort)` (HMAC-SHA256 of `pec-xray-port-v1:{user}` keyed by the master secret, offset into a 4096-port window) and a personal proxy secret. The rendered Xray config's HTTP/SOCKS inbound accounts use exactly the delivered `proxyUser`/`proxyPass` pair, so extension and PEC-App authenticate identically.
+- **Consumption:** The extension stores Xray credentials in a separate realm (`memoryXrayCreds` / `chrome.storage.session` key `pecXrayCreds`) and points Chrome at `127.0.0.1:{listenPort}`, failing closed to the legacy PAC when the local listener is dead. PEC-App downloads the pinned core, atomically writes `config.json`, and supervises a local `xray.exe run` child process.
+
 ---
 
 ## 3. Key Data Flows
@@ -113,6 +122,10 @@ Architectural map, subsystem interaction, and data flows.
 3. **Scheduled Credential Rotation:**
    - `scheduler.ts` triggers `rotateCredentials()` based on `ROTATION_INTERVAL_MIN`.
    - `rotate.ts` connects to the configured Remnawave panel over a validated, DNS-pinned URL, resolves the target username, revokes only its passwords, and updates `current_creds.json` atomically after the panel confirms the new credential.
+
+4. **Per-User Xray Delivery (REMNA-PERUSER-XRAY-1):**
+   - Extension/PEC-App sync (`POST /api/sync`, `GET /api/app/sync`) receives an `xrayRuntime` block built by `buildXraySyncBlock`: enabled flag, pinned core version, per-user derived `listenPort`/`socksPort`, and `proxyUser`/`proxyPass`.
+   - The consumer downloads the pinned core from `/api/xray-runtime/binaries/:version/download` (fleet token, SHA-256 verified), runs a local Xray core, and routes traffic through the loopback listener authenticated with the same per-user credentials.
 
 ---
 

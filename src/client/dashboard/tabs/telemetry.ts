@@ -1422,8 +1422,47 @@ export let currentPanelsList = [];
         if (enEl) enEl.checked = Boolean(data.enabled);
         if (verEl) verEl.value = data.version || '';
         if (portEl) portEl.value = String(data.listenPort || 12080);
+        const listEl = document.getElementById('xrayBinaryList');
+        if (listEl) {
+          const bins = Array.isArray(data.binaries) ? data.binaries : [];
+          listEl.textContent = bins.length
+            ? (currentLang === 'ru' ? 'Ядра на сервере: ' : 'Cached cores: ') + bins.map((b: any) => `${b.version} (${Math.round((b.sizeBytes || 0) / 1048576)} MB)`).join(', ')
+            : (currentLang === 'ru' ? 'Ядра ещё не загружены на сервер' : 'No core binaries cached on server');
+        }
       } catch (e) {
         console.warn('Failed to load Xray runtime settings:', e);
+      }
+    }
+
+    export async function fetchXrayBinaryAction() {
+      const isRu = currentLang === 'ru';
+      const verEl = document.getElementById('xrayRuntimeVersion') as HTMLInputElement | null;
+      const errEl = document.getElementById('xrayRuntimeError');
+      const btn = document.getElementById('btnFetchXrayBinary') as HTMLButtonElement | null;
+      const version = ((verEl && verEl.value) || '').trim().replace(/^v+/, '');
+      if (!/^\d+\.\d+\.\d+$/.test(version)) {
+        if (errEl) { errEl.textContent = isRu ? 'Укажите версию ядра вида 24.11.11' : 'Enter a core version like 24.11.11'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (btn) { btn.disabled = true; btn.textContent = isRu ? 'Загрузка...' : 'Fetching...'; }
+      try {
+        const res = await adminFetch('/api/xray-runtime/binaries/fetch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ version }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          if (errEl) errEl.style.display = 'none';
+          toast(isRu ? `Ядро Xray ${version} загружено на сервер` : `Xray core ${version} cached on server`, 'success');
+          loadXrayRuntimeSettings();
+        } else {
+          if (errEl) { errEl.textContent = data.error || 'Fetch failed'; errEl.style.display = 'block'; }
+        }
+      } catch (e) {
+        if (errEl) { errEl.textContent = String(e); errEl.style.display = 'block'; }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = isRu ? 'Загрузить ядро с GitHub' : 'Fetch core binary'; }
       }
     }
 

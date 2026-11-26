@@ -2,19 +2,23 @@ import "./helpers/setup.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import express from "express";
 import type { AddressInfo } from "node:net";
 import {
   loadXrayRuntimeSettings,
   saveXrayRuntimeSettings,
   deriveProxySecret,
+  deriveLocalPort,
   normalizeRemnawaveUsername,
   parseVlessLink,
   buildXrayUserConfig,
+  buildXraySyncBlock,
   DEFAULT_XRAY_RUNTIME_SETTINGS,
 } from "../src/xrayRuntime.js";
 import { createXrayRuntimeRouter } from "../src/routes/xrayRuntimeRoutes.js";
 import { getXrayRuntimeSettingsPath } from "../src/storage.js";
+import { getBinaryCacheDir, isValidXrayVersion, getCachedXrayBinary, deleteCachedXrayBinary, type XrayBinaryMeta } from "../src/xrayBinaries.js";
 import { TEST_TOKEN, TEST_ADMIN_TOKEN } from "./helpers/setup.js";
 
 /**
@@ -33,7 +37,7 @@ function buildApp() {
     const token = req.headers["x-admin-token"];
     if (token && token === TEST_ADMIN_TOKEN) return next();
     return res.status(401).json({ ok: false, error: "Unauthorized" });
-  }));
+  }, () => TEST_TOKEN));
   return app;
 }
 
@@ -84,6 +88,17 @@ test("XR-1: deriveProxySecret is deterministic per user and unique across users"
   resetStore();
 });
 
+test("XR-1: deriveLocalPort is deterministic, user-unique, and inside the range", () => {
+  resetStore();
+  const p1 = deriveLocalPort("CORP\\ivanov", 12080);
+  assert.equal(deriveLocalPort("ivanov@corp.local", 12080), p1, "same identity -> same port");
+  assert.ok(p1 >= 12080 && p1 < 12080 + 4096, "port within derived range");
+  assert.notEqual(deriveLocalPort("petrov", 12080), p1);
+  assert.throws(() => deriveLocalPort("  ", 12080));
+  assert.throws(() => deriveLocalPort("ivanov", 70000));
+  resetStore();
+});
+
 test("XR-1: normalizeRemnawaveUsername strips domain and UPN suffixes", () => {
   assert.equal(normalizeRemnawaveUsername("CORP\\ivanov"), "ivanov");
   assert.equal(normalizeRemnawaveUsername("ivanov@corp.local"), "ivanov");
@@ -129,7 +144,8 @@ test("XR-1: buildXrayUserConfig renders shared inbound, per-user account, and ow
   assert.equal(inbounds[0].protocol, "http");
   assert.equal(inbounds[0].listen, "127.0.0.1");
   assert.equal(inbounds[0].port, 12080);
-  assert.equal(inbounds[0].settings.servers[0].user, "derived-secret");
+  assert.equal(inbounds[0].settings.servers[0].user, "ivanov");
+  assert.equal(inbounds[0].settings.servers[0].pass, "derived-secret");
   assert.equal(inbounds[0].settings.servers[0].email, "ivanov");
   assert.equal(inbounds[1].protocol, "socks");
   assert.equal(inbounds[1].port, 12081);
@@ -201,5 +217,95 @@ test("XR-1: /api/xray-runtime is admin-only and round-trips settings", async () 
     // The master secret must never leak through the admin API.
     assert.ok(!JSON.stringify(getBody).includes("masterSecret"));
   });
+  resetStore();
+});
+
+test("XR-1: buildXraySyncBlock fails closed when runtime disabled or panel unreachable", async () => {
+  resetStore();
+  // Runtime off -> plain disabled block, no reason.
+  const off = await buildXraySyncBlock({ username: "ivanov" });
+  assert.deepEqual(off, { enabled: false });
+
+  saveXrayRuntimeSettings({ enabled: true, version: "24.11.11", listenPort: 12080 });
+  // No username -> still disabled without a reason (legacy flow, no noise).
+  const noUser = await buildXraySyncBlock({ username: "  " });
+  assert.deepEqual(noUser, { enabled: false });
+
+  // Enabled + user, but no Remnawave panel configured in the test env:
+  // fetchRemnawaveSubscription throws -> panel_error, never a crash.
+  const err = await buildXraySyncBlock({ username: "CORP\\ivanov" });
+  assert.equal(err.enabled, false);
+  assert.equal(err.reason, "panel_error");
+  resetStore();
+});
+
+test("XR-1: pinned core binary download is fleet-authenticated and cache-backed", async () => {
+  resetStore();
+  const version = "99.99.99";
+  deleteCachedXrayBinary(version);
+  await withServer(async (base) => {
+    // Unknown/garbage versions are rejected before any file access.
+    const anon = await fetch(`${base}/api/xray-runtime/binaries/${version}/download`);
+    assert.strictEqual(anon.status, 403, "anonymous download must be rejected");
+
+    const badTok = await fetch(`${base}/api/xray-runtime/binaries/${version}/download`, {
+      headers: { "x-fleet-token": "wrong-token" },
+    });
+    assert.strictEqual(badTok.status, 403);
+
+    const badVer = await fetch(`${base}/api/xray-runtime/binaries/..%2F..%2Fetc/download`, {
+      headers: { "x-fleet-token": TEST_TOKEN },
+    });
+    assert.ok(badVer.status === 400 || badVer.status === 404, "path traversal must not resolve");
+
+    const missing = await fetch(`${base}/api/xray-runtime/binaries/${version}/download`, {
+      headers: { "x-fleet-token": TEST_TOKEN },
+    });
+    assert.strictEqual(missing.status, 404, "uncached version -> 404");
+
+    // Admin fetch endpoint validates the version without touching GitHub
+    // for malformed input.
+    const badFetch = await fetch(`${base}/api/xray-runtime/binaries/fetch`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-admin-token": TEST_ADMIN_TOKEN },
+      body: JSON.stringify({ version: "not-a-version" }),
+    });
+    assert.strictEqual(badFetch.status, 400);
+
+    // Simulate a cached binary and stream it back with the sha256 header.
+    const dir = getBinaryCacheDir();
+    const exePath = `${dir}/xray-${version}.exe`;
+    const payload = Buffer.concat([Buffer.alloc(1024 * 1024, 0x4d), Buffer.from("pec-test-payload")]);
+    fs.writeFileSync(exePath, payload);
+    const meta: XrayBinaryMeta = {
+      version,
+      asset: "Xray-windows-64.zip",
+      sha256: crypto.createHash("sha256").update(payload).digest("hex"),
+      sizeBytes: payload.length,
+      fetchedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(`${dir}/xray-${version}.json`, JSON.stringify(meta));
+
+    const cached = getCachedXrayBinary(version);
+    assert.ok(cached && cached.meta.sha256 === meta.sha256);
+
+    const dl = await fetch(`${base}/api/xray-runtime/binaries/${version}/download`, {
+      headers: { "x-fleet-token": TEST_TOKEN },
+    });
+    assert.strictEqual(dl.status, 200);
+    assert.equal(dl.headers.get("x-sha256"), meta.sha256);
+    const buf = Buffer.from(await dl.arrayBuffer());
+    assert.equal(buf.length, payload.length);
+
+    const del = await fetch(`${base}/api/xray-runtime/binaries/${version}`, {
+      method: "DELETE",
+      headers: { "x-admin-token": TEST_ADMIN_TOKEN },
+    });
+    assert.strictEqual(del.status, 200);
+    assert.equal((await del.json()).removed, true);
+    assert.ok(!fs.existsSync(exePath));
+  });
+  assert.equal(isValidXrayVersion("24.11.11"), true);
+  assert.equal(isValidXrayVersion("24.11"), false);
   resetStore();
 });

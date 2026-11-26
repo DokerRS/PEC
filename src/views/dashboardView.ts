@@ -611,6 +611,10 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           </div>
         </div>
         <div id="xrayRuntimeError" style="display: none; color: var(--danger); font-size: 12px; margin-top: 10px;"></div>
+        <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <button type="button" id="btnFetchXrayBinary" class="btn btn-secondary" style="font-size: 12px;">Загрузить ядро с GitHub / Fetch core binary</button>
+          <span id="xrayBinaryList" style="font-size: 11.5px; color: var(--text-muted);"></span>
+        </div>
       </div>
 
     </div>
