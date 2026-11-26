@@ -207,8 +207,8 @@ cp .env.example .env
 | `PEC_SYNC_INTERVAL_MIN` | `15` | Background periodic sync interval for extension and desktop app in minutes (alias: `PEC_SYNC_INTERVAL_MINUTES`) |
 | `ROTATION_INTERVAL_MIN` | `1440` | Default interval for proxy credential rotation in minutes (24 hours) |
 | `REMNAWAVE_PANEL_URL` | `https://remnawave-host:3000` | Base URL of the Remnawave panel (`XUI_PANEL_URL` is accepted as a legacy fallback) |
-| `REMNAWAVE_ADMIN_USER` | `admin` | API key / username used to log in to the Remnawave panel |
-| `REMNAWAVE_ADMIN_PASS` | `change-me` | Password used to log in to the Remnawave panel |
+| `REMNAWAVE_ADMIN_USER` | `admin` | Legacy API-login username fallback; new dashboard panel entries use a Remnawave API token |
+| `REMNAWAVE_ADMIN_PASS` | `change-me` | Legacy API-login password fallback; new dashboard panel entries use a Remnawave API token |
 | `REMNAWAVE_TARGET_USERNAME` | `pec-user` | Remnawave username whose credentials are rotated (`XUI_INBOUND_REMARK` is accepted as a legacy fallback) |
 | `REMNAWAVE_INSECURE_SKIP_VERIFY` | `false` | Disable TLS certificate validation for the Remnawave panel. ⚠️ MITM risk: use only for self-signed certificates in an isolated network segment |
 | `UPDATE_CHECK_REPO` | `vlv-code/PEC` | GitHub repository used for version update checks |

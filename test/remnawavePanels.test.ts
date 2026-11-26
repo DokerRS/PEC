@@ -14,12 +14,11 @@ import {
 import { createRotationRouter } from "../src/routes/rotationRoutes.js";
 import { renderDashboardHtml } from "../src/views/dashboardView.js";
 
-test("Remnawave panel registry supports CRUD and password masking", () => {
+test("Remnawave panel registry supports CRUD and API-token masking", () => {
   const panel = saveRemnawavePanel({
     name: "Frankfurt Node",
     panelUrl: "https://remnawave-ffm.corp:3000/path",
-    adminUser: "ffm_admin",
-    adminPass: "secretpass123",
+    apiToken: "secret-api-token",
     insecureTls: true,
     targetUsername: "pec-user"
   });
@@ -29,26 +28,24 @@ test("Remnawave panel registry supports CRUD and password masking", () => {
 
   const fetched = getRemnawavePanelById(panel.id);
   assert.ok(fetched);
-  assert.equal(fetched.adminUser, "ffm_admin");
-  assert.equal(fetched.adminPass, "secretpass123");
+  assert.equal(fetched.apiToken, "secret-api-token");
 
-  const list = getAllRemnawavePanels(true); // with mask
+  const list = getAllRemnawavePanels(true);
   const listed = list.find((p) => p.id === panel.id);
   assert.ok(listed);
-  assert.equal(listed.adminPass, "••••••••");
+  assert.equal(listed.apiToken, "••••••••");
 
-  // Updating without changing password preserves existing password
+  // Updating without a replacement token preserves the existing token.
   const updated = saveRemnawavePanel({
     id: panel.id,
     name: "Frankfurt Node Renamed",
     panelUrl: "https://remnawave-ffm.corp:3000/path",
-    adminUser: "ffm_admin",
-    adminPass: ""
+    apiToken: ""
   });
   assert.equal(updated.name, "Frankfurt Node Renamed");
   const fetchedUpdated = getRemnawavePanelById(panel.id);
   assert.ok(fetchedUpdated);
-  assert.equal(fetchedUpdated.adminPass, "secretpass123");
+  assert.equal(fetchedUpdated.apiToken, "secret-api-token");
 
   // Clean up
   deleteRemnawavePanel(panel.id);
@@ -74,8 +71,7 @@ test("Remnawave panels HTTP endpoints provide REST CRUD", async () => {
       body: JSON.stringify({
         name: "Berlin Node",
         panelUrl: "https://remnawave-berlin.corp:3000/path",
-        adminUser: "berlin_admin",
-        adminPass: "supersecretberlin",
+        apiToken: "supersecretberlin",
         insecureTls: true,
         targetUsername: "pec-user"
       })
@@ -84,7 +80,8 @@ test("Remnawave panels HTTP endpoints provide REST CRUD", async () => {
     const createdData = await createRes.json();
     assert.ok(createdData.id);
     assert.equal(createdData.name, "Berlin Node");
-    assert.equal(createdData.adminPass, "••••••••");
+    assert.equal(createdData.apiToken, "••••••••");
+    assert.ok(!JSON.stringify(createdData).includes("supersecretberlin"));
     createdId = createdData.id;
 
     // 2. List panels (must be masked)
@@ -93,7 +90,7 @@ test("Remnawave panels HTTP endpoints provide REST CRUD", async () => {
     const list = await listRes.json();
     const found = list.find((p: any) => p.id === createdId);
     assert.ok(found);
-    assert.equal(found.adminPass, "••••••••");
+    assert.equal(found.apiToken, "••••••••");
 
     // 3. Update panel
     const updateRes = await fetch(`${base}/api/remnawave/panels/${createdId}`, {
@@ -102,11 +99,12 @@ test("Remnawave panels HTTP endpoints provide REST CRUD", async () => {
       body: JSON.stringify({
         name: "Berlin Node Updated",
         panelUrl: "https://remnawave-berlin.corp:3000/path",
-        adminUser: "berlin_admin",
-        adminPass: "" // Keep existing
+        apiToken: "" // Keep existing
       })
     });
     assert.equal(updateRes.status, 200);
+    const updatedData = await updateRes.json();
+    assert.equal(updatedData.apiToken, "••••••••");
 
     // 4. Delete panel
     const delRes = await fetch(`${base}/api/remnawave/panels/${createdId}`, {
@@ -126,6 +124,8 @@ test("dashboard UI: renders Remnawave panels registry, panel selector, and rotat
   assert.ok(html.includes('id="panelsRemnawaveTable"') || html.includes('id="panelsRemnawaveBody"'), "dashboardView must contain Remnawave panels table");
   assert.ok(html.includes('id="btnOpenAddRemnawavePanel"'), "dashboardView must have button to add a Remnawave panel");
   assert.ok(html.includes('id="modalRemnawavePanel"'), "dashboardView must contain the Remnawave panel modal");
+  assert.ok(html.includes('id="panelApiToken"'), "panel modal must accept a Remnawave API token");
+  assert.ok(!html.includes('id="panelUser"') && !html.includes('id="panelPass"'), "panel modal must not ask for admin login credentials");
 
   // 2. Panel selector in Add from Remnawave modal
   assert.ok(html.includes('id="addRemnawavePanelSelect"'), "dashboardView must contain a panel selector in the Remnawave user modal");

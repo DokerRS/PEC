@@ -5,9 +5,9 @@
  * `createSsrfPinnedFetch`, so panel endpoints are protected by the same
  * DNS-rebinding / metadata-service guards the rest of the fleet uses.
  *
- * Auth model: POST /api/auth/login {username,password} -> response.accessToken
- * (a JWT) which is sent as `Authorization: Bearer <token>` on subsequent
- * calls. Tokens are cached per panel and re-acquired once on 401.
+ * Auth model: use a configured API token as `Authorization: Bearer <token>`.
+ * Legacy panel configurations without an API token still use
+ * POST /api/auth/login and re-acquire the JWT once after a 401.
  */
 
 import { createSsrfPinnedFetch, type SafeEndpointFetch } from "./rotate.js";
@@ -15,8 +15,9 @@ import { logger } from "./logger.js";
 
 export interface RemnawaveConnection {
   panelUrl: string;
-  adminUser: string;
-  adminPass: string;
+  apiToken?: string;
+  adminUser?: string;
+  adminPass?: string;
   timeoutSec?: number;
   insecureTls?: boolean;
 }
@@ -126,6 +127,9 @@ export class RemnawaveClient {
    * `{response: {accessToken}}`.
    */
   async login(panelFetch: SafeEndpointFetch): Promise<string> {
+    if (!this.conn.adminUser || !this.conn.adminPass) {
+      throw new Error("Remnawave API token is required when legacy login credentials are not configured");
+    }
     const res = await panelFetch(`${this.base}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -147,9 +151,8 @@ export class RemnawaveClient {
   }
 
   /**
-   * Authenticated JSON request with one transparent re-login on 401
-   * (Remnawave JWTs expire, and the panel may restart and drop it).
-   * Returns the unwrapped `response` payload.
+   * Legacy JWT credentials are transparently refreshed once after a 401.
+   * API-token requests are sent as-is. Returns the unwrapped `response` payload.
    */
   async request<T>(panelFetch: SafeEndpointFetch, method: string, apiPath: string, body?: unknown): Promise<T> {
     const doCall = async (token: string): Promise<Response> => {
@@ -168,11 +171,12 @@ export class RemnawaveClient {
       return res;
     };
 
-    let token = this.accessToken;
+    const apiToken = this.conn.apiToken?.trim();
+    let token = this.accessToken || apiToken || null;
     if (!token) token = await this.login(panelFetch);
 
     let res = await doCall(token);
-    if (res.status === 401) {
+    if (res.status === 401 && !apiToken) {
       logger.info(`[remnawave] Access token rejected by ${this.base}, re-authenticating.`);
       token = await this.login(panelFetch);
       res = await doCall(token);
@@ -360,8 +364,9 @@ export class RemnawaveClient {
  */
 export async function syncRemnawaveUserByUsername(params: {
   panelUrl: string;
-  adminUser: string;
-  adminPass: string;
+  apiToken?: string;
+  adminUser?: string;
+  adminPass?: string;
   username: string;
   rotatePassword?: boolean;
   timeoutSec?: number;
@@ -369,6 +374,7 @@ export async function syncRemnawaveUserByUsername(params: {
 }): Promise<RemnawaveSyncResult> {
   const client = new RemnawaveClient({
     panelUrl: params.panelUrl,
+    apiToken: params.apiToken,
     adminUser: params.adminUser,
     adminPass: params.adminPass,
     timeoutSec: params.timeoutSec,
@@ -385,7 +391,7 @@ export async function syncRemnawaveUserByUsername(params: {
 }
 
 /**
- * Connectivity probe: health endpoint + login + user lookup.
+ * Connectivity probe: health endpoint + API access + user lookup.
  * `userFound: false` is still a successful connection - the operator may have
  * configured the panel before creating the rotation user.
  */
@@ -424,7 +430,7 @@ export async function testRemnawaveConnection(config: RemnawaveConnection & {
   }
 }
 
-/** List users for the dashboard picker (accepts a stored panel id or raw creds). */
+/** List users for the dashboard picker (accepts a stored panel id or raw config). */
 export async function fetchRemnawaveUsers(
   configOrId: RemnawaveConnection | string,
   resolvePanelById: (id: string) => RemnawaveConnection | undefined,

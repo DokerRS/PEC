@@ -55,7 +55,7 @@ Squid в архитектуру не входит: фильтрацию доме
 1. Развернуть сервер одним из способов:
    - Docker: `deploy/install-docker.sh` (или вручную `docker compose up -d --build`);
    - systemd: `sudo bash deploy/install-systemd.sh` — скрипт ставит Node.js 20, собирает `dist/server.cjs`, регистрирует службу и генерирует `EXT_SHARED_TOKEN` + `ADMIN_TOKEN`.
-2. Конфигурация берется из `.env` (шаблон — `.env.example`): задайте `EXT_SHARED_TOKEN`, `ADMIN_TOKEN`, `PUBLIC_BASE_URL`, `REMNAWAVE_PANEL_URL`, `REMNAWAVE_ADMIN_USER`, `REMNAWAVE_ADMIN_PASS` и `REMNAWAVE_TARGET_USERNAME`.
+2. Конфигурация берется из `.env` (шаблон — `.env.example`): задайте `EXT_SHARED_TOKEN`, `ADMIN_TOKEN`, `PUBLIC_BASE_URL`, `REMNAWAVE_PANEL_URL` и `REMNAWAVE_TARGET_USERNAME`. Для новых записей панели в дашборде используйте Remnawave API token; `REMNAWAVE_ADMIN_USER` / `REMNAWAVE_ADMIN_PASS` остаются только legacy API-login fallback.
 3. Nginx настраивается по шаблону `deploy/nginx-proxy.conf` (TLS-терминация, allow/deny, rate limiting).
 4. Прогнать ротацию вручную через дашборд (`POST /api/rotation/rotate-now`) и убедиться, что `current_creds.json` создан с правами 0600, credentials пользователя обновились, а subscription short UUID остался прежним.
 

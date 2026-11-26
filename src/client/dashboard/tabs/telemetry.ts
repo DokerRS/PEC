@@ -1455,7 +1455,7 @@ export let currentPanelsList = [];
             return `<tr>
               <td><strong>${esc(p.name)}</strong></td>
               <td style="font-family: var(--mono);">${esc(p.panelUrl)}</td>
-              <td><code>${esc(p.adminUser)}</code></td>
+              <td><code>${p.apiToken ? (isRu ? 'API-токен настроен' : 'API token configured') : p.adminPass ? (isRu ? 'Вход по legacy-паролю' : 'Legacy login') : (isRu ? 'Нет токена' : 'No token')}</code></td>
               <td>${rotBadge}</td>
               <td><span class="badge ${p.insecureTls ? 'badge-warning' : 'badge-success'}">${p.insecureTls ? (isRu ? 'Self-signed TLS' : 'Insecure TLS') : (isRu ? 'Строгий TLS' : 'Valid TLS')}</span></td>
               <td style="text-align: right;">
@@ -1482,8 +1482,7 @@ export let currentPanelsList = [];
       const idInp = document.getElementById('panelIdInput') as HTMLInputElement | null;
       const nameInp = document.getElementById('panelName') as HTMLInputElement | null;
       const urlInp = document.getElementById('panelUrl') as HTMLInputElement | null;
-      const userInp = document.getElementById('panelUser') as HTMLInputElement | null;
-      const passInp = document.getElementById('panelPass') as HTMLInputElement | null;
+      const tokenInp = document.getElementById('panelApiToken') as HTMLInputElement | null;
       const tlsInp = document.getElementById('panelInsecureTls') as HTMLInputElement | null;
       const rotInp = document.getElementById('panelRotationEnabled') as HTMLInputElement | null;
       const remarkInp = document.getElementById('panelTargetUsername') as HTMLInputElement | null;
@@ -1492,8 +1491,16 @@ export let currentPanelsList = [];
       if (idInp) idInp.value = panel ? panel.id : '';
       if (nameInp) nameInp.value = panel ? panel.name : '';
       if (urlInp) urlInp.value = panel ? panel.panelUrl : '';
-      if (userInp) userInp.value = panel ? panel.adminUser : '';
-      if (passInp) passInp.value = '';
+      if (tokenInp) {
+        tokenInp.value = '';
+        tokenInp.placeholder = panel
+          ? panel.apiToken
+            ? (currentLang === 'ru' ? 'Оставьте пустым, чтобы сохранить текущий токен' : 'Leave empty to keep current token')
+            : panel.adminPass
+              ? (currentLang === 'ru' ? 'Вставьте API-токен вместо legacy login' : 'Paste an API token to replace legacy login')
+              : 'Paste API token'
+          : 'Paste API token';
+      }
       if (tlsInp) tlsInp.checked = panel ? Boolean(panel.insecureTls) : false;
       if (rotInp) rotInp.checked = panel ? Boolean(panel.rotationEnabled) : false;
       if (remarkInp) remarkInp.value = panel ? (panel.targetUsername || '') : '';
@@ -1514,15 +1521,14 @@ export let currentPanelsList = [];
       const id = (document.getElementById('panelIdInput') as HTMLInputElement | null)?.value;
       const name = (document.getElementById('panelName') as HTMLInputElement | null)?.value?.trim();
       const panelUrl = (document.getElementById('panelUrl') as HTMLInputElement | null)?.value?.trim();
-      const adminUser = (document.getElementById('panelUser') as HTMLInputElement | null)?.value?.trim();
-      const adminPass = (document.getElementById('panelPass') as HTMLInputElement | null)?.value;
+      const apiToken = (document.getElementById('panelApiToken') as HTMLInputElement | null)?.value?.trim();
       const insecureTls = (document.getElementById('panelInsecureTls') as HTMLInputElement | null)?.checked;
       const rotationEnabled = Boolean((document.getElementById('panelRotationEnabled') as HTMLInputElement | null)?.checked);
       const targetUsername = ((document.getElementById('panelTargetUsername') as HTMLInputElement | null)?.value || '').trim();
       const errEl = document.getElementById('panelModalError');
 
-      if (!name || !panelUrl || !adminUser) {
-        if (errEl) { errEl.textContent = isRu ? 'Заполните обязательные поля: Название, URL и Пользователь' : 'Please fill all required fields'; errEl.style.display = 'block'; }
+      if (!name || !panelUrl || (!id && !apiToken)) {
+        if (errEl) { errEl.textContent = isRu ? 'Заполните обязательные поля: Название, URL и API-токен' : 'Please fill in the name, panel URL, and API token'; errEl.style.display = 'block'; }
         return;
       }
 
@@ -1537,10 +1543,12 @@ export let currentPanelsList = [];
       try {
         const url = id ? `/api/remnawave/panels/${encodeURIComponent(id)}` : '/api/remnawave/panels';
         const method = id ? 'PUT' : 'POST';
+        const payload: Record<string, unknown> = { name, panelUrl, insecureTls, rotationEnabled, targetUsername };
+        if (apiToken) payload.apiToken = apiToken;
         const res = await adminFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetUsername })
+          body: JSON.stringify(payload)
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {

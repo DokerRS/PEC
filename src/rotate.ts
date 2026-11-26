@@ -463,8 +463,9 @@ export async function createSsrfPinnedFetch(rawUrl: string, opts?: { insecureTls
  */
 export async function syncRemnawaveUser(params: {
   panelUrl: string;
-  adminUser: string;
-  adminPass: string;
+  apiToken?: string;
+  adminUser?: string;
+  adminPass?: string;
   username: string;
   rotatePassword?: boolean;
   timeoutSec?: number;
@@ -473,6 +474,7 @@ export async function syncRemnawaveUser(params: {
   const { syncRemnawaveUserByUsername } = await loadRemnawaveClient();
   return syncRemnawaveUserByUsername({
     panelUrl: params.panelUrl,
+    apiToken: params.apiToken,
     adminUser: params.adminUser,
     adminPass: params.adminPass,
     username: params.username,
@@ -483,14 +485,15 @@ export async function syncRemnawaveUser(params: {
 }
 
 /**
- * Connectivity probe for a panel: health + login + target user lookup.
+ * Connectivity probe for a panel: health + API access + target user lookup.
  * A reachable panel without the target user is still reported as `ok`
  * (the operator may register the user afterwards) but flags `userFound: false`.
  */
 export async function testRemnawaveConnection(config: {
   panelUrl: string;
-  adminUser: string;
-  adminPass: string;
+  apiToken?: string;
+  adminUser?: string;
+  adminPass?: string;
   targetUsername?: string;
   timeoutSec?: number;
   insecureTls?: boolean;
@@ -498,6 +501,7 @@ export async function testRemnawaveConnection(config: {
   const { testRemnawaveConnection: probe } = await loadRemnawaveClient();
   return probe({
     panelUrl: config.panelUrl,
+    apiToken: config.apiToken,
     adminUser: config.adminUser,
     adminPass: config.adminPass,
     targetUsername: config.targetUsername,
@@ -520,6 +524,7 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
   // existing deployment's environment does not silently drop into
   // standalone mode on upgrade.
   let panel = customConfig?.panelUrl || process.env.REMNAWAVE_PANEL_URL || process.env.XUI_PANEL_URL;
+  let panelApiToken = "";
   let panelUser = customConfig?.adminUser || process.env.REMNAWAVE_ADMIN_USER || process.env.XUI_ADMIN_USER;
   let panelPass = customConfig?.adminPass || process.env.REMNAWAVE_ADMIN_PASS || process.env.XUI_ADMIN_PASS;
   let targetUsername =
@@ -533,10 +538,11 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
     if (activeProxy && activeProxy.type === "remnawave") {
       targetProxyId = activeProxy.id;
       if (activeProxy.remnawaveUsername) targetUsername = activeProxy.remnawaveUsername;
-      if (activeProxy.panelId && (!panel || panel.includes("remnawave-host"))) {
+      if (activeProxy.panelId) {
         const p = getRemnawavePanelById(activeProxy.panelId);
-        if (p) {
+        if (p && (!panel || panel.includes("remnawave-host") || p.apiToken)) {
           panel = p.panelUrl;
+          panelApiToken = p.apiToken || "";
           panelUser = p.adminUser;
           panelPass = p.adminPass;
         }
@@ -556,6 +562,7 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
       const username = p.targetUsername || targetUsername || "pec-user";
       const syncResult = await syncRemnawaveUser({
         panelUrl: p.panelUrl,
+        apiToken: p.apiToken,
         adminUser: p.adminUser,
         adminPass: p.adminPass,
         username,
@@ -601,7 +608,11 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
   // Single-panel mode: only when the panel is explicitly configured
   // (non-placeholder).
   const panelConfigured = Boolean(
-    panel && panelUser && panelPass && !panel.includes("remnawave-host") && !panel.includes("3xui-host") && panel.startsWith("http")
+    panel &&
+      (panelApiToken || (panelUser && panelPass)) &&
+      !panel.includes("remnawave-host") &&
+      !panel.includes("3xui-host") &&
+      panel.startsWith("http")
   );
 
   if (panelConfigured) {
@@ -615,6 +626,7 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
     try {
       const syncResult = await syncRemnawaveUser({
         panelUrl,
+        apiToken: panelApiToken,
         adminUser: panelUser as string,
         adminPass: panelPass as string,
         username: targetUsername,
@@ -720,8 +732,8 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
  * One-time migration into data/panels_remnawave.json. Two legacy sources are
  * considered, in order:
  *  1. data/panels_3xui.json (multi-panel registry) - targetRemark becomes
- *     targetUsername; credentials are carried over unchanged because a
- *     Remnawave operator reuses the same admin login concept.
+ *     targetUsername; legacy login credentials are retained as a fallback
+ *     until the operator replaces them with a Remnawave API token.
  *  2. rotation_config.json (single-panel deployment).
  * The legacy files are never deleted, so a rollback is still possible.
  */
@@ -742,6 +754,7 @@ function autoMigratePanelsIfNeeded(): void {
           id: typeof p.id === "string" && p.id ? p.id : `panel_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           name: typeof p.name === "string" && p.name.trim() ? p.name.trim() : "Imported panel",
           panelUrl: p.panelUrl.replace(/\/+$/, ""),
+          apiToken: typeof p.apiToken === "string" ? p.apiToken : undefined,
           adminUser: typeof p.adminUser === "string" ? p.adminUser : "admin",
           adminPass: typeof p.adminPass === "string" ? p.adminPass : "",
           insecureTls: Boolean(p.insecureTls),
@@ -779,6 +792,7 @@ function autoMigratePanelsIfNeeded(): void {
             id: "panel_default",
             name: "Primary Remnawave Panel",
             panelUrl: rotData.panelUrl.replace(/\/+$/, ""),
+            apiToken: typeof rotData.apiToken === "string" ? rotData.apiToken : undefined,
             adminUser: rotData.adminUser || "admin",
             adminPass: rotData.adminPass || "",
             insecureTls: Boolean(rotData.insecureSkipVerify),
@@ -795,12 +809,13 @@ function autoMigratePanelsIfNeeded(): void {
   writeJsonAtomic(panelsFile, panels);
 }
 
-export function getAllRemnawavePanels(maskPasswords = false): PanelRemnawaveConfig[] {
+export function getAllRemnawavePanels(maskSecrets = false): PanelRemnawaveConfig[] {
   autoMigratePanelsIfNeeded();
   const list = readJsonStore<PanelRemnawaveConfig[]>(getRemnawavePanelsPath()) || [];
   return list.map((panel) => ({
     ...panel,
-    adminPass: maskPasswords ? (panel.adminPass ? "вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў" : "") : panel.adminPass,
+    apiToken: maskSecrets ? (panel.apiToken ? "••••••••" : "") : panel.apiToken,
+    adminPass: maskSecrets ? (panel.adminPass ? "••••••••" : "") : panel.adminPass,
   }));
 }
 
@@ -812,7 +827,7 @@ export function getRemnawavePanelById(id: string): PanelRemnawaveConfig | undefi
 }
 
 export function saveRemnawavePanel(
-  panelData: Partial<PanelRemnawaveConfig> & { name: string; panelUrl: string; adminUser: string }
+  panelData: Partial<PanelRemnawaveConfig> & { name: string; panelUrl: string }
 ): PanelRemnawaveConfig {
   const urlCheck = validateSafeEndpointUrl(panelData.panelUrl);
   if (!urlCheck.valid) {
@@ -823,6 +838,8 @@ export function saveRemnawavePanel(
   const panelsFile = getRemnawavePanelsPath();
   const list = readJsonStore<PanelRemnawaveConfig[]>(panelsFile) || [];
   const cleanUrl = panelData.panelUrl.trim().replace(/\/+$/, "");
+  const isMaskedSecret = (value: string | undefined) =>
+    value === "••••••••" || value === "вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў" || value === "********";
 
   let savedPanel: PanelRemnawaveConfig;
   const now = new Date().toISOString();
@@ -831,18 +848,18 @@ export function saveRemnawavePanel(
     const existingIndex = list.findIndex((p) => p.id === panelData.id);
     if (existingIndex !== -1) {
       const existing = list[existingIndex];
-      const shouldKeepPass =
-        panelData.adminPass === undefined ||
-        panelData.adminPass === "" ||
-        panelData.adminPass === "вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў" ||
-        panelData.adminPass === "********";
+      const submittedToken = panelData.apiToken?.trim();
+      const submittedPass = panelData.adminPass?.trim();
 
       savedPanel = {
         ...existing,
         name: panelData.name.trim(),
         panelUrl: cleanUrl,
-        adminUser: panelData.adminUser.trim(),
-        adminPass: shouldKeepPass ? existing.adminPass : (panelData.adminPass?.trim() || existing.adminPass),
+        apiToken:
+          submittedToken && !isMaskedSecret(submittedToken) ? submittedToken : existing.apiToken || "",
+        adminUser: panelData.adminUser !== undefined ? panelData.adminUser.trim() : existing.adminUser,
+        adminPass:
+          submittedPass && !isMaskedSecret(submittedPass) ? submittedPass : existing.adminPass,
         insecureTls: panelData.insecureTls !== undefined ? panelData.insecureTls : existing.insecureTls,
         rotationEnabled:
           panelData.rotationEnabled !== undefined ? Boolean(panelData.rotationEnabled) : Boolean(existing.rotationEnabled),
@@ -860,8 +877,9 @@ export function saveRemnawavePanel(
         id: panelData.id,
         name: panelData.name.trim(),
         panelUrl: cleanUrl,
-        adminUser: panelData.adminUser.trim(),
-        adminPass: panelData.adminPass || "",
+        apiToken: panelData.apiToken && !isMaskedSecret(panelData.apiToken) ? panelData.apiToken.trim() : "",
+        adminUser: panelData.adminUser?.trim() || "",
+        adminPass: panelData.adminPass && !isMaskedSecret(panelData.adminPass) ? panelData.adminPass : "",
         insecureTls: Boolean(panelData.insecureTls),
         rotationEnabled: Boolean(panelData.rotationEnabled),
         targetUsername: panelData.targetUsername ? String(panelData.targetUsername).trim() : "",
@@ -878,8 +896,9 @@ export function saveRemnawavePanel(
       id: newId,
       name: panelData.name.trim(),
       panelUrl: cleanUrl,
-      adminUser: panelData.adminUser.trim(),
-      adminPass: panelData.adminPass || "",
+      apiToken: panelData.apiToken && !isMaskedSecret(panelData.apiToken) ? panelData.apiToken.trim() : "",
+      adminUser: panelData.adminUser?.trim() || "",
+      adminPass: panelData.adminPass && !isMaskedSecret(panelData.adminPass) ? panelData.adminPass : "",
       insecureTls: Boolean(panelData.insecureTls),
       rotationEnabled: Boolean(panelData.rotationEnabled),
       targetUsername: panelData.targetUsername ? String(panelData.targetUsername).trim() : "",
@@ -892,8 +911,8 @@ export function saveRemnawavePanel(
   }
 
   writeJsonAtomic(panelsFile, list);
-  // AUDIT-SRV-P3: panel admin credentials live here - strip Windows ACE
-  // inheritance so the store is not readable through inherited grants.
+  // AUDIT-SRV-P3: panel secrets live here - strip Windows ACE inheritance
+  // so the store is not readable through inherited grants.
   restrictSecretFilePermissions(panelsFile);
   return savedPanel;
 }
@@ -912,7 +931,7 @@ export function deleteRemnawavePanel(id: string): boolean {
   return false;
 }
 
-/** User list for the dashboard picker (accepts a stored panel id or raw creds). */
+/** User list for the dashboard picker (accepts a stored panel id or raw config). */
 export async function fetchRemnawaveUsers(
   configOrId: RemnawaveConnection | string
 ): Promise<RemnawaveUser[]> {
@@ -920,6 +939,12 @@ export async function fetchRemnawaveUsers(
   return listUsers(configOrId as RemnawaveConnection, (id) => {
     const p = getRemnawavePanelById(id);
     if (!p) return undefined;
-    return { panelUrl: p.panelUrl, adminUser: p.adminUser, adminPass: p.adminPass, insecureTls: p.insecureTls };
+    return {
+      panelUrl: p.panelUrl,
+      apiToken: p.apiToken,
+      adminUser: p.adminUser,
+      adminPass: p.adminPass,
+      insecureTls: p.insecureTls,
+    };
   });
 }

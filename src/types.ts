@@ -170,8 +170,11 @@ export interface PanelRemnawaveConfig {
   id: string;
   name: string;
   panelUrl: string;
-  adminUser: string;
-  adminPass: string;
+  /** Remnawave API token sent as a Bearer credential. */
+  apiToken?: string;
+  /** Legacy login credentials retained for existing panel configurations. */
+  adminUser?: string;
+  adminPass?: string;
   insecureTls?: boolean;
   rotationEnabled?: boolean;
   /** Remnawave username rotated by this panel entry (was targetRemark for 3x-ui). */

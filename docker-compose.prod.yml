@@ -41,8 +41,8 @@ services:
       - TRUST_PROXY=1
       # Public URL used in updates.xml / GPO artifacts.
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL in .env (bare origin like https://pec.example.corp) - required for artifact integrity}
-      # Remnawave panel integration (credential rotation) - without these the
-      # container cannot reach the panel and .env values are ignored.
+      # Legacy Remnawave API-login fallback for single-panel rotation. New
+      # dashboard panel entries store their API token in the persistent data volume.
       - REMNAWAVE_PANEL_URL=${REMNAWAVE_PANEL_URL:-}
       - REMNAWAVE_ADMIN_USER=${REMNAWAVE_ADMIN_USER:-}
       - REMNAWAVE_ADMIN_PASS=${REMNAWAVE_ADMIN_PASS:-}

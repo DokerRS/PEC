@@ -208,8 +208,8 @@ cp .env.example .env
 | `PEC_SYNC_INTERVAL_MIN` | `15` | Интервал фоновой периодической синхронизации расширения и десктопного приложения в минутах (алиас: `PEC_SYNC_INTERVAL_MINUTES`) |
 | `ROTATION_INTERVAL_MIN` | `1440` | Интервал автоматической ротации учетных данных прокси в минутах (24 часа) |
 | `REMNAWAVE_PANEL_URL` | `https://remnawave-host:3000` | URL панели Remnawave (`XUI_PANEL_URL` поддерживается как устаревший fallback) |
-| `REMNAWAVE_ADMIN_USER` | `admin` | Логин/API-ключ для входа в панель Remnawave |
-| `REMNAWAVE_ADMIN_PASS` | `change-me` | Пароль для входа в панель Remnawave |
+| `REMNAWAVE_ADMIN_USER` | `admin` | Устаревший fallback для API-login; новые панели настраиваются API-токеном в дашборде |
+| `REMNAWAVE_ADMIN_PASS` | `change-me` | Устаревший fallback для API-login; новые панели настраиваются API-токеном в дашборде |
 | `REMNAWAVE_TARGET_USERNAME` | `pec-user` | Username пользователя Remnawave, чьи данные ротируются (`XUI_INBOUND_REMARK` поддерживается как устаревший fallback) |
 | `REMNAWAVE_INSECURE_SKIP_VERIFY` | `false` | Отключить проверку TLS-сертификата панели Remnawave. ⚠️ Риск MITM: только для self-signed сертификатов в изолированном сетевом контуре |
 | `UPDATE_CHECK_REPO` | `vlv-code/PEC` | Репозиторий GitHub для проверки обновлений версий |

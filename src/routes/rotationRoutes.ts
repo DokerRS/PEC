@@ -76,14 +76,30 @@ export function createRotationRouter(): Router {
 
   router.post("/api/remnawave/panels", (req: Request, res: Response) => {
     try {
-      const { name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetUsername, rotationIntervalMinutes } =
-        req.body || {};
-      if (!name || !panelUrl || !adminUser) {
-        return res.status(400).json({ error: "Missing required fields: name, panelUrl, adminUser" });
+      const {
+        name,
+        panelUrl,
+        apiToken,
+        adminUser,
+        adminPass,
+        insecureTls,
+        rotationEnabled,
+        targetUsername,
+        rotationIntervalMinutes,
+      } = req.body || {};
+      const hasApiToken = typeof apiToken === "string" && apiToken.trim().length > 0;
+      const hasLegacyCredentials =
+        typeof adminUser === "string" &&
+        adminUser.trim().length > 0 &&
+        typeof adminPass === "string" &&
+        adminPass.trim().length > 0;
+      if (!name || !panelUrl || (!hasApiToken && !hasLegacyCredentials)) {
+        return res.status(400).json({ error: "Missing required fields: name, panelUrl, apiToken" });
       }
       const saved = saveRemnawavePanel({
         name,
         panelUrl,
+        apiToken,
         adminUser,
         adminPass,
         insecureTls,
@@ -91,7 +107,11 @@ export function createRotationRouter(): Router {
         targetUsername,
         rotationIntervalMinutes,
       });
-      res.json({ ...saved, adminPass: "••••••••" });
+      res.json({
+        ...saved,
+        apiToken: saved.apiToken ? "••••••••" : "",
+        adminPass: saved.adminPass ? "••••••••" : "",
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(400).json({ error: msg });
@@ -100,12 +120,22 @@ export function createRotationRouter(): Router {
 
   router.put("/api/remnawave/panels/:id", (req: Request, res: Response) => {
     try {
-      const { name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetUsername, rotationIntervalMinutes } =
-        req.body || {};
+      const {
+        name,
+        panelUrl,
+        apiToken,
+        adminUser,
+        adminPass,
+        insecureTls,
+        rotationEnabled,
+        targetUsername,
+        rotationIntervalMinutes,
+      } = req.body || {};
       const saved = saveRemnawavePanel({
         id: req.params.id,
         name,
         panelUrl,
+        apiToken,
         adminUser,
         adminPass,
         insecureTls,
@@ -113,7 +143,11 @@ export function createRotationRouter(): Router {
         targetUsername,
         rotationIntervalMinutes,
       });
-      res.json({ ...saved, adminPass: "••••••••" });
+      res.json({
+        ...saved,
+        apiToken: saved.apiToken ? "••••••••" : "",
+        adminPass: saved.adminPass ? "••••••••" : "",
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(400).json({ error: msg });
@@ -136,6 +170,7 @@ export function createRotationRouter(): Router {
       if (!panel) return res.status(404).json({ ok: false, message: "Panel not found" });
       const result = await testRemnawaveConnection({
         panelUrl: panel.panelUrl,
+        apiToken: panel.apiToken,
         adminUser: panel.adminUser,
         adminPass: panel.adminPass,
         targetUsername: panel.targetUsername,
@@ -203,6 +238,7 @@ export function createRotationRouter(): Router {
       const current = getRotationConfig();
       const testConfig = {
         panelUrl: req.body?.panelUrl || current.panelUrl,
+        apiToken: req.body?.apiToken || "",
         adminUser: req.body?.adminUser || current.adminUser,
         adminPass:
           req.body?.adminPass !== undefined && req.body.adminPass !== ""

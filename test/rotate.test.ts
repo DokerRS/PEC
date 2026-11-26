@@ -12,11 +12,13 @@ import { withHttpServer } from "./helpers/http-server.js";
 
 function fakeRemnawavePanel(user: Record<string, unknown> | null, revokedUser?: Record<string, unknown>) {
   const seen: string[] = [];
+  const authorizationHeaders: string[] = [];
   let revokeBody: unknown;
 
   const handler = (req: any, res: any) => {
     const url = req.url || "";
     seen.push(`${req.method} ${url}`);
+    if (req.headers.authorization) authorizationHeaders.push(String(req.headers.authorization));
     const json = (status: number, body: unknown) => {
       res.writeHead(status, { "Content-Type": "application/json" });
       res.end(JSON.stringify(body));
@@ -60,8 +62,32 @@ function fakeRemnawavePanel(user: Record<string, unknown> | null, revokedUser?: 
     json(404, { statusCode: 404, message: "Not found" });
   };
 
-  return { handler, seen, getRevokeBody: () => revokeBody };
+  return { handler, seen, authorizationHeaders, getRevokeBody: () => revokeBody };
 }
+
+test("Remnawave API token is used as Bearer auth without calling login", async () => {
+  const panel = fakeRemnawavePanel({
+    id: 11,
+    username: "pec-user",
+    status: "ACTIVE",
+    trojanPassword: "old-secret",
+  });
+  const { url, close } = await withHttpServer(panel.handler);
+
+  try {
+    const result = await syncRemnawaveUser({
+      panelUrl: url,
+      apiToken: "remna-api-token",
+      username: "pec-user",
+      timeoutSec: 3,
+    });
+    assert.equal(result.ok, true);
+    assert.ok(!panel.seen.includes("POST /api/auth/login"));
+    assert.ok(panel.authorizationHeaders.includes("Bearer remna-api-token"));
+  } finally {
+    await close();
+  }
+});
 
 test("Remnawave connection test authenticates and finds the configured username", async () => {
   const panel = fakeRemnawavePanel({

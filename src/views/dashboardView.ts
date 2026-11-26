@@ -576,7 +576,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
               <tr>
                 <th>Название</th>
                 <th>URL панели</th>
-                <th>Пользователь</th>
+                <th>API-токен</th>
                 <th>Ротация</th>
                 <th>Статус TLS</th>
                 <th style="text-align: right;">Действия</th>
@@ -1969,16 +1969,9 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
       <label for="panelUrl" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">URL панели / Panel URL</label>
       <input type="text" id="panelUrl" placeholder="https://remnawave.example.corp:3000" style="width: 100%; box-sizing: border-box; margin-bottom: 12px;" />
 
-      <div class="grid-form-2col" style="margin-bottom: 12px;">
-        <div>
-          <label for="panelUser" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Admin User</label>
-          <input type="text" id="panelUser" placeholder="admin" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
-        </div>
-        <div>
-          <label for="panelPass" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Admin Pass</label>
-          <input type="password" id="panelPass" placeholder="••••••••" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
-        </div>
-      </div>
+      <label for="panelApiToken" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">API-токен Remnawave / Remnawave API Token</label>
+      <input type="password" id="panelApiToken" autocomplete="new-password" placeholder="Paste API token" style="width: 100%; box-sizing: border-box; margin-bottom: 4px;" />
+      <small style="display: block; color: var(--text-muted); margin-bottom: 12px;">Создайте токен в Remnawave → API Tokens с доступом к чтению/ротации пользователей. При редактировании оставьте поле пустым, чтобы сохранить текущий токен. / Create a token in Remnawave → API Tokens with user read/rotation permissions. Leave blank when editing to keep the current token.</small>
 
       <label for="panelInsecureTls" style="display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: none; font-weight: normal; cursor: pointer; margin-bottom: 12px;">
         <input type="checkbox" id="panelInsecureTls" style="width: auto; margin-bottom: 0;" />

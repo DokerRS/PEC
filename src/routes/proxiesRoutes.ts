@@ -52,14 +52,16 @@ export function createProxiesRouter(): Router {
         }
 
         let panelUrl = "";
+        let apiToken = "";
         let adminUser = "";
         let adminPass = "";
         if (panelId) {
           const panel = getRemnawavePanelById(panelId);
           if (panel) {
             panelUrl = panel.panelUrl;
-            adminUser = panel.adminUser;
-            adminPass = panel.adminPass;
+            apiToken = panel.apiToken || "";
+            adminUser = panel.adminUser || "";
+            adminPass = panel.adminPass || "";
           }
         }
         if (!panelUrl) {
@@ -75,6 +77,7 @@ export function createProxiesRouter(): Router {
 
         const syncResult = await syncRemnawaveUser({
           panelUrl,
+          apiToken,
           adminUser,
           adminPass,
           username: remnawaveUsername,
@@ -238,14 +241,16 @@ export function createProxiesRouter(): Router {
       }
 
       let panelUrl = "";
+      let apiToken = "";
       let adminUser = "";
       let adminPass = "";
       if (proxy.panelId) {
         const panel = getRemnawavePanelById(proxy.panelId);
         if (panel) {
           panelUrl = panel.panelUrl;
-          adminUser = panel.adminUser;
-          adminPass = panel.adminPass;
+          apiToken = panel.apiToken || "";
+          adminUser = panel.adminUser || "";
+          adminPass = panel.adminPass || "";
         }
       }
       if (!panelUrl) {
@@ -268,6 +273,7 @@ export function createProxiesRouter(): Router {
 
       const syncResult = await syncRemnawaveUser({
         panelUrl,
+        apiToken,
         adminUser,
         adminPass,
         username: targetUsername,
@@ -356,14 +362,16 @@ export function createProxiesRouter(): Router {
       }
 
       let panelUrl = "";
+      let apiToken = "";
       let adminUser = "";
       let adminPass = "";
       if (panelId) {
         const panel = getRemnawavePanelById(panelId);
         if (panel) {
           panelUrl = panel.panelUrl;
-          adminUser = panel.adminUser;
-          adminPass = panel.adminPass;
+          apiToken = panel.apiToken || "";
+          adminUser = panel.adminUser || "";
+          adminPass = panel.adminPass || "";
         }
       }
       if (!panelUrl) {
@@ -378,6 +386,7 @@ export function createProxiesRouter(): Router {
 
       const syncResult = await syncRemnawaveUser({
         panelUrl,
+        apiToken,
         adminUser,
         adminPass,
         username: username.trim(),
