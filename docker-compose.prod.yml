@@ -43,6 +43,8 @@ services:
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL in .env (bare origin like https://pec.example.corp) - required for artifact integrity}
       # Legacy Remnawave API-login fallback for single-panel rotation. New
       # dashboard panel entries store their API token in the persistent data volume.
+      # This flag relaxes SSRF checks for private endpoints; keep false unless required.
+      - ALLOW_INTERNAL_PANEL=${ALLOW_INTERNAL_PANEL:-false}
       - REMNAWAVE_PANEL_URL=${REMNAWAVE_PANEL_URL:-}
       - REMNAWAVE_ADMIN_USER=${REMNAWAVE_ADMIN_USER:-}
       - REMNAWAVE_ADMIN_PASS=${REMNAWAVE_ADMIN_PASS:-}
