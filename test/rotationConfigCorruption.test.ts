@@ -29,7 +29,7 @@ test("scheduler: torn rotation_config.json degrades loudly with .corrupt preserv
 
     const cfg = mod.getRotationConfig();
     assert.equal(cfg.enabled, true, "defaults must apply (enabled)");
-    assert.equal(cfg.inboundRemark, "squid-in", "defaults must apply (remark)");
+    assert.equal(cfg.targetUsername, "pec-user", "defaults must apply (target username)");
     assert.equal(cfg.intervalMinutes, parseInt(process.env.ROTATION_INTERVAL_MIN || "1440", 10), "default interval must apply");
 
     const loud = captured.find((line) => /rotation_config\.json is unreadable/i.test(line));

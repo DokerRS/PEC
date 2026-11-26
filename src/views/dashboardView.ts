@@ -15,9 +15,9 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PEC - Proxy Extension Corp</title>
-  <meta name="description" content="Enterprise proxy synchronization server, live extension builder studio, GPO policies &amp; 3x-ui rotator" />
+  <meta name="description" content="Enterprise proxy synchronization server, live extension builder studio, GPO policies &amp; Remnawave rotator" />
   <meta property="og:title" content="PEC - Proxy Extension Corp" />
-  <meta property="og:description" content="Enterprise proxy synchronization server, live extension builder studio, GPO policies &amp; 3x-ui rotator" />
+  <meta property="og:description" content="Enterprise proxy synchronization server, live extension builder studio, GPO policies &amp; Remnawave rotator" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -502,14 +502,14 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
       </div>
     </div>
 
-    <!-- ==================== TAB 2: PROXY SETTINGS & 3X-UI ==================== -->
+    <!-- ==================== TAB 2: PROXY SETTINGS & REMNAWAVE ==================== -->
     <div id="tab-proxy-settings" class="tab-pane" role="tabpanel" tabindex="0" aria-labelledby="tabBtnProxySettings">
       <!-- 0. Warning Banner for placeholder 10.0.0.1 (shown when no proxy is active) -->
       <div id="noActiveProxyWarning" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.4); border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; display: none; align-items: flex-start; gap: 10px; font-size: 13px;">
         <img src="/icons/warning.png" class="icon-inline-lg" alt="warn">
         <div>
           <strong data-i18n="warnNoActiveProxyTitle">No active upstream proxy.</strong>
-          <div data-i18n="warnNoActiveProxyDesc" style="margin-top: 2px;">Extensions are receiving placeholder <code>10.0.0.1:10809</code> and traffic will not flow. Add a proxy via "+ Add Manual Proxy" or "+ Add from 3x-ui" and click "Activate".</div>
+          <div data-i18n="warnNoActiveProxyDesc" style="margin-top: 2px;">Extensions are receiving placeholder <code>10.0.0.1:10809</code> and traffic will not flow. Add a proxy via "+ Add Manual Proxy" or "+ Add from Remnawave" and click "Activate".</div>
         </div>
       </div>
 
@@ -519,12 +519,12 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           <span data-i18n="titleProxyRegistry">Proxy Registry</span>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" id="btnCheckAllProxies" onclick="checkAllProxies()" class="btn-secondary" style="font-size: 12px;" data-i18n="btnCheckAllProxies">⚡ Проверить все</button>
-            <button type="button" id="btnAdd3xui" onclick="openAdd3xuiModal()" class="btn-secondary" style="font-size: 12px;" data-i18n="btnAdd3xui">+ Add from 3x-ui by Tag</button>
+            <button type="button" id="btnAddRemnawave" onclick="openAddRemnawaveModal()" class="btn-secondary" style="font-size: 12px;" data-i18n="btnAddRemnawave">+ Add from Remnawave by Username</button>
             <button type="button" id="btnAddManual" onclick="openAddManualModal()" style="font-size: 12px;" data-i18n="btnAddManual">+ Add Manual Proxy</button>
           </div>
         </h2>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;" data-i18n="subProxyRegistry">
-          Manage upstream corporate proxy servers, tag-based sync with 3x-ui inbounds, and manual nodes.
+          Manage upstream corporate proxy servers, username-based sync with Remnawave users, and manual nodes.
         </p>
 
         <!-- Active PAC Directive Indicator Banner -->
@@ -560,18 +560,18 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
         </div>
       </div>
 
-      <!-- 2. 3x-ui Multi-Panel Registry Card -->
+      <!-- 2. Remnawave Multi-Panel Registry Card -->
       <div class="card" style="margin-bottom: 16px;">
         <h2>
-          <span>Реестр серверов 3x-ui / 3x-ui Panels</span>
-          <button type="button" id="btnOpenAdd3xuiPanel" class="btn btn-secondary" style="font-size: 12px;">+ Добавить панель 3x-ui</button>
+          <span>Реестр серверов Remnawave / Remnawave Panels</span>
+          <button type="button" id="btnOpenAddRemnawavePanel" class="btn btn-secondary" style="font-size: 12px;">+ Добавить панель Remnawave</button>
         </h2>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
-          Централизованное управление несколькими панелями 3x-ui для импорта нод и автоматической ротации.
+          Централизованное управление несколькими панелями Remnawave для импорта нод и автоматической ротации.
         </p>
 
         <div class="table-container">
-          <table id="panels3xuiTable">
+          <table id="panelsRemnawaveTable">
             <thead>
               <tr>
                 <th>Название</th>
@@ -582,8 +582,8 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                 <th style="text-align: right;">Действия</th>
               </tr>
             </thead>
-            <tbody id="panels3xuiBody">
-              <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Загрузка панелей 3x-ui...</td></tr>
+            <tbody id="panelsRemnawaveBody">
+              <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Загрузка панелей Remnawave...</td></tr>
             </tbody>
           </table>
         </div>
@@ -594,7 +594,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
         <div class="card">
           <h2 data-i18n="titleFleetRotScheduler">Планировщик ротации флота / Fleet Rotation Scheduler</h2>
           <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;" data-i18n="descFleetRotScheduler">
-            Автоматическая ротация учетных данных прокси по расписанию для всех серверов 3x-ui с активной ротацией (или локального хранилища).
+            Автоматическая ротация учетных данных прокси по расписанию для всех серверов Remnawave с активной ротацией (или локального хранилища).
           </p>
 
           <div class="grid-form-2col" style="margin-bottom: 16px;">
@@ -1913,61 +1913,61 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
     </div>
   </div>
 
-  <!-- Modal: Add Proxy from 3x-ui by Tag -->
-  <div id="modalAdd3xui" class="modal-backdrop-theme">
+  <!-- Modal: Add Proxy from Remnawave by Username -->
+  <div id="modalAddRemnawave" class="modal-backdrop-theme">
     <div class="modal-card-theme" style="max-width: 500px; width: 90%; padding: 24px;">
-      <h2 style="margin: 0 0 12px 0; font-size: 17px;" data-i18n="titleAdd3xui">Add Proxy from 3x-ui by Inbound Tag</h2>
-      <p style="color: var(--text-muted); font-size: 12px; margin: 0 0 16px 0;" data-i18n="subAdd3xui">Enter inbound tag configured in your 3x-ui panel to fetch and link credentials.</p>
+      <h2 style="margin: 0 0 12px 0; font-size: 17px;" data-i18n="titleAddRemnawave">Add Proxy from Remnawave by Username</h2>
+      <p style="color: var(--text-muted); font-size: 12px; margin: 0 0 16px 0;" data-i18n="subAddRemnawave">Enter the Remnawave user username to fetch and link credentials.</p>
 
       <div style="margin-bottom: 12px;">
-        <label for="add3xuiPanelSelect" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Панель 3x-ui / Source Panel</label>
-        <select id="add3xuiPanelSelect" style="width: 100%; box-sizing: border-box; margin-bottom: 0;">
+        <label for="addRemnawavePanelSelect" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Панель Remnawave / Source Panel</label>
+        <select id="addRemnawavePanelSelect" style="width: 100%; box-sizing: border-box; margin-bottom: 0;">
           <option value="">По умолчанию (Настройки ротации)</option>
         </select>
       </div>
 
-      <label for="add3xuiTag" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);" data-i18n="lblAdd3xuiTag">Inbound Tag</label>
+      <label for="addRemnawaveUsername" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);" data-i18n="lblAddRemnawaveUsername">Remnawave Username</label>
       <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-        <input type="text" id="add3xuiTag" placeholder="corp-socks" data-i18n-ph="phAdd3xuiTag" style="flex: 1; margin-bottom: 0;" />
-        <button type="button" id="btnAdd3xuiFetch" onclick="lookup3xuiInbound()" class="btn-secondary" style="font-size: 12px; white-space: nowrap;" data-i18n="btnFetchInbound">Fetch Info</button>
+        <input type="text" id="addRemnawaveUsername" placeholder="pec-user" data-i18n-ph="phAddRemnawaveUsername" style="flex: 1; margin-bottom: 0;" />
+        <button type="button" id="btnAddRemnawaveFetch" onclick="lookupRemnawaveUser()" class="btn-secondary" style="font-size: 12px; white-space: nowrap;" data-i18n="btnFetchUser">Fetch Info</button>
       </div>
 
-      <!-- Inbound preview box -->
-      <div id="add3xuiPreview" style="background: var(--card-inner); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 12px; color: var(--text-muted);">
-        <span data-i18n="txtInboundPreviewPlaceholder">Click "Fetch Info" to preview inbound parameters before adding.</span>
+      <!-- Remnawave user preview box -->
+      <div id="addRemnawavePreview" style="background: var(--card-inner); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 12px; color: var(--text-muted);">
+        <span data-i18n="txtUserPreviewPlaceholder">Click "Fetch Info" to preview the Remnawave user before adding.</span>
       </div>
 
-      <label for="add3xuiName" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);" data-i18n="lblAdd3xuiName">Friendly Name (optional)</label>
-      <input type="text" id="add3xuiName" placeholder="Production SOCKS5 Node" data-i18n-ph="phAdd3xuiName" style="width: 100%; box-sizing: border-box; margin-bottom: 12px;" />
+      <label for="addRemnawaveName" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);" data-i18n="lblAddRemnawaveName">Friendly Name (optional)</label>
+      <input type="text" id="addRemnawaveName" placeholder="Production SOCKS5 Node" data-i18n-ph="phAddRemnawaveName" style="width: 100%; box-sizing: border-box; margin-bottom: 12px;" />
 
-      <label for="add3xuiHost" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);" data-i18n="lblAdd3xuiHost">Host Override (optional)</label>
-      <input type="text" id="add3xuiHost" placeholder="10.0.0.1 or proxy.corp.local" data-i18n-ph="phAdd3xuiHost" style="width: 100%; box-sizing: border-box; margin-bottom: 14px;" />
+      <label for="addRemnawaveHost" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);" data-i18n="lblAddRemnawaveHost">Host Override (optional)</label>
+      <input type="text" id="addRemnawaveHost" placeholder="10.0.0.1 or proxy.corp.local" data-i18n-ph="phAddRemnawaveHost" style="width: 100%; box-sizing: border-box; margin-bottom: 14px;" />
 
-      <label for="add3xuiIsActive" style="display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: none; font-weight: normal; cursor: pointer; margin-bottom: 16px;">
-        <input type="checkbox" id="add3xuiIsActive" checked style="width: auto; margin-bottom: 0;" />
+      <label for="addRemnawaveIsActive" style="display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: none; font-weight: normal; cursor: pointer; margin-bottom: 16px;">
+        <input type="checkbox" id="addRemnawaveIsActive" checked style="width: auto; margin-bottom: 0;" />
         <span data-i18n="lblMakeActive">Make this proxy active immediately</span>
       </label>
 
-      <div id="add3xuiError" style="display: none; color: var(--danger); font-size: 12px; margin-bottom: 12px;"></div>
+      <div id="addRemnawaveError" style="display: none; color: var(--danger); font-size: 12px; margin-bottom: 12px;"></div>
 
       <div style="display: flex; gap: 8px;">
-        <button type="button" id="btnAdd3xuiSubmit" onclick="submitAdd3xuiProxy()" style="flex: 1;" data-i18n="btnAdd3xuiSubmit">Add 3x-ui Proxy</button>
-        <button type="button" onclick="closeAdd3xuiModal()" class="btn-secondary" style="flex: 1;" data-i18n="btnCancel">Cancel</button>
+        <button type="button" id="btnAddRemnawaveSubmit" onclick="submitAddRemnawaveProxy()" style="flex: 1;" data-i18n="btnAddRemnawaveSubmit">Add Remnawave Proxy</button>
+        <button type="button" onclick="closeAddRemnawaveModal()" class="btn-secondary" style="flex: 1;" data-i18n="btnCancel">Cancel</button>
       </div>
     </div>
   </div>
 
-  <!-- Modal: Add / Edit 3x-ui Panel -->
-  <div id="modal3xuiPanel" class="modal-backdrop-theme" style="display: none;">
+  <!-- Modal: Add / Edit Remnawave Panel -->
+  <div id="modalRemnawavePanel" class="modal-backdrop-theme" style="display: none;">
     <div class="modal-card-theme" style="max-width: 500px; width: 90%; padding: 24px;">
-      <h2 id="modal3xuiPanelTitle" style="margin: 0 0 12px 0; font-size: 17px;">Панель 3x-ui / 3x-ui Panel</h2>
+      <h2 id="modalRemnawavePanelTitle" style="margin: 0 0 12px 0; font-size: 17px;">Панель Remnawave / Remnawave Panel</h2>
       <input type="hidden" id="panelIdInput" value="" />
 
       <label for="panelName" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Название / Name</label>
       <input type="text" id="panelName" placeholder="Frankfurt Node" style="width: 100%; box-sizing: border-box; margin-bottom: 12px;" />
 
       <label for="panelUrl" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">URL панели / Panel URL</label>
-      <input type="text" id="panelUrl" placeholder="https://3xui.example.corp:2053/path" style="width: 100%; box-sizing: border-box; margin-bottom: 12px;" />
+      <input type="text" id="panelUrl" placeholder="https://remnawave.example.corp:3000" style="width: 100%; box-sizing: border-box; margin-bottom: 12px;" />
 
       <div class="grid-form-2col" style="margin-bottom: 12px;">
         <div>
@@ -1991,16 +1991,16 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           <span data-i18n="lblPanelRotationEnabled">Включить авторотацию пароля для этой панели</span>
         </label>
         <div>
-          <label for="panelTargetRemark" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);" data-i18n="lblPanelTargetRemark">Целевой Remark / Inbound Tag (для ротации)</label>
-          <input type="text" id="panelTargetRemark" placeholder="squid-in" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
+          <label for="panelTargetUsername" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);" data-i18n="lblPanelTargetUsername">Целевой пользователь (для ротации)</label>
+          <input type="text" id="panelTargetUsername" placeholder="pec-user" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
         </div>
       </div>
 
       <div id="panelModalError" style="display: none; color: var(--danger); font-size: 12px; margin-bottom: 12px;"></div>
 
       <div style="display: flex; gap: 8px;">
-        <button type="button" id="btnSave3xuiPanel" style="flex: 1;">Сохранить панель</button>
-        <button type="button" id="btnCancel3xuiPanel" class="btn-secondary" style="flex: 1;">Отмена</button>
+        <button type="button" id="btnSaveRemnawavePanel" style="flex: 1;">Сохранить панель</button>
+        <button type="button" id="btnCancelRemnawavePanel" class="btn-secondary" style="flex: 1;">Отмена</button>
       </div>
     </div>
   </div>

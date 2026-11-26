@@ -33,7 +33,7 @@ Architectural map, subsystem interaction, and data flows.
               | Loopback                                     | Inbound Creds
               v (127.0.0.1)                                  v Rotation
 +----------------------------+                +-----------------------------+
-| Desktop Client (PEC-App)   | -------------> | 3x-ui / Xray Panels         |
+| Desktop Client (PEC-App)   | -------------> | Remnawave Panel             |
 | - DirectX 11 / Dear ImGui  |   Sync Telemetry| (SSRF Guard & DNS Rebinding |
 | - Service / Daemon         |                |  Protection)                |
 +----------------------------+                +-----------------------------+
@@ -56,9 +56,10 @@ Architectural map, subsystem interaction, and data flows.
 
 ### 2.4 Credential Rotation & External Integration
 - **Modules:** `src/rotate.ts`, `src/scheduler.ts`, `src/routes/rotationRoutes.ts`.
-- **Function:** Automated rotation of proxy credentials with 3x-ui / Xray panels.
+- **Function:** Authenticates to Remnawave with panel credentials, resolves users by username, and rotates credentials through the user revoke action while preserving subscription identifiers.
+- **API client:** `src/remnawave.ts` implements `POST /api/auth/login`, health checks, user/node listing, and `POST /api/users/{userId}/actions/revoke` with `revokeOnlyPasswords: true`. `src/rotate.ts` adapts those operations to the credential store and rotation scheduler; panel and target-user settings flow through `src/scheduler.ts` and the Remnawave panel registry routes.
 - **SSRF Hardening:** Synchronous and asynchronous DNS resolution checks (`validateSafeEndpointUrlAsync`) blocking loopback, link-local, RFC1918 private subnets, and cloud metadata endpoints (`169.254.169.254`).
-- **SSRF TOCTOU Pinning (AUDIT-SEC-2):** `createSsrfPinnedFetch` / `makePinnedLookup` (`src/rotate.ts`) freeze validated DNS answers into a custom `undici` Agent `lookup` with `redirect: "manual"`, so panel fetches never re-resolve to a rebound address between validation and connection. Used by all 3x-ui panel calls and `routingRoutes` import-url/refresh.
+- **SSRF TOCTOU Pinning (AUDIT-SEC-2):** `createSsrfPinnedFetch` / `makePinnedLookup` (`src/rotate.ts`) freeze validated DNS answers into a custom `undici` Agent `lookup` with `redirect: "manual"`, so panel fetches never re-resolve to a rebound address between validation and connection. Used by Remnawave API calls and `routingRoutes` import-url/refresh.
 
 ### 2.5 Packaging & Builder Studio
 - **Modules:** `src/packager.ts`, `src/appPackager.ts`, `src/codeSigner.ts`, `src/routes/builderRoutes.ts`, `src/routes/appBuilderRoutes.ts`.
@@ -90,7 +91,7 @@ Architectural map, subsystem interaction, and data flows.
 - **Perceptual Luminance Clamps (THEME-WEB-3):** `computeHexLuminance` / `isDarkHexColor` / `isLightHexColor` (`appPackager.ts`, weights 0.299/0.587/0.114, dark < 100, light > 175) replaced the leaky `^#2[0-4]` prefix-regex heuristic in both dark-sync clamp sites (`appPackager` profile path + `appSyncRoutes` sync path); non-colors are never clamped. Clamp matrix and the behavioral nord `#2e3440` sync-route case are covered by `test/themeLuminanceClamps.test.ts`.
 - **Reactive Studio Simulator Bus (UI-PREVIEW-FLEET-CLEAN-1):** In `studio.ts`, the Extension Studio preview iframe eliminates 404 console errors by directly inlining the theme bootstrap into `<script>` inside `generateMockPopupHtml` rather than requesting the external `popupTheme.js`. The extension preview state (`liveSimState`) dynamically mirrors actual fleet proxies (`availableProxies`, `activeProxyId`, host/port/protocol), PAC routing presets, and permission toggles (`allowUserProxySwitch`, `allowUserBypass`) with two-way `SET_ACTIVE_PROXY` messaging. App Studio replaces the static 30s timing hardcode with dynamic interval display (`appSyncIntervalMinutes`), reactive log sync ticks, and a dynamic traffic intercept generator matching active rules (`currentAppRules`).
 - **Fleet Telemetry Contract Hygiene (UI-PREVIEW-FLEET-CLEAN-1):** Removed redundant desktop pairing badges (`🔗 Десктоп`) from the extensions table user column, ensuring clean visual separation between the browser extensions fleet table and native application instances table.
-- **Multi-Server 3x-ui Fleet Rotation & Micro-Editor (UI-LOGIC-ROTATION-CLEAN-1):** `Panel3xuiConfig` supports multi-server rotation flags (`rotationEnabled`, `targetRemark`, `rotationIntervalMinutes`) with rotation isolated to active panels without affecting static proxy nodes. App Studio code editor is upgraded to a lightweight CodeJar + Prism.js micro-implementation with syntax highlighting, indentation, and responsive container bounds. Dashboard assets enforce automatic cache-busting (`?v=${currentVersion}`).
+- **Multi-Panel Remnawave Fleet Rotation & Micro-Editor:** `PanelRemnawaveConfig` supports per-panel rotation flags (`rotationEnabled`, `targetUsername`, `rotationIntervalMinutes`) with rotation isolated to active Remnawave-backed proxy nodes. App Studio code editor is upgraded to a lightweight CodeJar + Prism.js micro-implementation with syntax highlighting, indentation, and responsive container bounds. Dashboard assets enforce automatic cache-busting (`?v=${currentVersion}`).
 
 ### 2.10 Deployment Secrets & Secret Scanning
 - **Modules:** `src/loadEnv.ts` (`loadDockerSecrets`), `docker-compose.yml` / `docker-compose.prod.yml`, `.gitleaks.toml`, `.github/workflows/security.yml`.
@@ -111,7 +112,7 @@ Architectural map, subsystem interaction, and data flows.
 
 3. **Scheduled Credential Rotation:**
    - `scheduler.ts` triggers `rotateCredentials()` based on `ROTATION_INTERVAL_MIN`.
-   - `rotate.ts` connects to 3x-ui panel over validated URL (SSRF check passed), rotates inbound client password, and updates `current_creds.json` atomically.
+   - `rotate.ts` connects to the configured Remnawave panel over a validated, DNS-pinned URL, resolves the target username, revokes only its passwords, and updates `current_creds.json` atomically after the panel confirms the new credential.
 
 ---
 

@@ -6,50 +6,42 @@ import assert from "node:assert/strict";
 import { TEST_TMP_DIR } from "./helpers/setup.js";
 
 /**
- * AUDIT-SRV-3 (rotation transactionality): once the 3x-ui panel accepts the
- * new inbound password, local persistence failures are a FLEET DESYNC. The
+ * AUDIT-SRV-3 (rotation transactionality): once Remnawave accepts the
+ * credential revocation, local persistence failures are a FLEET DESYNC. The
  * rotation result must say so honestly (success=false + desync diagnostics),
  * never a silent success and never the misleading "credentials were NOT
  * changed" message from the pre-panel phase.
  */
 
 function panelFetchMock(recorded: string[]): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
+  let user = {
+    id: 7,
+    username: "corp-user",
+    shortUuid: "stable-subscription-id",
+    trojanPassword: "old-pass",
+  };
   return async (input: any, init?: any) => {
     const url = String(input);
     recorded.push(`${init?.method || "GET"} ${url}`);
     const jsonHeaders = { "content-type": "application/json" };
-    if (url.endsWith("/csrf-token")) {
-      return new Response(JSON.stringify({}), { status: 404 });
+    if (url.endsWith("/api/auth/login")) {
+      return new Response(JSON.stringify({ response: { accessToken: "test-token" } }), {
+        status: 201,
+        headers: jsonHeaders,
+      });
     }
-    if (url.endsWith("/login")) {
-      return new Response(JSON.stringify({ success: true }), { status: 200, headers: jsonHeaders });
+    if (url.includes("/api/users/by-username/corp-user")) {
+      return new Response(JSON.stringify({ response: user }), { status: 200, headers: jsonHeaders });
     }
-    if (url.includes("/panel/api/inbounds/list")) {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          obj: [
-            {
-              id: 7,
-              tag: "squid-in",
-              remark: "squid-in",
-              protocol: "socks",
-              settings: JSON.stringify({ accounts: [{ user: "corp-user", pass: "old-pass" }] }),
-              streamSettings: "{}",
-            },
-          ],
-        }),
-        { status: 200, headers: jsonHeaders }
-      );
-    }
-    if (url.includes("/panel/api/inbounds/update/7")) {
-      return new Response(JSON.stringify({ success: true }), { status: 200, headers: jsonHeaders });
+    if (url.endsWith("/api/users/7/actions/revoke")) {
+      user = { ...user, trojanPassword: "new-pass" };
+      return new Response(JSON.stringify({ response: user }), { status: 200, headers: jsonHeaders });
     }
     return new Response(JSON.stringify({}), { status: 404 });
   };
 }
 
-test("SRV-3: panel rotated but local creds write failed -> honest DESYNC failure, not silent success", async () => {
+test("SRV-3: Remnawave rotated but local creds write failed -> honest DESYNC failure, not silent success", async () => {
   const realFetch = globalThis.fetch;
   const recorded: string[] = [];
   globalThis.fetch = panelFetchMock(recorded) as any;
@@ -68,15 +60,15 @@ test("SRV-3: panel rotated but local creds write failed -> honest DESYNC failure
       panelUrl: "http://panel-srv.test:8081",
       adminUser: "admin",
       adminPass: "panel-secret",
-      inboundTag: "squid-in",
+      targetUsername: "corp-user",
     });
 
-    assert.ok(recorded.some((c) => c.includes("/panel/api/inbounds/update/7")), "panel update must have been issued");
+    assert.ok(recorded.some((c) => c.includes("/api/users/7/actions/revoke")), "credential revoke must have been issued");
     assert.equal(result.success, false, "a local desync must NOT be reported as success");
     assert.ok(/DESYNC/i.test(result.error || ""), `error must name the desync, got: ${result.error}`);
     assert.ok(
-      /panel password was rotated/i.test(result.error || ""),
-      `error must state the panel DID rotate, got: ${result.error}`
+      /Remnawave password was rotated/i.test(result.error || ""),
+      `error must state Remnawave DID rotate the credential, got: ${result.error}`
     );
     assert.ok(
       /local creds store not updated/i.test(result.error || ""),
@@ -115,7 +107,7 @@ test("SRV-3: atomicWriteCredsWithRetries retries transient failures before givin
   }
 });
 
-test("SRV-3: fully successful panel rotation still returns success=true", async () => {
+test("SRV-3: fully successful Remnawave rotation still returns success=true", async () => {
   const realFetch = globalThis.fetch;
   const recorded: string[] = [];
   globalThis.fetch = panelFetchMock(recorded) as any;
@@ -131,7 +123,7 @@ test("SRV-3: fully successful panel rotation still returns success=true", async 
       panelUrl: "http://panel-srv.test:8081",
       adminUser: "admin",
       adminPass: "panel-secret",
-      inboundTag: "squid-in",
+      targetUsername: "corp-user",
     });
 
     assert.equal(result.success, true, `happy path must stay success, got error: ${result.error}`);

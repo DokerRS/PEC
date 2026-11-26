@@ -1,26 +1,17 @@
+import "./helpers/setup.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { findInboundByTagOrRemark } from "../src/rotate.js";
 import { preservePasswordOnConfigUpdate } from "../src/routes/rotationRoutes.js";
+import { getRotationConfig, updateRotationConfig } from "../src/scheduler.js";
 
-test("findInboundByTagOrRemark matches by exact tag, trimmed tag, or remark", () => {
-  const inbounds = [
-    { id: 1, tag: "vless-inbound-1", remark: "US Office Primary" },
-    { id: 2, tag: "vless-inbound-2", remark: "EU Failover" }
-  ];
-
-  assert.equal(findInboundByTagOrRemark(inbounds, "vless-inbound-1")?.id, 1);
-  assert.equal(findInboundByTagOrRemark(inbounds, "  vless-inbound-1  ")?.id, 1);
-  assert.equal(findInboundByTagOrRemark(inbounds, "VLESS-INBOUND-1")?.id, 1);
-  assert.equal(findInboundByTagOrRemark(inbounds, "US Office Primary")?.id, 1);
-  assert.equal(findInboundByTagOrRemark(inbounds, "  us office primary  ")?.id, 1);
-  assert.equal(findInboundByTagOrRemark(inbounds, "eu failover")?.id, 2);
-  assert.equal(findInboundByTagOrRemark(inbounds, "unknown"), undefined);
+test("rotation config stores and returns the Remnawave target username", () => {
+  updateRotationConfig({ targetUsername: "pec-user", enabled: false });
+  assert.equal(getRotationConfig().targetUsername, "pec-user");
 });
 
 test("preservePasswordOnConfigUpdate preserves existing rotAdminPass when submitted empty or undefined", () => {
   const currentConfig = {
-    panelUrl: "https://3xui.corp:2053",
+    panelUrl: "https://remnawave.corp:3000",
     adminUser: "admin",
     adminPass: "stored-secret-password-123",
     rotAdminPass: "stored-secret-password-123",

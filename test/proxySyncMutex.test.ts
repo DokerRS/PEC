@@ -26,8 +26,9 @@ test("Manual Proxy Sync Mutex (M-8): returns 409 Conflict when rotation is in fl
 
   try {
     const proxy = createProxy({
-      name: "Test 3x-ui Node",
-      type: "3x-ui",
+      name: "Test Remnawave Node",
+      type: "remnawave",
+      remnawaveUsername: "test-user",
       host: "10.0.0.1",
       port: 1080,
       username: "user1",
@@ -56,7 +57,7 @@ test("Manual Proxy Sync Mutex (M-8): returns 409 Conflict when rotation is in fl
       body: JSON.stringify({}),
     });
 
-    // Should NOT be 409 anymore (might be 400 because 3x-ui panel is not configured, but NOT 409)
+    // Should NOT be 409 anymore (the missing panel may return 400, but not 409).
     assert.notStrictEqual(resClear.status, 409, "Must not return 409 when rotation is not in flight");
   } finally {
     setRotationInFlight(false);
@@ -66,7 +67,8 @@ test("Manual Proxy Sync Mutex (M-8): returns 409 Conflict when rotation is in fl
 
 test("Manual Proxy Sync Mutex (M-8, updated by AUDIT-SRV-P3): concurrent syncs for the same proxy are coalesced into one panel round-trip", async () => {
   const { withHttpServer } = await import("./helpers/http-server.js");
-  const { save3xuiPanel } = await import("../src/rotate.js");
+  const { saveRemnawavePanel, deleteRemnawavePanel } = await import("../src/rotate.js");
+  const { deleteProxy } = await import("../src/proxies.js");
 
   let resolveFirstRequest: () => void = () => {};
   const firstRequestBlocker = new Promise<void>((resolve) => {
@@ -75,26 +77,24 @@ test("Manual Proxy Sync Mutex (M-8, updated by AUDIT-SRV-P3): concurrent syncs f
   let listHits = 0;
 
   const { url, close } = await withHttpServer(async (req, res) => {
-    if (req.url === "/csrf-token") {
-      res.writeHead(404);
-      res.end();
+    if (req.method === "POST" && req.url === "/api/auth/login") {
+      req.resume();
+      req.on("end", () => {
+        res.writeHead(201, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ response: { accessToken: "test-token" } }));
+      });
       return;
     }
-    if (req.url === "/login") {
-      res.writeHead(200, { "Content-Type": "application/json", "Set-Cookie": "session=abc" });
-      res.end(JSON.stringify({ success: true }));
-      return;
-    }
-    if (req.url === "/panel/api/inbounds/list") {
+    if (req.method === "GET" && req.url === "/api/users/by-username/test-concurrent") {
       listHits++;
       // Delay response until we say so
       await firstRequestBlocker;
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, obj: [] }));
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ statusCode: 404, message: "User not found" }));
       return;
     }
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ success: true }));
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ statusCode: 404, message: "Not found" }));
   });
 
   const app = buildApp();
@@ -103,23 +103,29 @@ test("Manual Proxy Sync Mutex (M-8, updated by AUDIT-SRV-P3): concurrent syncs f
   const port = (server.address() as AddressInfo).port;
   const base = `http://127.0.0.1:${port}`;
 
+  let panelId = "";
+  let proxyId = "";
   try {
-    const panel = save3xuiPanel({
+    const panel = saveRemnawavePanel({
       name: "Slow Mock Panel",
       panelUrl: url,
       adminUser: "admin",
       adminPass: "pass",
+      targetUsername: "test-concurrent",
     });
+    panelId = panel.id;
 
     const proxy = createProxy({
       name: "Concurrent Test Node",
-      type: "3x-ui",
+      type: "remnawave",
+      remnawaveUsername: "test-concurrent",
       host: "10.0.0.1",
       port: 1080,
       username: "user1",
       tag: "test-concurrent",
       panelId: panel.id,
     });
+    proxyId = proxy.id;
 
     // Launch first sync request (it will pause inside mock server)
     const p1 = fetch(`${base}/api/proxies/${proxy.id}/sync`, {
@@ -149,7 +155,7 @@ test("Manual Proxy Sync Mutex (M-8, updated by AUDIT-SRV-P3): concurrent syncs f
     const body2 = await res2.json();
     const body1 = await res1.json();
     assert.deepStrictEqual(body2, body1, "Coalesced response bodies must be identical");
-    // The mock panel has no inbounds, so the shared outcome is the honest 400
+    // The mock panel has no matching user, so the shared outcome is the honest 400.
     assert.strictEqual(res2.status, 400);
     assert.match(body2.error || "", /not found/i);
     assert.strictEqual(listHits, 1, "the panel must be contacted exactly once despite two concurrent callers");
@@ -157,6 +163,8 @@ test("Manual Proxy Sync Mutex (M-8, updated by AUDIT-SRV-P3): concurrent syncs f
     resolveFirstRequest();
     server.close();
     await close();
+    if (panelId) deleteRemnawavePanel(panelId);
+    if (proxyId) deleteProxy(proxyId);
   }
 });
 

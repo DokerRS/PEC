@@ -170,7 +170,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
       tag = "[PAC]";
     } else if (url.startsWith("/api/routing")) {
       tag = "[ROUTING]";
-    } else if (url.startsWith("/api/proxies") || url.startsWith("/api/3xui")) {
+    } else if (url.startsWith("/api/proxies") || url.startsWith("/api/remnawave")) {
       tag = "[PROXIES]";
     }
 
@@ -318,7 +318,7 @@ app.get("/", (req: Request, res: Response) => {
     return res.json({
       title: "Corp Proxy Auth & Extension Studio",
       version: getAppVersion(),
-      description: "Mini-server managing selective routing, GeoBases, extension constructor studio, GPO distribution, and 3x-ui rotation.",
+      description: "Mini-server managing selective routing, GeoBases, extension constructor studio, GPO distribution, and Remnawave rotation.",
       endpoints: [
         "GET /healthz",
         "GET /creds",
@@ -338,7 +338,7 @@ app.get("/", (req: Request, res: Response) => {
         "GET /api/rotation/config",
         "POST /api/rotation/config",
         "POST /api/rotation/rotate-now",
-        "POST /api/3xui/test",
+        "POST /api/remnawave/test",
         "GET /api/status",
         "GET /api/github/releases",
       ],

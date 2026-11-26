@@ -34,7 +34,7 @@ export function renderProxiesTable(proxies: any[]) {
           ? '<div style="font-size: 11px; color: var(--text-muted);">' + esc(px.name) + '</div>'
           : '';
 
-        const typeBadge = px.type === '3x-ui' ? 'badge-action-proxy' : 'badge-secondary';
+        const typeBadge = px.type === 'remnawave' ? 'badge-action-proxy' : 'badge-secondary';
         const statusBadge = px.status === 'OK' ? 'badge-online' : (px.status === 'ERROR' ? 'badge-offline' : 'badge-secondary');
         const syncTime = px.lastSync ? '<div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">' + new Date(px.lastSync).toLocaleTimeString() + '</div>' : '';
 
@@ -48,7 +48,7 @@ export function renderProxiesTable(proxies: any[]) {
 
         const checkBtn = '<button type="button" class="btn-secondary btn-check-proxy" style="font-size: 11px; padding: 3px 6px;" data-id="' + esc(px.id) + '" title="' + esc(t('btnCheckProxy', 'Check proxy latency and egress IP')) + '"><img src="/icons/bolt.png" class="icon-inline-sm" alt="check"></button>';
 
-        const syncBtn = px.type === '3x-ui'
+        const syncBtn = px.type === 'remnawave'
           ? '<button type="button" class="btn-secondary btn-sync-proxy" style="font-size: 11px; padding: 3px 6px;" data-id="' + esc(px.id) + '" title="' + esc(t('btnSyncProxy', 'Sync & Rotate')) + '"><img src="/icons/sync.png" class="icon-inline-sm" alt="sync"></button>'
           : '';
 
@@ -170,11 +170,11 @@ export function openEditProxyModal(id: string) {
 
   if (idEl) idEl.value = px.id;
   if (titleEl) titleEl.textContent = t('titleEditProxy', 'Edit Proxy Node') + ': ' + px.tag;
-  if (tagEl) { tagEl.value = px.tag; tagEl.disabled = (px.type === '3x-ui'); }
+  if (tagEl) { tagEl.value = px.tag; tagEl.disabled = (px.type === 'remnawave'); }
   if (nameEl) nameEl.value = px.name || '';
-  if (protoEl) { protoEl.value = px.protocol || 'http'; protoEl.disabled = (px.type === '3x-ui'); }
+  if (protoEl) { protoEl.value = px.protocol || 'http'; protoEl.disabled = (px.type === 'remnawave'); }
   if (hostEl) hostEl.value = px.host || '';
-  if (portEl) { portEl.value = String(px.port || ''); portEl.disabled = (px.type === '3x-ui'); }
+  if (portEl) { portEl.value = String(px.port || ''); portEl.disabled = (px.type === 'remnawave'); }
   if (userEl) userEl.value = px.username || '';
   if (passEl) { passEl.value = ''; passEl.placeholder = '•••••••• (leave empty to keep unchanged)'; }
   if (activeEl) activeEl.checked = Boolean(px.isActive);
@@ -309,7 +309,7 @@ export async function activateProxy(id: string) {
 
 export async function syncProxy(id: string) {
   try {
-    toast('Syncing proxy with 3x-ui...', 'info');
+    toast('Syncing proxy with Remnawave...', 'info');
     const res = await adminFetch('/api/proxies/' + encodeURIComponent(id) + '/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

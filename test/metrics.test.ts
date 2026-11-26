@@ -15,12 +15,12 @@ import {
   clearInstances,
 } from "../src/instances.js";
 
-test("metrics: records 3x-ui rotations and rate limit blocks", () => {
+test("metrics: records Remnawave rotations and rate limit blocks", () => {
   resetMetricsForTest();
 
-  recordRotation("3x-ui", "success");
-  recordRotation("3x-ui", "success");
-  recordRotation("3x-ui", "failure");
+  recordRotation("remnawave", "success");
+  recordRotation("remnawave", "success");
+  recordRotation("remnawave", "failure");
   recordRotation("standalone", "success");
 
   recordRateLimitBlock("/api/sync");
@@ -29,8 +29,8 @@ test("metrics: records 3x-ui rotations and rate limit blocks", () => {
 
   const output = renderPrometheusMetrics();
 
-  assert.ok(output.includes('pec_rotation_total{source="3x-ui",status="success"} 2'), "3x-ui success count must be 2");
-  assert.ok(output.includes('pec_rotation_total{source="3x-ui",status="failure"} 1'), "3x-ui failure count must be 1");
+  assert.ok(output.includes('pec_rotation_total{source="remnawave",status="success"} 2'), "Remnawave success count must be 2");
+  assert.ok(output.includes('pec_rotation_total{source="remnawave",status="failure"} 1'), "Remnawave failure count must be 1");
   assert.ok(output.includes('pec_rotation_total{source="standalone",status="success"} 1'), "standalone success count must be 1");
 
   assert.ok(output.includes('pec_rate_limit_blocks_total{endpoint="/api/sync"} 2'), "/api/sync rate limit count must be 2");

@@ -1,6 +1,6 @@
 # PEC — Chrome Extension (Manifest V3)
 
-Расширение Google Chrome (Manifest V3) для автоматической аутентификации пользователей корпоративной Active Directory группы на прокси-сервере (Xray / 3x-ui).
+Расширение Google Chrome (Manifest V3) для автоматической аутентификации пользователей корпоративной Active Directory группы на прокси-сервере (Xray / Remnawave).
 
 Расширение перехватывает запросы Basic-Auth от прокси (`details.isProxy === true`), получает актуальные учетные данные с мини-сервера и прозрачно передает их браузеру.
 

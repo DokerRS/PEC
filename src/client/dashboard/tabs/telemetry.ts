@@ -1,4 +1,4 @@
-// Telemetry, Fleet, GPO, 3x-ui & Releases Tab Module for PEC Dashboard
+// Telemetry, Fleet, GPO, Remnawave & Releases Tab Module for PEC Dashboard
 import { state } from '../core/state.js';
 import { adminFetch, esc, escapeHtml, extractError } from '../core/api.js';
 import { toast, pecConfirm, pecPrompt, registerModalCloser } from '../core/notify.js';
@@ -1251,7 +1251,7 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
       }
     }
 
-    // ----------------- 3x-ui Rotation -----------------
+    // ----------------- Remnawave Rotation -----------------
     export async function fetchRotationConfig() {
       try {
         const res = await adminFetch('/api/rotation/config');
@@ -1262,8 +1262,8 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
         if (rotPanelUrl) rotPanelUrl.value = cfg.panelUrl || '';
         const rotAdminUser = document.getElementById('rotAdminUser') as HTMLInputElement | null;
         if (rotAdminUser) rotAdminUser.value = cfg.adminUser || '';
-        const rotRemark = document.getElementById('rotRemark') as HTMLInputElement | null;
-        if (rotRemark) rotRemark.value = cfg.inboundRemark || '';
+        const rotTargetUsername = document.getElementById('rotTargetUsername') as HTMLInputElement | null;
+        if (rotTargetUsername) rotTargetUsername.value = cfg.targetUsername || '';
         const rotInterval = document.getElementById('rotInterval') as HTMLSelectElement | null;
         if (rotInterval) rotInterval.value = String(cfg.intervalMinutes || 1440);
         const rotEnabled = document.getElementById('rotEnabled') as HTMLSelectElement | null;
@@ -1305,7 +1305,7 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
       const rotInsecure = document.getElementById('rotInsecureTls') as HTMLInputElement | null;
       const rotPanelUrl = document.getElementById('rotPanelUrl') as HTMLInputElement | null;
       const rotAdminUser = document.getElementById('rotAdminUser') as HTMLInputElement | null;
-      const rotRemark = document.getElementById('rotRemark') as HTMLInputElement | null;
+      const rotTargetUsername = document.getElementById('rotTargetUsername') as HTMLInputElement | null;
       const rotAdminPass = document.getElementById('rotAdminPass') as HTMLInputElement | null;
 
       const payload: any = {
@@ -1314,7 +1314,7 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
       };
       if (rotPanelUrl) payload.panelUrl = rotPanelUrl.value.trim();
       if (rotAdminUser) payload.adminUser = rotAdminUser.value.trim();
-      if (rotRemark) payload.inboundRemark = rotRemark.value.trim();
+      if (rotTargetUsername) payload.targetUsername = rotTargetUsername.value.trim();
       if (rotInsecure) payload.insecureSkipVerify = rotInsecure.checked;
       if (rotAdminPass && rotAdminPass.value) payload.adminPass = rotAdminPass.value;
 
@@ -1350,21 +1350,21 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
       }
     }
 
-    export async function test3xui() {
-      const out = document.getElementById('test3xuiResult');
-      out.textContent = 'Testing connection to 3x-ui API...';
+    export async function testRemnawave() {
+      const out = document.getElementById('testRemnawaveResult');
+      out.textContent = 'Testing connection to Remnawave API...';
       const enteredPass = document.getElementById('rotAdminPass').value;
       const payload: any = {
         panelUrl: document.getElementById('rotPanelUrl').value.trim(),
         adminUser: document.getElementById('rotAdminUser').value.trim(),
-        inboundRemark: document.getElementById('rotRemark').value.trim()
+        targetUsername: document.getElementById('rotTargetUsername').value.trim()
       };
       if (enteredPass && enteredPass.trim()) {
         payload.adminPass = enteredPass.trim();
       }
 
       try {
-        const res = await adminFetch('/api/3xui/test', {
+        const res = await adminFetch('/api/remnawave/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -1425,31 +1425,31 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
       </tr>`).join('');
     }
 
-    // ----------------- 3x-ui Panels Registry -----------------
+    // ----------------- Remnawave Panels Registry -----------------
 export let currentPanelsList = [];
 
-    export async function load3xuiPanels() {
+    export async function loadRemnawavePanels() {
       try {
-        const res = await adminFetch('/api/3xui/panels');
+        const res = await adminFetch('/api/remnawave/panels');
         if (!res.ok) return;
         const data = await res.json();
         currentPanelsList = Array.isArray(data) ? data : (data && data.panels ? data.panels : []);
-        render3xuiPanelsTable(currentPanelsList);
+        renderRemnawavePanelsTable(currentPanelsList);
       } catch (e) {
-        console.warn('Failed to load 3x-ui panels:', e);
+        console.warn('Failed to load Remnawave panels:', e);
       }
     }
 
-    export function render3xuiPanelsTable(panels) {
+    export function renderRemnawavePanelsTable(panels) {
       const isRu = currentLang === 'ru';
-      const tbody = document.getElementById('panels3xuiBody');
+      const tbody = document.getElementById('panelsRemnawaveBody');
       if (tbody) {
         if (!panels || !panels.length) {
-          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Панели 3x-ui не настроены' : 'No 3x-ui panels configured') + '</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Панели Remnawave не настроены' : 'No Remnawave panels configured') + '</td></tr>';
         } else {
           tbody.innerHTML = panels.map(p => {
             const rotBadge = p.rotationEnabled
-              ? `<span class="badge badge-success" title="${isRu ? 'Авторотация включена' : 'Auto-rotation active'}">⚡ ${isRu ? 'ВКЛ' : 'ON'}</span>${p.targetRemark ? `<div style="font-size:10px; color:var(--text-muted);">${esc(p.targetRemark)}</div>` : ''}`
+              ? `<span class="badge badge-success" title="${isRu ? 'Авторотация включена' : 'Auto-rotation active'}">⚡ ${isRu ? 'ВКЛ' : 'ON'}</span>${p.targetUsername ? `<div style="font-size:10px; color:var(--text-muted);">${esc(p.targetUsername)}</div>` : ''}`
               : `<span class="badge badge-secondary">${isRu ? 'ВЫКЛ' : 'OFF'}</span>`;
 
             return `<tr>
@@ -1470,15 +1470,15 @@ export let currentPanelsList = [];
         }
       }
 
-      // Populate select in Add from 3x-ui modal
-      const sel = document.getElementById('add3xuiPanelSelect');
+      // Populate select in Add from Remnawave modal
+      const sel = document.getElementById('addRemnawavePanelSelect');
       if (sel) {
         sel.innerHTML = '<option value="">' + (isRu ? 'По умолчанию (Настройки ротации)' : 'Default (Rotation Settings)') + '</option>' +
           (panels || []).map(p => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.panelUrl)})</option>`).join('');
       }
     }
 
-    export function openAdd3xuiPanelModal(panel?: any) {
+    export function openAddRemnawavePanelModal(panel?: any) {
       const idInp = document.getElementById('panelIdInput') as HTMLInputElement | null;
       const nameInp = document.getElementById('panelName') as HTMLInputElement | null;
       const urlInp = document.getElementById('panelUrl') as HTMLInputElement | null;
@@ -1486,7 +1486,7 @@ export let currentPanelsList = [];
       const passInp = document.getElementById('panelPass') as HTMLInputElement | null;
       const tlsInp = document.getElementById('panelInsecureTls') as HTMLInputElement | null;
       const rotInp = document.getElementById('panelRotationEnabled') as HTMLInputElement | null;
-      const remarkInp = document.getElementById('panelTargetRemark') as HTMLInputElement | null;
+      const remarkInp = document.getElementById('panelTargetUsername') as HTMLInputElement | null;
       const errEl = document.getElementById('panelModalError');
 
       if (idInp) idInp.value = panel ? panel.id : '';
@@ -1496,20 +1496,20 @@ export let currentPanelsList = [];
       if (passInp) passInp.value = '';
       if (tlsInp) tlsInp.checked = panel ? Boolean(panel.insecureTls) : false;
       if (rotInp) rotInp.checked = panel ? Boolean(panel.rotationEnabled) : false;
-      if (remarkInp) remarkInp.value = panel ? (panel.targetRemark || '') : '';
+      if (remarkInp) remarkInp.value = panel ? (panel.targetUsername || '') : '';
       if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
 
-      const modal = document.getElementById('modal3xuiPanel');
+      const modal = document.getElementById('modalRemnawavePanel');
       if (modal) modal.style.display = 'flex';
       if (nameInp) nameInp.focus();
     }
 
-    export function close3xuiPanelModal() {
-      const modal = document.getElementById('modal3xuiPanel');
+    export function closeRemnawavePanelModal() {
+      const modal = document.getElementById('modalRemnawavePanel');
       if (modal) modal.style.display = 'none';
     }
 
-    export async function save3xuiPanelAction() {
+    export async function saveRemnawavePanelAction() {
       const isRu = currentLang === 'ru';
       const id = (document.getElementById('panelIdInput') as HTMLInputElement | null)?.value;
       const name = (document.getElementById('panelName') as HTMLInputElement | null)?.value?.trim();
@@ -1518,7 +1518,7 @@ export let currentPanelsList = [];
       const adminPass = (document.getElementById('panelPass') as HTMLInputElement | null)?.value;
       const insecureTls = (document.getElementById('panelInsecureTls') as HTMLInputElement | null)?.checked;
       const rotationEnabled = Boolean((document.getElementById('panelRotationEnabled') as HTMLInputElement | null)?.checked);
-      const targetRemark = ((document.getElementById('panelTargetRemark') as HTMLInputElement | null)?.value || '').trim();
+      const targetUsername = ((document.getElementById('panelTargetUsername') as HTMLInputElement | null)?.value || '').trim();
       const errEl = document.getElementById('panelModalError');
 
       if (!name || !panelUrl || !adminUser) {
@@ -1526,7 +1526,7 @@ export let currentPanelsList = [];
         return;
       }
 
-      const btn = document.getElementById('btnSave3xuiPanel');
+      const btn = document.getElementById('btnSaveRemnawavePanel');
       let origHtml = '';
       if (btn) {
         origHtml = btn.innerHTML;
@@ -1535,18 +1535,18 @@ export let currentPanelsList = [];
       }
 
       try {
-        const url = id ? `/api/3xui/panels/${encodeURIComponent(id)}` : '/api/3xui/panels';
+        const url = id ? `/api/remnawave/panels/${encodeURIComponent(id)}` : '/api/remnawave/panels';
         const method = id ? 'PUT' : 'POST';
         const res = await adminFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetRemark })
+          body: JSON.stringify({ name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetUsername })
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
-          close3xuiPanelModal();
-          toast(isRu ? 'Панель 3x-ui сохранена' : '3x-ui panel saved', 'success');
-          load3xuiPanels();
+          closeRemnawavePanelModal();
+          toast(isRu ? 'Панель Remnawave сохранена' : 'Remnawave panel saved', 'success');
+          loadRemnawavePanels();
         } else {
           if (errEl) { errEl.textContent = data.error || 'Failed to save panel'; errEl.style.display = 'block'; }
         }
@@ -1560,14 +1560,14 @@ export let currentPanelsList = [];
       }
     }
 
-    export async function delete3xuiPanelAction(id) {
+    export async function deleteRemnawavePanelAction(id) {
       const isRu = currentLang === 'ru';
-      if (!await pecConfirm(isRu ? 'Удалить эту панель 3x-ui?' : 'Delete this 3x-ui panel?', { isDanger: true })) return;
+      if (!await pecConfirm(isRu ? 'Удалить эту панель Remnawave?' : 'Delete this Remnawave panel?', { isDanger: true })) return;
       try {
-        const res = await adminFetch(`/api/3xui/panels/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const res = await adminFetch(`/api/remnawave/panels/${encodeURIComponent(id)}`, { method: 'DELETE' });
         if (res.ok) {
           toast(isRu ? 'Панель удалена' : 'Panel deleted', 'success');
-          load3xuiPanels();
+          loadRemnawavePanels();
         } else {
           toast('Delete failed', 'error');
         }
@@ -1576,11 +1576,11 @@ export let currentPanelsList = [];
       }
     }
 
-    export async function test3xuiPanelAction(id) {
+    export async function testRemnawavePanelAction(id) {
       const isRu = currentLang === 'ru';
       toast(isRu ? 'Проверка соединения с панелью...' : 'Testing panel connection...', 'info');
       try {
-        const res = await adminFetch(`/api/3xui/panels/${encodeURIComponent(id)}/test`, { method: 'POST' });
+        const res = await adminFetch(`/api/remnawave/panels/${encodeURIComponent(id)}/test`, { method: 'POST' });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
           toast(isRu ? 'Соединение успешно! ' + (data.message || '') : 'Connected! ' + (data.message || ''), 'success');
@@ -1592,71 +1592,71 @@ export let currentPanelsList = [];
       }
     }
 
-    export function openAdd3xuiModal() {
-      const tagEl = document.getElementById('add3xuiTag');
-      const nameEl = document.getElementById('add3xuiName');
-      const hostEl = document.getElementById('add3xuiHost');
-      const activeEl = document.getElementById('add3xuiIsActive');
-      const previewEl = document.getElementById('add3xuiPreview');
-      const errEl = document.getElementById('add3xuiError');
+    export function openAddRemnawaveModal() {
+      const tagEl = document.getElementById('addRemnawaveUsername');
+      const nameEl = document.getElementById('addRemnawaveName');
+      const hostEl = document.getElementById('addRemnawaveHost');
+      const activeEl = document.getElementById('addRemnawaveIsActive');
+      const previewEl = document.getElementById('addRemnawavePreview');
+      const errEl = document.getElementById('addRemnawaveError');
       if (tagEl) tagEl.value = '';
       if (nameEl) nameEl.value = '';
       if (hostEl) hostEl.value = '';
       if (activeEl) activeEl.checked = true;
-      if (previewEl) previewEl.innerHTML = '<span data-i18n="txtInboundPreviewPlaceholder">' + esc(t('txtInboundPreviewPlaceholder', 'Click "Fetch Info" to preview inbound parameters before adding.')) + '</span>';
+      if (previewEl) previewEl.innerHTML = '<span data-i18n="txtUserPreviewPlaceholder">' + esc(t('txtUserPreviewPlaceholder', 'Click "Fetch Info" to preview inbound parameters before adding.')) + '</span>';
       if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
-      const modal = document.getElementById('modalAdd3xui');
+      const modal = document.getElementById('modalAddRemnawave');
       if (modal) modal.style.display = 'flex';
       if (tagEl) tagEl.focus();
     }
 
-    export function closeAdd3xuiModal() {
-      const modal = document.getElementById('modalAdd3xui');
+    export function closeAddRemnawaveModal() {
+      const modal = document.getElementById('modalAddRemnawave');
       if (modal) modal.style.display = 'none';
     }
 
-    export async function lookup3xuiInbound() {
-      const tagEl = document.getElementById('add3xuiTag');
+    export async function lookupRemnawaveUser() {
+      const tagEl = document.getElementById('addRemnawaveUsername');
       const tag = tagEl ? tagEl.value.trim() : '';
-      const panelSelect = document.getElementById('add3xuiPanelSelect');
+      const panelSelect = document.getElementById('addRemnawavePanelSelect');
       const panelId = panelSelect ? panelSelect.value : '';
-      const errEl = document.getElementById('add3xuiError');
-      const previewEl = document.getElementById('add3xuiPreview');
+      const errEl = document.getElementById('addRemnawaveError');
+      const previewEl = document.getElementById('addRemnawavePreview');
       if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
       if (!tag) {
-        if (errEl) { errEl.textContent = 'Please enter an inbound tag'; errEl.style.display = 'block'; }
+        if (errEl) { errEl.textContent = 'Please enter a Remnawave username'; errEl.style.display = 'block'; }
         return;
       }
-      if (previewEl) previewEl.textContent = 'Querying 3x-ui panel...';
+      if (previewEl) previewEl.textContent = 'Querying Remnawave panel...';
 
       try {
-        const res = await adminFetch('/api/3xui/inbound-lookup', {
+        const res = await adminFetch('/api/remnawave/user-lookup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tag: tag, panelId: panelId || undefined })
+          body: JSON.stringify({ username: tag, panelId: panelId || undefined })
         });
         const data = await res.json().catch(() => ({}));
-        if (res.ok && data.ok && data.inbound) {
-          const ib = data.inbound;
+        if (res.ok && data.ok && data.user) {
+          const u = data.user;
           let warnHtml = '';
-          if ((ib.protocol === 'socks' || ib.protocol === 'socks5') && (ib.username || ib.hasPassword)) {
+          if (u.status && u.status !== 'ACTIVE') {
             warnHtml = '<div style="margin-top: 8px; padding: 6px 10px; background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; border-radius: 4px; color: #fbbf24; font-size: 11px; display: flex; align-items: center; gap: 6px;">' +
               '<img src="/icons/warning.png" class="icon-inline" alt="warn"> ' +
-              '<span>' + t('warnChromiumSocks5Auth', 'Chromium (Chrome, Edge, Brave, Yandex) does not support SOCKS5 authentication. If credentials are set, Chrome will reject the connection or bypass the proxy. Use HTTP protocol for authenticated corporate proxies or use SOCKS5 without username/password (e.g. IP whitelist).') + '</span>' +
+              '<span>' + esc('Remnawave user status is ' + u.status + ' - credentials may not work until the user is activated.') + '</span>' +
               '</div>';
           }
           if (previewEl) {
-            previewEl.innerHTML = '<div style="color: var(--success); font-weight: 600; margin-bottom: 4px;">Inbound Found:</div>' +
-              '<div><strong>Protocol:</strong> ' + esc(ib.protocol) + ' &bull; <strong>Port:</strong> ' + esc(ib.port) + '</div>' +
-              '<div><strong>Username:</strong> ' + esc(ib.username || 'none') + ' &bull; <strong>Password:</strong> ' + (ib.hasPassword ? 'Present' : 'None') + '</div>' +
+            previewEl.innerHTML = '<div style="color: var(--success); font-weight: 600; margin-bottom: 4px;">User Found:</div>' +
+              '<div><strong>Username:</strong> ' + esc(u.username) + ' &bull; <strong>Status:</strong> ' + esc(u.status || 'unknown') + '</div>' +
+              '<div><strong>Short UUID:</strong> ' + esc(u.shortUuid || 'none') + ' &bull; <strong>Password:</strong> ' + (u.hasPassword ? 'Present' : 'None') + '</div>' +
               warnHtml;
           }
-          const nameEl = document.getElementById('add3xuiName');
+          const nameEl = document.getElementById('addRemnawaveName');
           if (nameEl && !nameEl.value.trim()) {
-            nameEl.value = ib.tag || tag;
+            nameEl.value = u.username || tag;
           }
         } else {
-          const msg = data.error || 'Failed to lookup inbound from 3x-ui';
+          const msg = data.error || 'Failed to lookup user from Remnawave';
           if (previewEl) previewEl.textContent = 'Lookup failed: ' + msg;
           if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
         }
@@ -1666,23 +1666,23 @@ export let currentPanelsList = [];
       }
     }
 
-    export async function submitAdd3xuiProxy() {
-      const tagEl = document.getElementById('add3xuiTag');
-      const nameEl = document.getElementById('add3xuiName');
-      const hostEl = document.getElementById('add3xuiHost');
-      const activeEl = document.getElementById('add3xuiIsActive');
-      const panelSelect = document.getElementById('add3xuiPanelSelect');
+    export async function submitAddRemnawaveProxy() {
+      const tagEl = document.getElementById('addRemnawaveUsername');
+      const nameEl = document.getElementById('addRemnawaveName');
+      const hostEl = document.getElementById('addRemnawaveHost');
+      const activeEl = document.getElementById('addRemnawaveIsActive');
+      const panelSelect = document.getElementById('addRemnawavePanelSelect');
       const panelId = panelSelect ? panelSelect.value : '';
-      const errEl = document.getElementById('add3xuiError');
+      const errEl = document.getElementById('addRemnawaveError');
       if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
 
       const tag = tagEl ? tagEl.value.trim() : '';
       if (!tag) {
-        if (errEl) { errEl.textContent = 'Tag is required'; errEl.style.display = 'block'; }
+        if (errEl) { errEl.textContent = 'Username is required'; errEl.style.display = 'block'; }
         return;
       }
       const payload = {
-        type: '3x-ui',
+        type: 'remnawave',
         tag: tag,
         name: nameEl && nameEl.value.trim() ? nameEl.value.trim() : undefined,
         host: hostEl && hostEl.value.trim() ? hostEl.value.trim() : undefined,
@@ -1690,7 +1690,7 @@ export let currentPanelsList = [];
         panelId: panelId || undefined
       };
 
-      const btn = document.getElementById('btnAdd3xuiSubmit');
+      const btn = document.getElementById('btnAddRemnawaveSubmit');
       let origHtml = '';
       if (btn) {
         origHtml = btn.innerHTML;
@@ -1706,7 +1706,7 @@ export let currentPanelsList = [];
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.id) {
-          closeAdd3xuiModal();
+          closeAddRemnawaveModal();
           toast(t('toastProxySaved', 'Proxy saved!'), 'success');
           await fetchProxies();
           fetchStatus();
@@ -2132,5 +2132,5 @@ export let currentActiveAppVer = '';
 
 
 // Register modal closers
-registerModalCloser('modal3xuiPanel', close3xuiPanelModal);
-registerModalCloser('modalAdd3xui', closeAdd3xuiModal);
+registerModalCloser('modalRemnawavePanel', closeRemnawavePanelModal);
+registerModalCloser('modalAddRemnawave', closeAddRemnawaveModal);

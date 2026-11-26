@@ -46,7 +46,7 @@ export const state = {
   lastFleetFetchTime: 0,
 
   // Panels & rotation
-  current3xuiPanels: [] as any[],
+  currentRemnawavePanels: [] as any[],
   currentRotationConfig: null as any,
   currentReleasesData: null as any,
 

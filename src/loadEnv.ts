@@ -7,7 +7,7 @@ import fs from "node:fs";
  * at module-load time (scheduler, auth, packager, instances, routing...).
  * ES module bodies evaluate before the importing module's body, so previously
  * server.ts loaded .env only AFTER scheduler.ts had already baked placeholder
- * 3x-ui credentials into its default rotation config - .env values were
+ * Remnawave credentials into its default rotation config - .env values were
  * silently ignored on any deployment without a saved rotation_config.json.
  */
 if (fs.existsSync(".env")) {

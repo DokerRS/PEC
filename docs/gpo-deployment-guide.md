@@ -29,7 +29,7 @@ flowchart TD
     BROWSER -->|"2. Download extension.crx"| NGINX
     BROWSER -->|"3. POST /api/sync & /creds\n(domainUser + fleetToken)"| NGINX
     PEC_SRV -->|Zero-Trust Kill-Switch\n(Проверка членства в AD)| BROWSER
-    BROWSER -->|"4. Авторизованный туннель"| PROXY["Upstream Прокси 1 и 2\n(Xray / 3x-ui / SOCKS5)"]
+    BROWSER -->|"4. Авторизованный туннель"| PROXY["Upstream Прокси 1 и 2\n(Xray / Remnawave / SOCKS5)"]
 ```
 
 ### Основные принципы безопасности:

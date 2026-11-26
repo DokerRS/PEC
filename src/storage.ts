@@ -37,7 +37,12 @@ export function getRotationConfigPath(): string {
   return path.resolve(process.env.ROTATION_CONFIG_PATH || path.join(getDataDir(), "rotation_config.json"));
 }
 
-export function get3xuiPanelsPath(): string {
+export function getRemnawavePanelsPath(): string {
+  return path.resolve(process.env.PANELS_REMNAWAVE_PATH || path.join(getDataDir(), "panels_remnawave.json"));
+}
+
+/** Legacy 3x-ui panels store location, kept only as a one-time migration source. */
+export function getLegacy3xuiPanelsPath(): string {
   return path.resolve(process.env.PANELS_3XUI_PATH || path.join(getDataDir(), "panels_3xui.json"));
 }
 

@@ -86,7 +86,7 @@ export function writeFileAtomic(
 
 /**
  * AUDIT-SRV-P3: POSIX mode bits are ignored on Windows - secret-bearing
- * stores (ad_config.json, panels_3xui.json) inherited Everyone:Read through
+ * stores (ad_config.json, panels_remnawave.json) inherited Everyone:Read through
  * directory ACE inheritance. Strip inheritance and grant access to the
  * current user only. No-op on POSIX (0o600 already applies).
  */

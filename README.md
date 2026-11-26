@@ -46,14 +46,14 @@ PEC is a **self-hosted platform for corporate proxy management**: a server, bran
 3. Deploy via **GPO/GPP** to all workstations (Allowlist + Sources, ExtensionSettings policy)
 4. Configure **PAC routing profiles** — which sites go through the proxy, which go direct
 5. Restrict access via **Active Directory / LDAP** group membership with a Kill-Switch for instant fleet-wide revocation
-6. Enable **automatic credential rotation** on your 3x-ui / Xray panels on a schedule
+6. Enable **automatic credential rotation** on your Remnawave panels on a schedule
 
 ### Status
 
 Official release. Development is complete; maintenance is limited to fixes based on user feedback.
 
 
-**PEC - Proxy Extension Corp** is an open-source platform for central proxy fleet management, browser extension construction & packaging (Chrome Manifest V3), Windows Active Directory GPO distribution, and automated credential rotation with Xray / 3x-ui panels.
+**PEC - Proxy Extension Corp** is an open-source platform for central proxy fleet management, browser extension construction & packaging (Chrome Manifest V3), Windows Active Directory GPO distribution, and automated credential rotation with Remnawave panels.
 
 ---
 
@@ -87,8 +87,8 @@ Official release. Development is complete; maintenance is limited to fixes based
    - Web-based constructor in the dashboard to generate and customize native client profiles (`.pbprofile`), packaging scripts, and deployment policies.
    - One-click version rollback manager with SHA-256 integrity validation and fleet version enforcement.
 
-6. **Automated 3x-ui / Xray Credential Rotation**:
-   - Automated inbound password rotation on configurable schedules (15m, 1h, 6h, 24h).
+6. **Automated Remnawave Credential Rotation**:
+   - Automated user password rotation on configurable schedules (15m, 1h, 6h, 24h).
    - Atomic disk writes for credential storage with corruption auto-recovery.
    - SSRF protection prohibiting loopback and cloud metadata endpoint access (`169.254.169.254`).
 
@@ -101,7 +101,7 @@ Official release. Development is complete; maintenance is limited to fixes based
 
 8. **Hardened Architecture & Security**:
    - Segmented CORS restricting administrative API access to Chrome extension origins and same-host.
-   - In-memory sliding-window rate limiting for `/creds`, `/api/sync`, and 3x-ui connection tests.
+   - In-memory sliding-window rate limiting for `/creds`, `/api/sync`, and Remnawave connection tests.
    - Security response headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, etc.).
    - Visual and console security warnings when running with the default shared token.
 
@@ -134,7 +134,7 @@ The repository provides a unified full-stack ecosystem:
 │   │   ├── routingRoutes.ts   # /api/routing/* (profiles and presets)
 │   │   ├── instancesRoutes.ts # /api/instances/*, /api/config
 │   │   ├── builderRoutes.ts   # /api/builder/*, /api/extension/*
-│   │   ├── rotationRoutes.ts  # /api/rotation/*, /api/3xui/test (SSRF-protected)
+│   │   ├── rotationRoutes.ts  # /api/rotation/*, /api/remnawave/test (SSRF-protected)
 │   │   ├── metricsRoutes.ts   # /metrics, /api/metrics (Prometheus exposition)
 │   │   └── systemRoutes.ts    # /healthz, /api/status, /api/github/releases
 │   ├── views/
@@ -143,9 +143,9 @@ The repository provides a unified full-stack ecosystem:
 │   ├── releases.ts            # Release manager, rollback engine, and hash verifier
 │   ├── instances.ts           # Active fleet instance registry with LRU capacity protection
 │   ├── logger.ts              # Structured JSON/development logger with secret masking
-│   ├── metrics.ts             # Prometheus metrics registry (fleet sync, 3x-ui, rate limits)
+│   ├── metrics.ts             # Prometheus metrics registry (fleet sync, Remnawave, rate limits)
 │   ├── packager.ts            # Chrome CRX packager, RSA signer, and GPO generator
-│   ├── rotate.ts              # Atomic credential storage, 3x-ui integration, SSRF validator
+│   ├── rotate.ts              # Atomic credential storage, Remnawave integration, SSRF validator
 │   ├── routing.ts             # Smart PAC generator, presets, geodata parser
 │   └── scheduler.ts           # Cron rotation scheduler
 ├── extension/                 # Chrome Manifest V3 extension source template (do not load directly!)
@@ -180,7 +180,7 @@ cp .env.example .env
 | `ADMIN_PASSWORD` | *(falls back to `ADMIN_TOKEN`)* | Initial dashboard login password; change it in the dashboard settings — credentials persist as a scrypt hash in `DASHBOARD_AUTH_PATH` |
 | `PAC_REQUIRE_SIGNATURE` | `false` | Enforce cryptographic HMAC-SHA256 signature verification on `/proxy.pac` requests |
 | `PAC_SIGNING_SECRET` | *(falls back to `EXT_SHARED_TOKEN`)* | Secret HMAC key used for signing and verifying `/proxy.pac` requests |
-| `ALLOW_INTERNAL_PANEL` | `false` | Allow connecting to 3x-ui panels located on RFC 1918 private subnets without SSRF guard blocking |
+| `ALLOW_INTERNAL_PANEL` | `false` | Allow connecting to Remnawave panels located on RFC 1918 private subnets without SSRF guard blocking |
 | `PEC_PRIVATE_KEY_PATH` | *(empty)* | Path to RSA private key PEM file for signing CRX packages (defaults to auto-generating `extension/key.pem`) |
 | `PEC_PRIVATE_KEY_PEM` | *(empty)* | Inline RSA private key PEM string for signing CRX packages (container environment alternative) |
 | `DATA_DIR` | `./data` | Base directory for runtime persistent state files |
@@ -196,7 +196,7 @@ cp .env.example .env
 | `BUILDER_CONFIG` | `./data/extension_build_config.json` | Path to extension build configuration store |
 | `APP_BUILD_CONFIG` | `./data/app_build_config.json` | Path to native desktop app build configuration store |
 | `APP_BUILD_INFO` | `./data/app_build_info.json` | Path to desktop client latest build info store |
-| `PANELS_3XUI_PATH` | `./data/panels_3xui.json` | Path to 3x-ui panels configuration store |
+| `PANELS_REMNAWAVE_PATH` | `./data/panels_remnawave.json` | Path to the Remnawave panels registry store (`PANELS_3XUI_PATH` is kept only as the one-time legacy migration source) |
 | `RELEASES_META_PATH` | `./data/releases_meta.json` | Path to releases and version history store |
 | `PEC_RELEASES_DIR` | *(empty)* | Directory for published desktop client and extension releases (defaults to `./dist/releases`) |
 | `PEC_UPDATES_DIR` | *(empty)* | Directory served for CRX/updates.xml Chrome auto-updates via GPO (defaults to `./dist/updates`) |
@@ -206,12 +206,11 @@ cp .env.example .env
 | `PROXY_ECHO_URL` | *(empty)* | Echo endpoint URL used to probe proxy node egress IP (defaults to `http://api.ipify.org?format=json`) |
 | `PEC_SYNC_INTERVAL_MIN` | `15` | Background periodic sync interval for extension and desktop app in minutes (alias: `PEC_SYNC_INTERVAL_MINUTES`) |
 | `ROTATION_INTERVAL_MIN` | `1440` | Default interval for proxy credential rotation in minutes (24 hours) |
-| `XUI_PANEL_URL` | `https://3xui-host:2053/basepath` | Base URL of the 3x-ui management panel |
-| `XUI_ADMIN_USER` | `admin` | Admin username for 3x-ui panel login |
-| `XUI_ADMIN_PASS` | `change-me` | Admin password for 3x-ui panel login |
-| `XUI_INBOUND_REMARK` | `squid-in` | Remark of the inbound proxy to rotate |
-| `XUI_INBOUND_TAG` | *(empty)* | Tag of a specific Xray inbound to rotate; empty = auto-discovery via `XUI_INBOUND_REMARK` |
-| `XUI_INSECURE_SKIP_VERIFY` | `false` | Disable TLS certificate validation for the 3x-ui panel. ⚠️ MITM risk: use only for self-signed certificates in an isolated network segment |
+| `REMNAWAVE_PANEL_URL` | `https://remnawave-host:3000` | Base URL of the Remnawave panel (`XUI_PANEL_URL` is accepted as a legacy fallback) |
+| `REMNAWAVE_ADMIN_USER` | `admin` | API key / username used to log in to the Remnawave panel |
+| `REMNAWAVE_ADMIN_PASS` | `change-me` | Password used to log in to the Remnawave panel |
+| `REMNAWAVE_TARGET_USERNAME` | `pec-user` | Remnawave username whose credentials are rotated (`XUI_INBOUND_REMARK` is accepted as a legacy fallback) |
+| `REMNAWAVE_INSECURE_SKIP_VERIFY` | `false` | Disable TLS certificate validation for the Remnawave panel. ⚠️ MITM risk: use only for self-signed certificates in an isolated network segment |
 | `UPDATE_CHECK_REPO` | `vlv-code/PEC` | GitHub repository used for version update checks |
 | `CODE_SIGN_DIR` | `./certs` | Directory storing code signing certificates and keys |
 | `CODE_SIGN_PFX_PATH` | *(empty)* | Optional path to Authenticode PFX/P12 certificate for signing Windows binaries |
@@ -333,9 +332,9 @@ sudo nginx -t && sudo systemctl reload nginx
 - **Admin API Authentication**: every management endpoint (`/api/builder/*`, `/api/routing/*`, `/api/rotation/*`, `/api/instances/*`, `/api/config`, `/api/status`) accepts either the `X-Admin-Token` bearer header (scripts/automation) or a valid dashboard session cookie. The token is never embedded in the HTML.
 - **CSRF Defense**: cookie-authenticated API calls must carry the `X-Requested-With: pec-dashboard` marker header; cross-site requests can silently attach cookies but cannot set custom headers without a CORS preflight, which the server never grants.
 - **Timing-Attack Resistance**: both tokens and the login password are compared through SHA-256 digests in constant time (no length leak).
-- **SSRF Defense**: The 3x-ui testing endpoint, scheduled rotations and saved panel URLs reject non-HTTP schemes and cloud metadata IP ranges (`169.254.169.254`, `metadata.google.internal`).
+- **SSRF Defense**: The Remnawave testing endpoint, scheduled rotations and saved panel URLs reject non-HTTP schemes and cloud metadata IP ranges (`169.254.169.254`, `metadata.google.internal`).
 - **PAC Injection Defense**: Dynamic PAC script generator sanitizes proxy hostnames and port numbers, stripping dangerous characters (`"`, `;`, whitespace).
-- **Rate Limiting**: Sliding-window rate limiters protect `/creds` (60/min), `/api/sync` (120/min), and 3x-ui connection tests (15/min).
+- **Rate Limiting**: Sliding-window rate limiters protect `/creds` (60/min), `/api/sync` (120/min), and Remnawave connection tests (15/min).
 - **Fleet Registry Protection**: Maximum instance limit (2000 items) with automatic LRU eviction protects against memory exhaustion attacks.
 - **Multi-Profile & Instance Identity (`instanceToken`) Persistence**: The browser extension intentionally persists `instanceToken` in `chrome.storage.local`. This preserves a stable client instance identity across browser restarts, OS reboots, and Manifest V3 background service worker recycles. Without persistence, each worker wakeup or browser restart would create a new instance record on the server, causing uncontrolled instance sprawl and churn in the server registry (`instances.ts`). This architecture is secure because: (1) `instanceToken` is an opaque, low-privilege telemetry handle used only for heartbeat synchronization (`POST /api/sync`) and conveys no administrative access; (2) `chrome.storage.local` is fully sandboxed per-extension by Chromium; (3) the server enforces an LRU capacity bound (`MAX_INSTANCES = 2000`).
 - **Active Directory Zero-Trust & Identity Binding**: Server-side LDAPS group verification (`AD_ENABLED=true`). Instances bind their `instanceId` to the reported `domainUser` upon enrollment; cross-identity spoofing attempts are rejected with HTTP 403. When `AD_REJECT_UNKNOWN_USERS=true`, clients lacking verified Active Directory domain identities are denied proxy credentials and automatically switched to DIRECT.

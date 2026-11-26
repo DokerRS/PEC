@@ -156,8 +156,8 @@ export interface RotationConfig {
   panelUrl: string;
   adminUser: string;
   adminPass: string;
-  inboundRemark: string;
-  inboundTag?: string;
+  /** Remnawave user whose credentials are rotated (replaces the 3x-ui inbound remark). */
+  targetUsername: string;
   panelId?: string;
   insecureSkipVerify: boolean;
   lastRotatedAt?: string;
@@ -166,7 +166,7 @@ export interface RotationConfig {
   lastError?: string;
 }
 
-export interface Panel3xuiConfig {
+export interface PanelRemnawaveConfig {
   id: string;
   name: string;
   panelUrl: string;
@@ -174,7 +174,8 @@ export interface Panel3xuiConfig {
   adminPass: string;
   insecureTls?: boolean;
   rotationEnabled?: boolean;
-  targetRemark?: string;
+  /** Remnawave username rotated by this panel entry (was targetRemark for 3x-ui). */
+  targetUsername?: string;
   rotationIntervalMinutes?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -183,7 +184,7 @@ export interface Panel3xuiConfig {
 export interface RotationHistoryItem {
   id: string;
   timestamp: string;
-  source: "3x-ui" | "standalone-atomic" | "manual";
+  source: "remnawave" | "standalone-atomic" | "manual";
   user: string;
   success: boolean;
   error?: string;
@@ -273,8 +274,9 @@ export interface ProxyNode {
   id: string;                      // Unique ID (crypto.randomBytes(4).toString("hex") or uuid)
   tag: string;                     // Inbound tag or manual custom tag
   name: string;                    // Friendly display name
-  type: "3x-ui" | "manual";        // Source type
-  panelId?: string;                // Reference to Panel3xuiConfig.id
+  type: "remnawave" | "manual";    // Source type
+  panelId?: string;                // Reference to PanelRemnawaveConfig.id
+  remnawaveUsername?: string;      // Remnawave user backing this node
   protocol: "socks5" | "http" | "https";
   host: string;                    // Proxy IP or FQDN
   port: number;                    // Listen port (1-65535)

@@ -7,12 +7,12 @@ import {
   runManualRotation,
 } from "../scheduler.js";
 import {
-  test3xuiConnection,
-  getAll3xuiPanels,
-  get3xuiPanelById,
-  save3xuiPanel,
-  delete3xuiPanel,
-  fetch3xuiInbounds,
+  testRemnawaveConnection,
+  getAllRemnawavePanels,
+  getRemnawavePanelById,
+  saveRemnawavePanel,
+  deleteRemnawavePanel,
+  fetchRemnawaveUsers,
 } from "../rotate.js";
 import { recordAudit, getClientIp } from "../audit.js";
 import { createRateLimiter } from "../middleware/security.js";
@@ -59,14 +59,14 @@ export function createRotationRouter(): Router {
   const testLimiter = createRateLimiter({
     windowMs: 60_000,
     maxRequests: 15,
-    message: "Rate limit exceeded for 3x-ui connection test.",
+    message: "Rate limit exceeded for Remnawave connection test.",
   });
 
-  // ----------------- 3X-UI PANELS REGISTRY -----------------
+  // ----------------- REMNAWAVE PANELS REGISTRY -----------------
 
-  router.get("/api/3xui/panels", (_req: Request, res: Response) => {
+  router.get("/api/remnawave/panels", (_req: Request, res: Response) => {
     try {
-      const panels = getAll3xuiPanels(true);
+      const panels = getAllRemnawavePanels(true);
       res.json(panels);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -74,32 +74,21 @@ export function createRotationRouter(): Router {
     }
   });
 
-  router.post("/api/3xui/panels", (req: Request, res: Response) => {
+  router.post("/api/remnawave/panels", (req: Request, res: Response) => {
     try {
-      const { name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetRemark, rotationIntervalMinutes } = req.body || {};
+      const { name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetUsername, rotationIntervalMinutes } =
+        req.body || {};
       if (!name || !panelUrl || !adminUser) {
         return res.status(400).json({ error: "Missing required fields: name, panelUrl, adminUser" });
       }
-      const saved = save3xuiPanel({ name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetRemark, rotationIntervalMinutes });
-      res.json({ ...saved, adminPass: "••••••••" });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      res.status(400).json({ error: msg });
-    }
-  });
-
-  router.put("/api/3xui/panels/:id", (req: Request, res: Response) => {
-    try {
-      const { name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetRemark, rotationIntervalMinutes } = req.body || {};
-      const saved = save3xuiPanel({
-        id: req.params.id,
+      const saved = saveRemnawavePanel({
         name,
         panelUrl,
         adminUser,
         adminPass,
         insecureTls,
         rotationEnabled,
-        targetRemark,
+        targetUsername,
         rotationIntervalMinutes,
       });
       res.json({ ...saved, adminPass: "••••••••" });
@@ -109,9 +98,31 @@ export function createRotationRouter(): Router {
     }
   });
 
-  router.delete("/api/3xui/panels/:id", (req: Request, res: Response) => {
+  router.put("/api/remnawave/panels/:id", (req: Request, res: Response) => {
     try {
-      const ok = delete3xuiPanel(req.params.id);
+      const { name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetUsername, rotationIntervalMinutes } =
+        req.body || {};
+      const saved = saveRemnawavePanel({
+        id: req.params.id,
+        name,
+        panelUrl,
+        adminUser,
+        adminPass,
+        insecureTls,
+        rotationEnabled,
+        targetUsername,
+        rotationIntervalMinutes,
+      });
+      res.json({ ...saved, adminPass: "••••••••" });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: msg });
+    }
+  });
+
+  router.delete("/api/remnawave/panels/:id", (req: Request, res: Response) => {
+    try {
+      const ok = deleteRemnawavePanel(req.params.id);
       res.json({ ok });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -119,14 +130,15 @@ export function createRotationRouter(): Router {
     }
   });
 
-  router.post("/api/3xui/panels/:id/test", testLimiter, async (req: Request, res: Response) => {
+  router.post("/api/remnawave/panels/:id/test", testLimiter, async (req: Request, res: Response) => {
     try {
-      const panel = get3xuiPanelById(req.params.id);
+      const panel = getRemnawavePanelById(req.params.id);
       if (!panel) return res.status(404).json({ ok: false, message: "Panel not found" });
-      const result = await test3xuiConnection({
+      const result = await testRemnawaveConnection({
         panelUrl: panel.panelUrl,
         adminUser: panel.adminUser,
         adminPass: panel.adminPass,
+        targetUsername: panel.targetUsername,
         timeoutSec: 8,
       });
       res.json(result);
@@ -136,10 +148,10 @@ export function createRotationRouter(): Router {
     }
   });
 
-  router.get("/api/3xui/panels/:id/inbounds", async (req: Request, res: Response) => {
+  router.get("/api/remnawave/panels/:id/users", async (req: Request, res: Response) => {
     try {
-      const inbounds = await fetch3xuiInbounds(req.params.id);
-      res.json(inbounds);
+      const users = await fetchRemnawaveUsers(req.params.id);
+      res.json(users);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg });
@@ -186,7 +198,7 @@ export function createRotationRouter(): Router {
     }
   });
 
-  router.post("/api/3xui/test", testLimiter, async (req: Request, res: Response) => {
+  router.post("/api/remnawave/test", testLimiter, async (req: Request, res: Response) => {
     try {
       const current = getRotationConfig();
       const testConfig = {
@@ -196,10 +208,10 @@ export function createRotationRouter(): Router {
           req.body?.adminPass !== undefined && req.body.adminPass !== ""
             ? req.body.adminPass
             : current.adminPass,
-        inboundRemark: req.body?.inboundRemark || current.inboundRemark,
+        targetUsername: req.body?.targetUsername || current.targetUsername,
         timeoutSec: 7,
       };
-      const result = await test3xuiConnection(testConfig);
+      const result = await testRemnawaveConnection(testConfig);
       res.json(result);
     } catch (err: unknown) {
       // Express 4 does not catch async rejections - without this handler an

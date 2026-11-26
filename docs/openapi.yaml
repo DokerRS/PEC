@@ -8,7 +8,7 @@ info:
   description: |
     Enterprise API for managing selective routing, GeoBases, extension constructor studio,
     Windows Active Directory GPO distribution, native desktop clients (PEC-App), and automated
-    3x-ui / Xray proxy rotation.
+    Remnawave proxy rotation.
 
     ### Two-Token Security Model
     - **Administrative Access (`AdminBearer` / `AdminHeader` / `AdminCookie`):**
@@ -441,7 +441,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
     post:
       summary: Add or Update Proxy Node
-      description: Adds a manual proxy node or imports credentials from a 3x-ui / Xray panel inbound.
+      description: Adds a manual proxy node or imports credentials from a Remnawave panel user.
       operationId: createOrUpdateProxy
       security:
         - AdminBearer: []
@@ -697,7 +697,7 @@ paths:
       summary: Get Rotation Configuration and Recent History
       description: |
         Returns the password-masked rotation configuration together with the last 10 rotation
-        history entries. The 3x-ui admin password never leaves the server in plaintext.
+        history entries. The Remnawave admin password never leaves the server in plaintext.
       operationId: getRotationConfig
       security:
         - AdminBearer: []
@@ -726,8 +726,8 @@ paths:
     post:
       summary: Update Rotation Configuration
       description: |
-        Partially updates the rotation configuration (interval, panel URL, credentials, inbound).
-        The 3x-ui admin password is never echoed back - responses always carry a masked value.
+        Partially updates the rotation configuration (interval, panel URL, credentials, target username).
+        The Remnawave admin password is never echoed back - responses always carry a masked value.
       operationId: updateRotationConfig
       security:
         - AdminBearer: []
@@ -762,7 +762,7 @@ paths:
   /api/rotation/rotate-now:
     post:
       summary: Trigger Manual Credential Rotation
-      description: Connects to the 3x-ui / Xray panel, generates new credentials, and updates current_creds.json atomically. Falls back to standalone atomic rotation when the panel is unreachable.
+      description: Connects to the Remnawave panel, regenerates the target user's credentials, and updates current_creds.json atomically. Falls back to standalone atomic rotation when the panel is unreachable.
       operationId: rotateNow
       security:
         - AdminBearer: []
@@ -1277,7 +1277,7 @@ components:
           type: string
         type:
           type: string
-          enum: [manual, 3x-ui]
+          enum: [manual, remnawave]
         name:
           type: string
         protocol:
@@ -1301,7 +1301,7 @@ components:
       properties:
         type:
           type: string
-          enum: [manual, 3x-ui]
+          enum: [manual, remnawave]
         name:
           type: string
         protocol:
@@ -1353,9 +1353,10 @@ components:
         adminPass:
           type: string
           description: Masked value ("********") in responses; accepts a new plaintext password in update requests.
-        inboundRemark:
+        targetUsername:
           type: string
-        inboundTag:
+          description: Remnawave username whose credentials are rotated.
+        panelId:
           type: string
         insecureSkipVerify:
           type: boolean
@@ -1372,7 +1373,7 @@ components:
           format: date-time
         source:
           type: string
-          enum: [3x-ui, standalone-atomic, manual]
+          enum: [remnawave, standalone-atomic, manual]
         user:
           type: string
         success:

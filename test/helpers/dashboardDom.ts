@@ -122,7 +122,7 @@ export function setupDashboardDom(options: SetupDashboardDomOptions = {}): Dashb
       config: {
         panelUrl: "https://panel.corp:2053",
         adminUser: "admin",
-        inboundRemark: "pec-node",
+        targetUsername: "pec-node",
         intervalMinutes: 1440,
         enabled: false,
       },
@@ -133,7 +133,7 @@ export function setupDashboardDom(options: SetupDashboardDomOptions = {}): Dashb
     "/api/app-builder/config": {},
     "/api/builder/files": {},
     "/api/extension/info": { version: "1.0.0" },
-    "/api/3xui/panels": [],
+    "/api/remnawave/panels": [],
     "/api/releases": { currentVersion: "1.0.0", releases: [] },
     "/api/instances/assign-proxy": { ok: true },
     "/api/instances/assign-profile": { ok: true },
