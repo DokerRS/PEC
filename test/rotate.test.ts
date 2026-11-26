@@ -29,12 +29,12 @@ function fakeRemnawavePanel(user: Record<string, unknown> | null, revokedUser?: 
       req.on("end", () => json(201, { response: { accessToken: "test-access-token" } }));
       return;
     }
-    if (req.method === "GET" && url === "/api/system/health") {
-      json(200, { response: { status: "ok" } });
-      return;
-    }
     if (!String(req.headers.authorization || "").startsWith("Bearer ")) {
       json(401, { message: "Unauthorized" });
+      return;
+    }
+    if (req.method === "GET" && url === "/api/system/health") {
+      json(200, { response: { status: "ok" } });
       return;
     }
     const byUsername = /^\/api\/users\/by-username\/(.+)$/.exec(url);
@@ -84,6 +84,25 @@ test("Remnawave API token is used as Bearer auth without calling login", async (
     assert.equal(result.ok, true);
     assert.ok(!panel.seen.includes("POST /api/auth/login"));
     assert.ok(panel.authorizationHeaders.includes("Bearer remna-api-token"));
+  } finally {
+    await close();
+  }
+});
+
+test("Remnawave connection probe authenticates the health request with its API token", async () => {
+  const panel = fakeRemnawavePanel(null);
+  const { url, close } = await withHttpServer(panel.handler);
+
+  try {
+    const result = await testRemnawaveConnection({
+      panelUrl: url,
+      apiToken: "remna-api-token",
+      timeoutSec: 3,
+    });
+    assert.equal(result.ok, true);
+    assert.ok(panel.seen.includes("GET /api/system/health"));
+    assert.ok(panel.authorizationHeaders.includes("Bearer remna-api-token"));
+    assert.ok(!panel.seen.includes("POST /api/auth/login"));
   } finally {
     await close();
   }

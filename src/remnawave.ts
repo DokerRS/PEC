@@ -214,22 +214,15 @@ export class RemnawaveClient {
     }
   }
 
-  /** GET /api/system/health - unauthenticated liveness probe. */
+  /** GET /api/system/health - authenticated liveness probe (required by OpenAPI). */
   async getHealth(): Promise<{ status?: string; isDbConnected?: boolean; isRedisConnected?: boolean }> {
     return this.withPinnedFetch(async (panelFetch) => {
-      const res = await panelFetch(`${this.base}/api/system/health`, {
-        headers: { Accept: "application/json" },
-        redirect: "manual",
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
-      assertNoRedirect(res, "system/health");
-      if (!res.ok) {
-        throw new Error(`Remnawave health check failed: ${await describeError(res, "system/health")}`);
-      }
-      const data = (await res.json().catch(() => ({}))) as {
-        response?: { status?: string; isDbConnected?: boolean; isRedisConnected?: boolean };
-      };
-      return data?.response || {};
+      const health = await this.request<{
+        status?: string;
+        isDbConnected?: boolean;
+        isRedisConnected?: boolean;
+      }>(panelFetch, "GET", "/api/system/health");
+      return health || {};
     });
   }
 
