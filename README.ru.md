@@ -197,7 +197,7 @@ cp .env.example .env
 | `BUILDER_CONFIG` | `./data/extension_build_config.json` | Путь к файлу конфигурации сборки браузерного расширения |
 | `APP_BUILD_CONFIG` | `./data/app_build_config.json` | Путь к файлу конфигурации десктопного клиента PEC-App |
 | `APP_BUILD_INFO` | `./data/app_build_info.json` | Путь к метаданным последней сборки десктопного клиента |
-| `PANELS_REMNAWAVE_PATH` | `./data/panels_remnawave.json` | Путь к реестру панелей Remnawave (`PANELS_3XUI_PATH` остался только как источник одноразовой миграции) |
+| `PANELS_REMNAWAVE_PATH` | `./data/panels_remnawave.json` | Путь к реестру панелей Remnawave (`PANELS_3XUI_PATH` = `./data/panels_3xui.json` остался только как источник одноразовой миграции) |
 | `RELEASES_META_PATH` | `./data/releases_meta.json` | Путь к метаданным релизов и журналам версий |
 | `PEC_RELEASES_DIR` | *(пусто)* | Каталог публикаций релизов десктопного клиента и расширения (по умолчанию `./dist/releases`) |
 | `PEC_UPDATES_DIR` | *(пусто)* | Каталог отдачи CRX/updates.xml для автообновления Chrome по GPO (по умолчанию `./dist/updates`) |

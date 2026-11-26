@@ -9,10 +9,21 @@ import type { Agent } from "undici";
 const requireCompat = typeof require === "function" ? require : createRequire(path.resolve("package.json"));
 import { RotationConfig, RotationHistoryItem, PanelRemnawaveConfig } from "./types.js";
 import { writeJsonAtomic, readJsonStore, restrictSecretFilePermissions } from "./jsonStore.js";
-import { getCredsStorePath, getRemnawavePanelsPath, getLegacy3xuiPanelsPath, getRotationConfigPath } from "./storage.js";
+import {
+  getCredsStorePath,
+  getProxiesStorePath,
+  getRemnawavePanelsPath,
+  getLegacy3xuiPanelsPath,
+  getRotationConfigPath,
+} from "./storage.js";
 import { logger } from "./logger.js";
 import { recordRotation } from "./metrics.js";
-import type { RemnawaveConnection, RemnawaveSyncResult, RemnawaveUser } from "./remnawave.js";
+import type {
+  RemnawaveConnection,
+  RemnawaveSubscription,
+  RemnawaveSyncResult,
+  RemnawaveUser,
+} from "./remnawave.js";
 
 export { getCredsStorePath, getRemnawavePanelsPath };
 
@@ -454,20 +465,15 @@ export async function createSsrfPinnedFetch(rawUrl: string, opts?: { insecureTls
   };
 }
 
-// ==================== REMNAWAVE SYNC / ROTATION ====================
+// ==================== REMNAWAVE READ-ONLY SYNC ====================
 
-/**
- * Fetch a Remnawave user's credentials (and optionally rotate them) through
- * the panel API. Thin wrapper kept for call-site stability: the wire protocol
- * lives in remnawave.ts.
- */
+/** Read a Remnawave user's credentials through the panel API. */
 export async function syncRemnawaveUser(params: {
   panelUrl: string;
   apiToken?: string;
   adminUser?: string;
   adminPass?: string;
   username: string;
-  rotatePassword?: boolean;
   timeoutSec?: number;
   insecureTls?: boolean;
 }): Promise<RemnawaveSyncResult> {
@@ -478,10 +484,24 @@ export async function syncRemnawaveUser(params: {
     adminUser: params.adminUser,
     adminPass: params.adminPass,
     username: params.username,
-    rotatePassword: params.rotatePassword,
     timeoutSec: params.timeoutSec,
     insecureTls: resolveInsecureTls(params.panelUrl, params.insecureTls),
   });
+}
+
+/** Fetch one user's subscription links without persisting them on the PEC server. */
+export async function fetchRemnawaveSubscription(username: string): Promise<RemnawaveSubscription | null> {
+  const panel = getRemnawavePanel();
+  if (!panel) throw new Error("Remnawave panel is not configured");
+  const { RemnawaveClient } = await loadRemnawaveClient();
+  const client = new RemnawaveClient({
+    panelUrl: panel.panelUrl,
+    apiToken: panel.apiToken,
+    adminUser: panel.adminUser,
+    adminPass: panel.adminPass,
+    insecureTls: panel.insecureTls,
+  });
+  return client.getSubscriptionByUsername(username);
 }
 
 /**
@@ -520,6 +540,18 @@ export async function executeRotation(customConfig?: Partial<RotationConfig>): P
 }
 
 async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promise<RotationHistoryItem> {
+  const requestedPanelUrl = String(
+    customConfig?.panelUrl || process.env.REMNAWAVE_PANEL_URL || process.env.XUI_PANEL_URL || ""
+  ).trim();
+  if (
+    getRemnawavePanel() ||
+    (requestedPanelUrl.startsWith("http") &&
+      !requestedPanelUrl.includes("remnawave-host") &&
+      !requestedPanelUrl.includes("3xui-host"))
+  ) {
+    throw new Error("Remnawave credential rotation is disabled; user subscriptions are read-only.");
+  }
+
   // REMNAWAVE_* is canonical; the legacy XUI_* names keep working so an
   // existing deployment's environment does not silently drop into
   // standalone mode on upgrade.
@@ -550,6 +582,10 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
     }
   } catch {}
 
+  if (activeProxy?.type === "remnawave") {
+    throw new Error("Remnawave credential rotation is disabled; credentials can only be read from the configured panel.");
+  }
+
   const timeoutMs = 10000;
   const credsStorePath = getCredsStorePath();
 
@@ -566,7 +602,6 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
         adminUser: p.adminUser,
         adminPass: p.adminPass,
         username,
-        rotatePassword: true,
         timeoutSec: Math.floor(timeoutMs / 1000),
         insecureTls: p.insecureTls,
       });
@@ -630,7 +665,6 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
         adminUser: panelUser as string,
         adminPass: panelPass as string,
         username: targetUsername,
-        rotatePassword: true,
         timeoutSec: Math.floor(timeoutMs / 1000),
         insecureTls: customConfig?.insecureSkipVerify,
       });
@@ -810,8 +844,7 @@ function autoMigratePanelsIfNeeded(): void {
 }
 
 export function getAllRemnawavePanels(maskSecrets = false): PanelRemnawaveConfig[] {
-  autoMigratePanelsIfNeeded();
-  const list = readJsonStore<PanelRemnawaveConfig[]>(getRemnawavePanelsPath()) || [];
+  const list = getConfiguredRemnawavePanels();
   return list.map((panel) => ({
     ...panel,
     apiToken: maskSecrets ? (panel.apiToken ? "••••••••" : "") : panel.apiToken,
@@ -820,10 +853,22 @@ export function getAllRemnawavePanels(maskSecrets = false): PanelRemnawaveConfig
 }
 
 export function getRemnawavePanelById(id: string): PanelRemnawaveConfig | undefined {
+  const panel = getConfiguredRemnawavePanels()[0];
+  return panel?.id === id ? { ...panel } : undefined;
+}
+
+export function getRemnawavePanel(): PanelRemnawaveConfig | undefined {
+  const panel = getConfiguredRemnawavePanels()[0];
+  return panel ? { ...panel } : undefined;
+}
+
+function getConfiguredRemnawavePanels(): PanelRemnawaveConfig[] {
   autoMigratePanelsIfNeeded();
-  const list = readJsonStore<PanelRemnawaveConfig[]>(getRemnawavePanelsPath()) || [];
-  const found = list.find((p) => p.id === id);
-  return found ? { ...found } : undefined;
+  const panels = readJsonStore<PanelRemnawaveConfig[]>(getRemnawavePanelsPath()) || [];
+  const proxies = readJsonStore<Array<{ type?: string; isActive?: boolean; panelId?: string }>>(getProxiesStorePath()) || [];
+  const activePanelId = proxies.find((proxy) => proxy.type === "remnawave" && proxy.isActive)?.panelId;
+  const primary = (activePanelId && panels.find((panel) => panel.id === activePanelId)) || panels[0];
+  return primary ? [primary] : [];
 }
 
 export function saveRemnawavePanel(
@@ -836,7 +881,7 @@ export function saveRemnawavePanel(
 
   autoMigratePanelsIfNeeded();
   const panelsFile = getRemnawavePanelsPath();
-  const list = readJsonStore<PanelRemnawaveConfig[]>(panelsFile) || [];
+  const list = getConfiguredRemnawavePanels();
   const cleanUrl = panelData.panelUrl.trim().replace(/\/+$/, "");
   const isMaskedSecret = (value: string | undefined) =>
     value === "••••••••" || value === "вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў" || value === "********";
@@ -861,14 +906,8 @@ export function saveRemnawavePanel(
         adminPass:
           submittedPass && !isMaskedSecret(submittedPass) ? submittedPass : existing.adminPass,
         insecureTls: panelData.insecureTls !== undefined ? panelData.insecureTls : existing.insecureTls,
-        rotationEnabled:
-          panelData.rotationEnabled !== undefined ? Boolean(panelData.rotationEnabled) : Boolean(existing.rotationEnabled),
         targetUsername:
-          panelData.targetUsername !== undefined
-            ? String(panelData.targetUsername).trim()
-            : (existing.targetUsername || ""),
-        rotationIntervalMinutes:
-          typeof panelData.rotationIntervalMinutes === "number" ? panelData.rotationIntervalMinutes : existing.rotationIntervalMinutes,
+          panelData.targetUsername !== undefined ? panelData.targetUsername.trim() : existing.targetUsername,
         updatedAt: now,
       };
       list[existingIndex] = savedPanel;
@@ -881,10 +920,7 @@ export function saveRemnawavePanel(
         adminUser: panelData.adminUser?.trim() || "",
         adminPass: panelData.adminPass && !isMaskedSecret(panelData.adminPass) ? panelData.adminPass : "",
         insecureTls: Boolean(panelData.insecureTls),
-        rotationEnabled: Boolean(panelData.rotationEnabled),
-        targetUsername: panelData.targetUsername ? String(panelData.targetUsername).trim() : "",
-        rotationIntervalMinutes:
-          typeof panelData.rotationIntervalMinutes === "number" ? panelData.rotationIntervalMinutes : undefined,
+        targetUsername: panelData.targetUsername?.trim() || undefined,
         createdAt: now,
         updatedAt: now,
       };
@@ -900,17 +936,14 @@ export function saveRemnawavePanel(
       adminUser: panelData.adminUser?.trim() || "",
       adminPass: panelData.adminPass && !isMaskedSecret(panelData.adminPass) ? panelData.adminPass : "",
       insecureTls: Boolean(panelData.insecureTls),
-      rotationEnabled: Boolean(panelData.rotationEnabled),
-      targetUsername: panelData.targetUsername ? String(panelData.targetUsername).trim() : "",
-      rotationIntervalMinutes:
-        typeof panelData.rotationIntervalMinutes === "number" ? panelData.rotationIntervalMinutes : undefined,
+      targetUsername: panelData.targetUsername?.trim() || undefined,
       createdAt: now,
       updatedAt: now,
     };
     list.push(savedPanel);
   }
 
-  writeJsonAtomic(panelsFile, list);
+  writeJsonAtomic(panelsFile, [savedPanel]);
   // AUDIT-SRV-P3: panel secrets live here - strip Windows ACE inheritance
   // so the store is not readable through inherited grants.
   restrictSecretFilePermissions(panelsFile);
@@ -918,13 +951,10 @@ export function saveRemnawavePanel(
 }
 
 export function deleteRemnawavePanel(id: string): boolean {
-  autoMigratePanelsIfNeeded();
+  const list = getConfiguredRemnawavePanels();
   const panelsFile = getRemnawavePanelsPath();
-  const list = readJsonStore<PanelRemnawaveConfig[]>(panelsFile) || [];
-  const initialLength = list.length;
-  const filtered = list.filter((p) => p.id !== id);
-  if (filtered.length !== initialLength) {
-    writeJsonAtomic(panelsFile, filtered);
+  if (list[0]?.id === id) {
+    writeJsonAtomic(panelsFile, []);
     restrictSecretFilePermissions(panelsFile);
     return true;
   }

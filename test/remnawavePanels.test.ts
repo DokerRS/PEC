@@ -130,8 +130,9 @@ test("dashboard UI: renders Remnawave panels registry, panel selector, and rotat
   // 2. Panel selector in Add from Remnawave modal
   assert.ok(html.includes('id="addRemnawavePanelSelect"'), "dashboardView must contain a panel selector in the Remnawave user modal");
 
-  // 3. Rotation widget
-  assert.ok(html.includes('id="widgetRotationStatus"') || html.includes('id="rotHistoryList"'), "dashboardView must render rotation status or history list");
+  // 3. Rotation widget was removed; per-user Xray runtime card replaced it
+  assert.ok(!html.includes('id="widgetRotationStatus"') && !html.includes('id="rotHistoryList"'), "rotation widget must be removed");
+  assert.ok(html.includes('id="xrayRuntimeEnabled"') && html.includes('id="btnSaveXrayRuntime"'), "dashboardView must render the Xray runtime card");
 });
 
 test("executeRotation resolves target panel credentials from panels registry via activeProxy.panelId", async () => {
@@ -154,17 +155,15 @@ test("executeRotation resolves target panel credentials from panels registry via
     host: "127.0.0.1",
     port: 8080,
     isActive: true,
-    isActive: true,
   });
 
   try {
-    // When executeRotation runs without customConfig.panelUrl,
-    // it must look up panel via px.panelId and attempt rotation against http://127.0.0.1:59999
-    // (failing loudly with connection error rather than silently doing standalone local rotation)
+    // Rotation was removed: with a panel configured, executeRotation must fail loudly
+    // instead of silently doing standalone local rotation.
     await assert.rejects(
       () => executeRotation({}),
-      /Remnawave rotation failed/i,
-      "executeRotation must attempt connection to resolved panel instead of standalone rotation"
+      /rotation is disabled/i,
+      "executeRotation must refuse to rotate when a Remnawave panel is configured"
     );
   } finally {
     deleteRemnawavePanel(panel.id);

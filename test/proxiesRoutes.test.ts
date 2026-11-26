@@ -7,7 +7,7 @@ import fs from "node:fs";
 import { createProxiesRouter } from "../src/routes/proxiesRoutes.js";
 import { getProxiesStorePath } from "../src/storage.js";
 import { createProxy, getAllProxies } from "../src/proxies.js";
-import { updateRotationConfig } from "../src/scheduler.js";
+import { saveRemnawavePanel, deleteRemnawavePanel, getRemnawavePanel } from "../src/rotate.js";
 import { getAuditLogs } from "../src/audit.js";
 import { withHttpServer } from "./helpers/http-server.js";
 
@@ -280,7 +280,8 @@ test("POST /api/proxies (Remnawave): user creation and validation", async () => 
     });
     assert.strictEqual(noUsername.status, 400);
 
-    updateRotationConfig({ panelUrl: "", adminUser: "admin", adminPass: "admin" });
+    // No panel configured: creation must be refused.
+    for (let p = getRemnawavePanel(); p; p = getRemnawavePanel()) deleteRemnawavePanel(p.id);
     const noPanel = await fetch(`${base}/api/proxies`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -305,8 +306,9 @@ test("POST /api/proxies (Remnawave): user creation and validation", async () => 
       json(404, { statusCode: 404, message: "Not found" });
     });
 
+    let registeredPanel: { id: string } | null = null;
     try {
-      updateRotationConfig({ enabled: false, panelUrl: mockPanel.url, adminUser: "admin", adminPass: "admin" });
+      registeredPanel = saveRemnawavePanel({ name: "mock-panel", panelUrl: mockPanel.url, adminUser: "admin", adminPass: "admin" });
       const createdRes = await fetch(`${base}/api/proxies`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -320,7 +322,7 @@ test("POST /api/proxies (Remnawave): user creation and validation", async () => 
       assert.strictEqual(created.host, "127.0.0.1");
     } finally {
       await mockPanel.close();
-      updateRotationConfig({ enabled: false, panelUrl: "", adminUser: "admin", adminPass: "" });
+      if (registeredPanel) deleteRemnawavePanel(registeredPanel.id);
     }
   });
 });
@@ -370,8 +372,9 @@ test("POST /api/proxies/:id/sync: syncs Remnawave user credentials", async () =>
       port: 443,
     });
 
+    let registeredPanel: { id: string } | null = null;
     try {
-      updateRotationConfig({ enabled: false, panelUrl: mockPanel.url, adminUser: "admin", adminPass: "admin" });
+      registeredPanel = saveRemnawavePanel({ name: "mock-panel", panelUrl: mockPanel.url, adminUser: "admin", adminPass: "admin" });
       const response = await fetch(`${base}/api/proxies/${remnawaveProxy.id}/sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -382,10 +385,10 @@ test("POST /api/proxies/:id/sync: syncs Remnawave user credentials", async () =>
       assert.strictEqual(data.ok, true);
       assert.strictEqual(data.proxy.password, "********");
       assert.ok(data.proxy.lastSync);
-      assert.strictEqual(password, "new-pass");
+      assert.strictEqual(password, "old-pass", "sync is read-only and must never rotate the panel credential");
     } finally {
       await mockPanel.close();
-      updateRotationConfig({ enabled: false, panelUrl: "", adminUser: "admin", adminPass: "" });
+      if (registeredPanel) deleteRemnawavePanel(registeredPanel.id);
     }
   });
 });
@@ -418,8 +421,9 @@ test("POST /api/remnawave/user-lookup: reads credentials without rotating them",
       json(404, { statusCode: 404, message: "Not found" });
     });
 
+    let registeredPanel: { id: string } | null = null;
     try {
-      updateRotationConfig({ enabled: false, panelUrl: mockPanel.url, adminUser: "admin", adminPass: "admin" });
+      registeredPanel = saveRemnawavePanel({ name: "mock-panel", panelUrl: mockPanel.url, adminUser: "admin", adminPass: "admin" });
       const response = await fetch(`${base}/api/remnawave/user-lookup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -433,7 +437,7 @@ test("POST /api/remnawave/user-lookup: reads credentials without rotating them",
       assert.strictEqual(revokes, 0);
     } finally {
       await mockPanel.close();
-      updateRotationConfig({ enabled: false, panelUrl: "", adminUser: "admin", adminPass: "" });
+      if (registeredPanel) deleteRemnawavePanel(registeredPanel.id);
     }
   });
 });

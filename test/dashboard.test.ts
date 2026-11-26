@@ -232,8 +232,8 @@ test("dashboard render & assets: Proxy Settings tab, multi-proxy table, modals a
   assert.ok(html.includes('id="panelInsecureTls"'), "must render insecure TLS toggle in the per-panel modal");
   assert.ok(!html.includes('id="rotPanelUrl"'), "legacy rotation card must be removed");
   assert.ok(!html.includes('id="rotAdminPass"'), "legacy rotation card inputs must be removed");
-  assert.ok(html.includes('id="panelRotationEnabled"'), "per-panel auto-rotation checkbox must be present");
-  assert.ok(html.includes('id="panelTargetUsername"'), "per-panel target username input must be present");
+  assert.ok(!html.includes('id="panelRotationEnabled"'), "per-panel auto-rotation checkbox must be removed with rotation");
+  assert.ok(!html.includes('id="panelTargetUsername"'), "per-panel rotation target input must be removed with rotation");
   assert.ok(html.includes('id="modalAddRemnawave"'), "must render modalAddRemnawave");
   assert.ok(html.includes('id="addRemnawaveUsername"'), "must render addRemnawaveUsername input");
   assert.ok(html.includes('id="addRemnawavePreview"'), "must render addRemnawavePreview");

@@ -176,8 +176,8 @@ export interface PanelRemnawaveConfig {
   adminUser?: string;
   adminPass?: string;
   insecureTls?: boolean;
+  /** Read from legacy panel records but ignored; Remnawave credential rotation is disabled. */
   rotationEnabled?: boolean;
-  /** Remnawave username rotated by this panel entry (was targetRemark for 3x-ui). */
   targetUsername?: string;
   rotationIntervalMinutes?: number;
   createdAt?: string;

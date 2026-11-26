@@ -1,6 +1,5 @@
 import { Router, Request, Response } from "express";
 import { readCurrentCredsAsync } from "../rotate.js";
-import { getRotationConfig } from "../scheduler.js";
 import { getActiveInstances, getProxyConfig } from "../instances.js";
 import { getAllProfiles } from "../routing.js";
 import { recordAudit, getClientIp, getAuditLogs } from "../audit.js";
@@ -93,7 +92,6 @@ export function createSystemRouter(options: {
   router.get("/api/status", async (_req: Request, res: Response) => {
     try {
       const currentCreds = await readCurrentCredsAsync();
-      const rotConfig = getRotationConfig();
       const instances = getActiveInstances();
       const profilesList = getAllProfiles();
       const fleetToken = options.getFleetToken();
@@ -113,9 +111,6 @@ export function createSystemRouter(options: {
         totalInstancesCount: instances.length,
         profilesCount: profilesList.length,
         killSwitch: getProxyConfig().killSwitch || false,
-        nextRotationAt: rotConfig.nextRotationAt || null,
-        rotationIntervalMinutes: rotConfig.intervalMinutes,
-        rotationEnabled: rotConfig.enabled,
         auditLogs: getAuditLogs().slice(0, 20),
       });
     } catch (err: unknown) {

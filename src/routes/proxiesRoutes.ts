@@ -9,8 +9,7 @@ import {
   probeProxyEgress,
   probeAllProxies,
 } from "../proxies.js";
-import { getRotationConfig } from "../scheduler.js";
-import { syncRemnawaveUser, getRemnawavePanelById, isRotationInFlight } from "../rotate.js";
+import { syncRemnawaveUser, getRemnawavePanel } from "../rotate.js";
 import { recordAudit, getClientIp } from "../audit.js";
 import { ProxyNode } from "../types.js";
 
@@ -38,7 +37,7 @@ export function createProxiesRouter(): Router {
   // POST /api/proxies - create manual or Remnawave proxy
   router.post("/api/proxies", async (req: Request, res: Response) => {
     try {
-      const { type, tag, name, protocol, host, port, username, password, isActive, panelId } = req.body || {};
+      const { type, tag, name, protocol, host, port, username, password, isActive } = req.body || {};
 
       if (type !== undefined && type !== "manual" && type !== "remnawave") {
         return res.status(400).json({ error: "Invalid proxy type: must be 'manual' or 'remnawave'" });
@@ -51,37 +50,18 @@ export function createProxiesRouter(): Router {
           return res.status(400).json({ error: "username is required for remnawave proxy" });
         }
 
-        let panelUrl = "";
-        let apiToken = "";
-        let adminUser = "";
-        let adminPass = "";
-        if (panelId) {
-          const panel = getRemnawavePanelById(panelId);
-          if (panel) {
-            panelUrl = panel.panelUrl;
-            apiToken = panel.apiToken || "";
-            adminUser = panel.adminUser || "";
-            adminPass = panel.adminPass || "";
-          }
-        }
-        if (!panelUrl) {
-          const rotConfig = getRotationConfig();
-          panelUrl = rotConfig.panelUrl;
-          adminUser = rotConfig.adminUser;
-          adminPass = rotConfig.adminPass;
-        }
-
-        if (!panelUrl) {
-          return res.status(400).json({ error: "Remnawave panel URL is not configured in rotation settings" });
+        const panel = getRemnawavePanel();
+        if (!panel) {
+          return res.status(400).json({ error: "Remnawave panel is not configured" });
         }
 
         const syncResult = await syncRemnawaveUser({
-          panelUrl,
-          apiToken,
-          adminUser,
-          adminPass,
+          panelUrl: panel.panelUrl,
+          apiToken: panel.apiToken,
+          adminUser: panel.adminUser,
+          adminPass: panel.adminPass,
           username: remnawaveUsername,
-          rotatePassword: false,
+          insecureTls: panel.insecureTls,
         });
 
         if (!syncResult.ok) {
@@ -91,7 +71,7 @@ export function createProxiesRouter(): Router {
         let finalHost = host ? String(host).trim() : "";
         if (!finalHost) {
           try {
-            finalHost = new URL(panelUrl).hostname;
+            finalHost = new URL(panel.panelUrl).hostname;
           } catch {
             finalHost = "127.0.0.1";
           }
@@ -101,7 +81,7 @@ export function createProxiesRouter(): Router {
           tag: tag ? String(tag).trim() : remnawaveUsername,
           name: name ? String(name).trim() : remnawaveUsername,
           type: "remnawave",
-          panelId: panelId || undefined,
+          panelId: panel.id,
           remnawaveUsername: syncResult.username || remnawaveUsername,
           protocol: protocol === "http" || protocol === "https" ? protocol : "socks5",
           host: finalHost,
@@ -215,9 +195,6 @@ export function createProxiesRouter(): Router {
 
   // POST /api/proxies/:id/sync - sync Remnawave proxy credentials
   router.post("/api/proxies/:id/sync", async (req: Request, res: Response) => {
-    if (isRotationInFlight()) {
-      return res.status(409).json({ error: "Rotation is currently in flight. Please try again later." });
-    }
     const proxyId = req.params.id;
 
     // AUDIT-SRV-P3: coalesce concurrent syncs for the same node instead of
@@ -240,27 +217,9 @@ export function createProxiesRouter(): Router {
         return { status: 400, body: { error: "Only Remnawave proxy nodes can be synced" } };
       }
 
-      let panelUrl = "";
-      let apiToken = "";
-      let adminUser = "";
-      let adminPass = "";
-      if (proxy.panelId) {
-        const panel = getRemnawavePanelById(proxy.panelId);
-        if (panel) {
-          panelUrl = panel.panelUrl;
-          apiToken = panel.apiToken || "";
-          adminUser = panel.adminUser || "";
-          adminPass = panel.adminPass || "";
-        }
-      }
-      if (!panelUrl) {
-        const rotConfig = getRotationConfig();
-        panelUrl = rotConfig.panelUrl;
-        adminUser = rotConfig.adminUser;
-        adminPass = rotConfig.adminPass;
-      }
-      if (!panelUrl) {
-        return { status: 400, body: { error: "Remnawave panel URL is not configured in rotation settings" } };
+      const panel = getRemnawavePanel();
+      if (!panel) {
+        return { status: 400, body: { error: "Remnawave panel is not configured" } };
       }
 
       const targetUsername = proxy.remnawaveUsername || proxy.username;
@@ -268,16 +227,13 @@ export function createProxiesRouter(): Router {
         return { status: 400, body: { error: "Proxy node has no Remnawave username to sync" } };
       }
 
-      const rotatePassword =
-        req.body?.rotatePassword !== undefined ? Boolean(req.body.rotatePassword) : true;
-
       const syncResult = await syncRemnawaveUser({
-        panelUrl,
-        apiToken,
-        adminUser,
-        adminPass,
+        panelUrl: panel.panelUrl,
+        apiToken: panel.apiToken,
+        adminUser: panel.adminUser,
+        adminPass: panel.adminPass,
         username: targetUsername,
-        rotatePassword,
+        insecureTls: panel.insecureTls,
       });
 
       if (!syncResult.ok) {
@@ -356,41 +312,22 @@ export function createProxiesRouter(): Router {
   router.post("/api/remnawave/user-lookup", async (req: Request, res: Response) => {
     try {
       const username = req.body?.username || req.body?.tag;
-      const panelId = req.body?.panelId;
       if (!username || typeof username !== "string" || !username.trim()) {
         return res.status(400).json({ error: "username is required" });
       }
 
-      let panelUrl = "";
-      let apiToken = "";
-      let adminUser = "";
-      let adminPass = "";
-      if (panelId) {
-        const panel = getRemnawavePanelById(panelId);
-        if (panel) {
-          panelUrl = panel.panelUrl;
-          apiToken = panel.apiToken || "";
-          adminUser = panel.adminUser || "";
-          adminPass = panel.adminPass || "";
-        }
-      }
-      if (!panelUrl) {
-        const rotConfig = getRotationConfig();
-        panelUrl = rotConfig.panelUrl;
-        adminUser = rotConfig.adminUser;
-        adminPass = rotConfig.adminPass;
-      }
-      if (!panelUrl) {
-        return res.status(400).json({ error: "Remnawave panel URL is not configured in rotation settings" });
+      const panel = getRemnawavePanel();
+      if (!panel) {
+        return res.status(400).json({ error: "Remnawave panel is not configured" });
       }
 
       const syncResult = await syncRemnawaveUser({
-        panelUrl,
-        apiToken,
-        adminUser,
-        adminPass,
+        panelUrl: panel.panelUrl,
+        apiToken: panel.apiToken,
+        adminUser: panel.adminUser,
+        adminPass: panel.adminPass,
         username: username.trim(),
-        rotatePassword: false,
+        insecureTls: panel.insecureTls,
       });
 
       if (!syncResult.ok) {

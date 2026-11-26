@@ -42,6 +42,19 @@ export interface RemnawaveUser {
   [key: string]: unknown;
 }
 
+export interface RemnawaveSubscription {
+  isFound: boolean;
+  user: {
+    username: string;
+    isActive: boolean;
+    userStatus: string;
+    shortUuid: string;
+  };
+  links: string[];
+  ssConfLinks: Record<string, string>;
+  subscriptionUrl: string;
+}
+
 export interface RemnawaveNode {
   uuid?: string;
   name?: string;
@@ -64,7 +77,6 @@ export interface RemnawaveSyncResult {
   shortUuid?: string;
   subscriptionUrl?: string;
   status?: string;
-  rotated?: boolean;
 }
 
 /** Strip trailing slashes so `${base}/api/...` is always well-formed. */
@@ -247,6 +259,48 @@ export class RemnawaveClient {
     });
   }
 
+  /** GET /api/subscriptions/by-username/{username}; returns this user's links only. */
+  async getSubscriptionByUsername(username: string): Promise<RemnawaveSubscription | null> {
+    const clean = String(username || "").trim();
+    if (!clean) throw new Error("Remnawave username is required");
+
+    return this.withPinnedFetch(async (panelFetch) => {
+      let subscription: RemnawaveSubscription;
+      try {
+        subscription = await this.request<RemnawaveSubscription>(
+          panelFetch,
+          "GET",
+          `/api/subscriptions/by-username/${encodeURIComponent(clean)}`
+        );
+      } catch (err) {
+        if (errorMessage(err).includes("HTTP 404")) return null;
+        throw err;
+      }
+
+      if (!subscription || typeof subscription !== "object" || typeof subscription.isFound !== "boolean") {
+        throw new Error("Remnawave subscription response is malformed");
+      }
+      if (!subscription.isFound) return null;
+      if (
+        !subscription.user ||
+        typeof subscription.user.username !== "string" ||
+        !Array.isArray(subscription.links) ||
+        typeof subscription.subscriptionUrl !== "string"
+      ) {
+        throw new Error("Remnawave subscription response is missing required fields");
+      }
+
+      return {
+        ...subscription,
+        links: subscription.links.filter((link): link is string => typeof link === "string" && link.trim().length > 0),
+        ssConfLinks:
+          subscription.ssConfLinks && typeof subscription.ssConfLinks === "object"
+            ? subscription.ssConfLinks
+            : {},
+      };
+    });
+  }
+
   /** GET /api/users?limit=&page= -> {users,total}. */
   async listUsers(limit = 50, page = 1): Promise<{ users: RemnawaveUser[]; total: number }> {
     return this.withPinnedFetch(async (panelFetch) => {
@@ -267,62 +321,6 @@ export class RemnawaveClient {
     });
   }
 
-  /**
-   * POST /api/users/{userId}/actions/revoke with `revokeOnlyPasswords: true`.
-   *
-   * This is the credential-regeneration primitive: Remnawave mints a fresh
-   * trojanPassword / ssPassword / vlessUuid while keeping shortUuid and
-   * subscriptionUrl stable, so already-distributed subscription links and the
-   * PAC contract keep working across a rotation.
-   */
-  async revokeUserPasswords(userId: string | number): Promise<RemnawaveUser> {
-    const cleanId = String(userId || "").trim();
-    if (!cleanId) throw new Error("Remnawave user id is required");
-    return this.withPinnedFetch((panelFetch) =>
-      this.request<RemnawaveUser>(
-        panelFetch,
-        "POST",
-        `/api/users/${encodeURIComponent(cleanId)}/actions/revoke`,
-        { revokeOnlyPasswords: true }
-      )
-    );
-  }
-
-  /**
-   * Rotate one user's credentials and return the PEC-shaped result.
-   * The rotating secret is trojanPassword, falling back to ssPassword.
-   */
-  async rotateUserByUsername(username: string): Promise<RemnawaveSyncResult> {
-    const existing = await this.getUserByUsername(username);
-    if (!existing) {
-      return { ok: false, message: `Remnawave user '${username}' not found` };
-    }
-    if (!existing.id) {
-      return { ok: false, message: `Remnawave user '${username}' response did not include an id` };
-    }
-
-    const updated = await this.revokeUserPasswords(existing.id);
-    const password = updated?.trojanPassword || updated?.ssPassword || existing?.trojanPassword || existing?.ssPassword;
-    if (!password) {
-      return {
-        ok: false,
-        message: `Remnawave revoke succeeded for user '${username}' but no credential was returned`,
-      };
-    }
-
-    return {
-      ok: true,
-      rotated: true,
-      message: "Rotated successfully",
-      userId: updated?.id || existing.id,
-      username: updated?.username || existing.username || username,
-      password,
-      shortUuid: updated?.shortUuid || existing.shortUuid,
-      subscriptionUrl: updated?.subscriptionUrl || existing.subscriptionUrl,
-      status: updated?.status || existing.status,
-    };
-  }
-
   /** Read one user's credentials without changing anything. */
   async fetchUserByUsername(username: string): Promise<RemnawaveSyncResult> {
     const user = await this.getUserByUsername(username);
@@ -338,7 +336,6 @@ export class RemnawaveClient {
     }
     return {
       ok: true,
-      rotated: false,
       message: "User fetched successfully",
       userId: user.id,
       username: user.username || username,
@@ -351,9 +348,8 @@ export class RemnawaveClient {
 }
 
 /**
- * Open a connection, optionally verify reachability, and look up (or rotate)
- * a single user. Mirrors the shape the previous 3x-ui sync helper exposed so
- * the rotation/proxy call sites stay small.
+ * Open a connection, optionally verify reachability, and read one user's
+ * credentials without changing the user in Remnawave.
  */
 export async function syncRemnawaveUserByUsername(params: {
   panelUrl: string;
@@ -361,7 +357,6 @@ export async function syncRemnawaveUserByUsername(params: {
   adminUser?: string;
   adminPass?: string;
   username: string;
-  rotatePassword?: boolean;
   timeoutSec?: number;
   insecureTls?: boolean;
 }): Promise<RemnawaveSyncResult> {
@@ -375,9 +370,7 @@ export async function syncRemnawaveUserByUsername(params: {
   });
 
   try {
-    return params.rotatePassword
-      ? await client.rotateUserByUsername(params.username)
-      : await client.fetchUserByUsername(params.username);
+    return await client.fetchUserByUsername(params.username);
   } catch (err: unknown) {
     return { ok: false, message: errorMessage(err) };
   }
@@ -415,7 +408,7 @@ export async function testRemnawaveConnection(config: RemnawaveConnection & {
     return {
       ok: true,
       userFound: true,
-      userId: user.id,
+      userId: String(user.id),
       message: `Connected successfully to Remnawave! Found user "${user.username || target}" (id: ${user.id}, status: ${user.status || "ACTIVE"}).`,
     };
   } catch (err: unknown) {

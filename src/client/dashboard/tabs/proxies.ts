@@ -313,7 +313,7 @@ export async function syncProxy(id: string) {
     const res = await adminFetch('/api/proxies/' + encodeURIComponent(id) + '/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rotatePassword: true })
+        body: JSON.stringify({})
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.ok) {

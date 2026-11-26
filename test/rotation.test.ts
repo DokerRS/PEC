@@ -3,6 +3,20 @@ import test from "node:test";
 import assert from "node:assert";
 import fs from "node:fs";
 import { executeRotation, atomicWriteCreds, getCredsStorePath } from "../src/rotate.js";
+import { getRemnawavePanelsPath } from "../src/storage.js";
+
+/**
+ * Standalone mode = no panel configured. The panel registry is created by
+ * auto-migration as soon as a real panelUrl is saved anywhere, so tests that
+ * exercise the local atomic rotation path must reset it explicitly.
+ */
+function resetToStandaloneMode(): void {
+  updateRotationConfig({
+    panelUrl: "https://remnawave-host:3000/basepath", // placeholder = not configured
+    enabled: false,
+  });
+  fs.rmSync(getRemnawavePanelsPath(), { force: true });
+}
 
 /**
  * The rotation history file must be seeded BEFORE the scheduler module loads
@@ -60,13 +74,15 @@ test("rotation config: panelUrl is SSRF-validated on save", () => {
   assert.strictEqual(getRotationConfig().panelUrl, "https://panel.corp.example:2053/xui");
 });
 
-test("executeRotation: configured-but-unreachable panel FAILS LOUDLY and does not touch local creds", async () => {
-  // seed a known local password
+test("executeRotation: rotation is refused once a Remnawave panel is configured", async () => {
+  // REMNA migration: credential rotation was removed. With a panel configured
+  // (registry or a non-placeholder panelUrl), executeRotation must refuse
+  // instead of touching the panel or the local creds store.
   atomicWriteCreds(getCredsStorePath(), { user: "corp-user", pass: "known-password-before-rotation" });
   const before = JSON.parse(fs.readFileSync(getCredsStorePath(), "utf-8"));
 
   updateRotationConfig({
-    panelUrl: "http://127.0.0.1:9/", // port 9 (discard) - nothing listens, fails fast
+    panelUrl: "http://127.0.0.1:9/", // port 9 (discard) - nothing listens
     adminUser: "admin",
     adminPass: "panel-pass",
     targetUsername: "corp-user",
@@ -75,26 +91,12 @@ test("executeRotation: configured-but-unreachable panel FAILS LOUDLY and does no
 
   await assert.rejects(
     () => executeRotation(getRotationConfig()),
-    /NOT changed|failed/i,
-    "a failing Remnawave panel must throw instead of silently rotating the local store"
+    /rotation is disabled/i,
+    "rotation must be refused while a Remnawave panel is configured"
   );
 
   const after = JSON.parse(fs.readFileSync(getCredsStorePath(), "utf-8"));
-  assert.strictEqual(after.pass, before.pass, "local credentials must remain untouched on panel failure");
-});
-
-test("executeRotation: standalone mode (no panel configured) still rotates atomically", async () => {
-  updateRotationConfig({
-    panelUrl: "https://remnawave-host:3000/basepath", // placeholder = not configured
-    enabled: false,
-  });
-  const result = await executeRotation(getRotationConfig());
-  assert.strictEqual(result.success, true);
-  assert.strictEqual(result.source, "standalone-atomic");
-  const creds = JSON.parse(fs.readFileSync(getCredsStorePath(), "utf-8"));
-  assert.strictEqual(creds.user, result.user);
-  assert.strictEqual(typeof creds.pass, "string");
-  assert.notStrictEqual(creds.pass, "");
+  assert.strictEqual(after.pass, before.pass, "local credentials must remain untouched");
 });
 
 test("rotation history: capped at 50, newest first, both in memory and on disk", async () => {
@@ -104,7 +106,9 @@ test("rotation history: capped at 50, newest first, both in memory and on disk",
   assert.strictEqual(loaded[0].id, "hist_seed_54", "newest seeded entry must come first");
   assert.strictEqual(loaded[49].id, "hist_seed_5", "the 6 oldest seeded entries must be evicted on load");
 
-  // One more rotation keeps the cap and lands on top
+  // One more rotation keeps the cap and lands on top (standalone mode:
+  // placeholder panel = no panel configured, local atomic rotation runs).
+  resetToStandaloneMode();
   await runManualRotation();
 
   const history = getRotationHistory();
@@ -126,43 +130,25 @@ test("rotation history: capped at 50, newest first, both in memory and on disk",
 });
 
 test("runManualRotation: concurrent calls are serialized by the in-flight lock", async () => {
-  // Stub the panel HTTP layer: a slow failing endpoint lets the two callers
-  // overlap deterministically, and the call counter proves how many rotation
-  // attempts actually ran (the history file is capped, so its length cannot
-  // discriminate 1 vs 2 attempts).
-  updateRotationConfig({
-    panelUrl: "http://127.0.0.1:59999/xui",
-    adminUser: "admin",
-    adminPass: "panel-pass",
-    targetUsername: "corp-user",
-    enabled: false,
-  });
+  // Standalone mode (placeholder panel): rotation succeeds locally, so the
+  // two concurrent callers must resolve with the SAME coalesced promise and
+  // the history must grow by exactly one entry.
+  resetToStandaloneMode();
 
-  let panelFetches = 0;
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = (async () => {
-    panelFetches++;
-    await new Promise((r) => setTimeout(r, 50));
-    throw new Error("connection refused (test stub)");
-  }) as typeof fetch;
+  const historyBefore = getRotationHistory();
+  const [a, b] = await Promise.all([runManualRotation(), runManualRotation()]);
 
-  try {
-    const [a, b] = await Promise.allSettled([runManualRotation(), runManualRotation()]);
+  assert.strictEqual(a.success, true);
+  assert.strictEqual(b.success, true);
+  assert.strictEqual(a.id, b.id, "concurrent rotations must be collapsed into a single attempt");
+  const historyAfter = getRotationHistory();
+  assert.strictEqual(historyAfter.length, historyBefore.length, "history stays capped at 50 entries");
+  assert.strictEqual(historyAfter[0].id, a.id, "the coalesced run must land on top of the history exactly once");
+  assert.strictEqual(historyAfter.filter((h) => h.id === a.id).length, 1, "no duplicate entries for one run");
 
-    // Both callers observe the same failure (panel unreachable)
-    assert.strictEqual(a.status, "rejected");
-    assert.strictEqual(b.status, "rejected");
-
-    // Exactly ONE panel attempt: the second caller joined the in-flight
-    // promise instead of starting its own rotation.
-    assert.strictEqual(panelFetches, 1, "concurrent rotations must be collapsed into a single panel attempt");
-
-    // The in-flight slot is freed afterwards: a fresh call starts a new one
-    await runManualRotation().catch(() => {});
-    assert.strictEqual(panelFetches, 2, "the lock must release after completion");
-  } finally {
-    globalThis.fetch = realFetch;
-  }
+  // The in-flight slot is freed afterwards: a fresh call starts a new run.
+  const c = await runManualRotation();
+  assert.notStrictEqual(c.id, a.id, "the lock must release after completion");
 });
 
 test("SSRF: validateSafeEndpointUrl rejects IPv6 metadata and link-local targets", async () => {

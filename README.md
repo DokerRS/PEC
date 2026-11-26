@@ -196,7 +196,7 @@ cp .env.example .env
 | `BUILDER_CONFIG` | `./data/extension_build_config.json` | Path to extension build configuration store |
 | `APP_BUILD_CONFIG` | `./data/app_build_config.json` | Path to native desktop app build configuration store |
 | `APP_BUILD_INFO` | `./data/app_build_info.json` | Path to desktop client latest build info store |
-| `PANELS_REMNAWAVE_PATH` | `./data/panels_remnawave.json` | Path to the Remnawave panels registry store (`PANELS_3XUI_PATH` is kept only as the one-time legacy migration source) |
+| `PANELS_REMNAWAVE_PATH` | `./data/panels_remnawave.json` | Path to the Remnawave panels registry store (`PANELS_3XUI_PATH` = `./data/panels_3xui.json` is kept only as the one-time legacy migration source) |
 | `RELEASES_META_PATH` | `./data/releases_meta.json` | Path to releases and version history store |
 | `PEC_RELEASES_DIR` | *(empty)* | Directory for published desktop client and extension releases (defaults to `./dist/releases`) |
 | `PEC_UPDATES_DIR` | *(empty)* | Directory served for CRX/updates.xml Chrome auto-updates via GPO (defaults to `./dist/updates`) |

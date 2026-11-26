@@ -24,6 +24,13 @@ import { getBuildConfig as getExtensionBuildConfig } from "../packager.js";
 import { sanitizeSingleLine, logger } from "../logger.js";
 import { DEFAULT_APP_VERSION, getAppBuildConfig, isDarkHexColor, isLightHexColor } from "../appPackager.js";
 import { resolveFleetTheme, resolveThemeSyncEnabled } from "../serverTheme.js";
+import { fetchRemnawaveSubscription } from "../rotate.js";
+import {
+  loadXrayRuntimeSettings,
+  deriveProxySecret,
+  buildXrayUserConfig,
+  normalizeRemnawaveUsername,
+} from "../xrayRuntime.js";
 import { isNewerVersion } from "../utils/semver.js";
 import { getAppBuildInfoPath } from "../storage.js";
 
@@ -458,6 +465,44 @@ export function createAppSyncRouter(
         }
       }
 
+      // REMNA-PERUSER-XRAY-1: per-user local Xray runtime block. Delivered
+      // only when the admin enabled it AND the user passed AD authorization
+      // (fail-closed: without AD enabled or without a resolved username the
+      // client gets no xray block and keeps the legacy remote-proxy flow).
+      // The subscription is fetched live from Remnawave and never persisted.
+      let xrayBlock: Record<string, unknown> | undefined;
+      const xraySettings = loadXrayRuntimeSettings();
+      const xrayUser = normalizeRemnawaveUsername(cleanUsername || boundUser || "");
+      if (xraySettings.enabled && xrayUser && adConfig.enabled && isDomainUserAllowed(xrayUser)) {
+        try {
+          const subscription = await fetchRemnawaveSubscription(xrayUser);
+          if (subscription && subscription.user?.isActive !== false && Array.isArray(subscription.links) && subscription.links.length > 0) {
+            const secret = deriveProxySecret(xrayUser);
+            const rendered = buildXrayUserConfig({
+              username: xrayUser,
+              secret,
+              listenPort: xraySettings.listenPort,
+              subscription,
+            });
+            xrayBlock = {
+              enabled: true,
+              version: xraySettings.version,
+              listenPort: xraySettings.listenPort,
+              socksPort: xraySettings.listenPort + 1,
+              proxyUser: xrayUser,
+              proxyPass: secret,
+              config: rendered.config,
+              servers: rendered.servers,
+            };
+          } else {
+            xrayBlock = { enabled: false, reason: subscription ? "no_active_subscription" : "user_not_found" };
+          }
+        } catch (err: any) {
+          logger.warn(`[APP-SYNC] Xray runtime delivery failed for '${sanitizeSingleLine(xrayUser)}': ${sanitizeSingleLine(err?.message || String(err))}`);
+          xrayBlock = { enabled: false, reason: "panel_error" };
+        }
+      }
+
       const theme = {
         preset: effectivePreset,
         layout: assignedProfile?.uiLayout || appBldCfg.uiLayout || "console",
@@ -483,6 +528,7 @@ export function createAppSyncRouter(
         activeProxy: proxyPayload,
         availableProxies,
         serverRules,
+        ...(xrayBlock ? { xray: xrayBlock } : {}),
         ...(themeBlock ? { theme: themeBlock } : {}),
         update: {
           hasUpdate,

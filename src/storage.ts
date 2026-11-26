@@ -62,6 +62,10 @@ export function getAdConfigPath(): string {
   return path.resolve(process.env.AD_CONFIG_PATH || path.join(getDataDir(), "ad_config.json"));
 }
 
+export function getXrayRuntimeSettingsPath(): string {
+  return path.resolve(process.env.XRAY_RUNTIME_PATH || path.join(getDataDir(), "xray_runtime.json"));
+}
+
 export function getServerThemePath(): string {
   return path.resolve(process.env.SERVER_THEME_PATH || path.join(getDataDir(), "server_theme.json"));
 }

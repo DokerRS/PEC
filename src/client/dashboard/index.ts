@@ -191,6 +191,7 @@ export function switchTab(name: string, skipHashUpdate: boolean = false) {
   } else if (name === 'proxy-settings' || name === 'rotation') {
     proxies.fetchProxies();
     if (typeof telemetry.loadRemnawavePanels === 'function') telemetry.loadRemnawavePanels();
+    if (typeof telemetry.loadXrayRuntimeSettings === 'function') telemetry.loadXrayRuntimeSettings();
   } else if (name === 'app-studio') {
     if (!studio.currentAppConfig || !studio.isAppStudioDirty) studio.loadAppStudioConfig();
   } else if (name === 'releases') {
@@ -257,10 +258,10 @@ export async function refreshAll(isInitialBoot: boolean = false) {
   studio.loadExtensionFiles();
   telemetry.fetchFleet();
   telemetry.fetchExtensionInfo();
-  telemetry.fetchRotationConfig();
   proxies.fetchProxies();
   proxies.fetchProxyConfig();
   telemetry.loadRemnawavePanels();
+  if (typeof telemetry.loadXrayRuntimeSettings === 'function') telemetry.loadXrayRuntimeSettings();
   telemetry.loadReleases();
   gpo.loadAdStatus();
 }
@@ -391,6 +392,10 @@ if (typeof window !== 'undefined') {
     if (btnSavePanel) btnSavePanel.addEventListener('click', telemetry.saveRemnawavePanelAction);
     const btnCancelPanel = document.getElementById('btnCancelRemnawavePanel');
     if (btnCancelPanel) btnCancelPanel.addEventListener('click', telemetry.closeRemnawavePanelModal);
+
+    // REMNA-PERUSER-XRAY-1: Xray runtime settings card
+    const btnSaveXrayRuntime = document.getElementById('btnSaveXrayRuntime');
+    if (btnSaveXrayRuntime) btnSaveXrayRuntime.addEventListener('click', telemetry.saveXrayRuntimeSettingsAction);
 
     // Remnawave Panels table actions delegation
     document.addEventListener('click', function(e: any) {

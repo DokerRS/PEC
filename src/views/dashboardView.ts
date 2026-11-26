@@ -236,10 +236,8 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
         <strong id="lblHdrFleet" data-i18n="lblHdrFleet">Подключенные устройства:</strong> <span id="hdrFleetCount">0 активных</span> &bull; 
         <strong id="lblHdrUser" data-i18n="lblHdrUser">Текущий пользователь:</strong> <code id="hdrUser">corp-user</code> &bull; 
         <strong id="lblHdrProfile" data-i18n="lblHdrProfile">Активный PAC профиль:</strong> <span id="hdrActiveProfile" style="color: var(--primary);">Direct Default</span> &bull;
-        <strong id="lblHdrRot" data-i18n="lblHdrRot">Следующая ротация:</strong> <span id="hdrNextRot">Расчет...</span>
       </div>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-        <button id="btnRotateNow" onclick="manualRotate()" style="font-size: 12px; padding: 6px 12px;" data-i18n="btnRotateNow">Ротировать пароль сейчас</button>
         <button id="btnKillSwitch" onclick="toggleKillSwitch()" class="btn-secondary" style="font-size: 12px; padding: 6px 12px;" data-i18n="btnKillSwitchOff">Kill-Switch: ВЫКЛ</button>
       </div>
     </div>
@@ -560,14 +558,14 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
         </div>
       </div>
 
-      <!-- 2. Remnawave Multi-Panel Registry Card -->
+      <!-- 2. Remnawave Panel -->
       <div class="card" style="margin-bottom: 16px;">
         <h2>
-          <span>Реестр серверов Remnawave / Remnawave Panels</span>
-          <button type="button" id="btnOpenAddRemnawavePanel" class="btn btn-secondary" style="font-size: 12px;">+ Добавить панель Remnawave</button>
+          <span>Панель Remnawave / Remnawave Panel</span>
+          <button type="button" id="btnOpenAddRemnawavePanel" class="btn btn-secondary" style="font-size: 12px;">Настроить панель / Configure panel</button>
         </h2>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
-          Централизованное управление несколькими панелями Remnawave для импорта нод и автоматической ротации.
+          Одна Remnawave-панель используется для получения персональных подписок пользователей.
         </p>
 
         <div class="table-container">
@@ -577,89 +575,44 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                 <th>Название</th>
                 <th>URL панели</th>
                 <th>API-токен</th>
-                <th>Ротация</th>
                 <th>Статус TLS</th>
                 <th style="text-align: right;">Действия</th>
               </tr>
             </thead>
             <tbody id="panelsRemnawaveBody">
-              <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Загрузка панелей Remnawave...</td></tr>
+              <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Загрузка панели Remnawave...</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <!-- 3. Fleet Rotation Scheduler (grid-2) -->
-      <div class="grid-2">
-        <div class="card">
-          <h2 data-i18n="titleFleetRotScheduler">Планировщик ротации флота / Fleet Rotation Scheduler</h2>
-          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;" data-i18n="descFleetRotScheduler">
-            Автоматическая ротация учетных данных прокси по расписанию для всех серверов Remnawave с активной ротацией (или локального хранилища).
-          </p>
-
-          <div class="grid-form-2col" style="margin-bottom: 16px;">
-            <div>
-              <label for="rotInterval" data-i18n="lblRotInterval">Интервал ротации (минуты)</label>
-              <select id="rotInterval">
-                <option value="60">1 час</option>
-                <option value="180">3 часа</option>
-                <option value="360">6 часов</option>
-                <option value="720">12 часов</option>
-                <option value="1440" selected>24 часа (1 сутки)</option>
-                <option value="2880">48 часов (2 суток)</option>
-                <option value="10080">7 дней</option>
-              </select>
-            </div>
-            <div>
-              <label for="rotEnabled" data-i18n="lblScheduler">Планировщик / Scheduler</label>
-              <select id="rotEnabled">
-                <option value="true" data-i18n="optSchedEnabled">Enabled (Auto)</option>
-                <option value="false" data-i18n="optSchedDisabled">Disabled</option>
-              </select>
-            </div>
+      <!-- 3. Xray Runtime (per-user local core) -->
+      <div class="card" style="margin-bottom: 16px;">
+        <h2>
+          <span>Локальный Xray / Per-user Xray Runtime</span>
+          <button type="button" id="btnSaveXrayRuntime" class="btn btn-secondary" style="font-size: 12px;">Сохранить / Save</button>
+        </h2>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+          PEC-App запускает ядро Xray на машине пользователя: один локальный HTTP-порт на машину, персональные аккаунты и маршрутизация «пользователь → его подписка». Здесь фиксируется версия ядра для всего парка.
+          PEC-App runs a local Xray core per machine: one shared localhost HTTP port, per-user accounts and user→subscription routing. Pin the fleet-wide core version here.
+        </p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; align-items: end;">
+          <label for="xrayRuntimeEnabled" style="display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: none; font-weight: normal; cursor: pointer;">
+            <input type="checkbox" id="xrayRuntimeEnabled" style="width: auto; margin-bottom: 0;" />
+            <span>Включить раздачу Xray / Enable Xray delivery</span>
+          </label>
+          <div>
+            <label for="xrayRuntimeVersion" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Версия ядра / Core version</label>
+            <input type="text" id="xrayRuntimeVersion" placeholder="24.11.11" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
           </div>
-
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button onclick="saveRotationConfig()" data-i18n="btnSaveScheduler">Сохранить расписание</button>
-            <button onclick="manualRotate()" class="btn-secondary" style="font-weight: 600;" data-i18n="btnRotateNow">⚡ Ротировать сейчас</button>
+          <div>
+            <label for="xrayRuntimePort" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Порт HTTP (SOCKS = +1) / HTTP port</label>
+            <input type="number" id="xrayRuntimePort" min="1" max="65534" placeholder="12080" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
           </div>
         </div>
-
-        <div id="widgetRotationStatus" class="card">
-          <h2 data-i18n="titleRotStatus">Rotation Status & History</h2>
-          <div class="stat-row">
-            <span class="stat-label" data-i18n="lblSchedStatus">Scheduler Status</span>
-            <span class="stat-value" id="rotStatusText">Idle</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label" data-i18n="lblNextRun">Next Scheduled Run</span>
-            <span class="stat-value" id="rotNextRun">-</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label" data-i18n="lblLastRot">Last Rotated At</span>
-            <span class="stat-value" id="rotLastRun">-</span>
-          </div>
-
-          <div id="rotHistoryList" style="margin-top: 16px;">
-            <label for="rotHistoryTable" data-i18n="lblRecentRot">Recent Password Rotations</label>
-            <div class="table-container">
-              <table>
-                <thead>
-                  <tr>
-                    <th data-i18n="thRotTime">Time</th>
-                    <th data-i18n="thRotSource">Source</th>
-                    <th data-i18n="thRotUser">User</th>
-                    <th data-i18n="thRotResult">Result</th>
-                  </tr>
-                </thead>
-                <tbody id="rotHistoryTable">
-                  <tr><td colspan="4" style="color: var(--text-muted); text-align: center;" data-i18n="txtNoRotEvents">No rotation events yet</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <div id="xrayRuntimeError" style="display: none; color: var(--danger); font-size: 12px; margin-top: 10px;"></div>
       </div>
+
     </div>
 
     <!-- ==================== TAB 3: EXTENSION CONSTRUCTOR STUDIO ==================== -->
@@ -1971,23 +1924,12 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
 
       <label for="panelApiToken" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">API-токен Remnawave / Remnawave API Token</label>
       <input type="password" id="panelApiToken" autocomplete="new-password" placeholder="Paste API token" style="width: 100%; box-sizing: border-box; margin-bottom: 4px;" />
-      <small style="display: block; color: var(--text-muted); margin-bottom: 12px;">Создайте токен в Remnawave → API Tokens с доступом к чтению/ротации пользователей. При редактировании оставьте поле пустым, чтобы сохранить текущий токен. / Create a token in Remnawave → API Tokens with user read/rotation permissions. Leave blank when editing to keep the current token.</small>
+      <small style="display: block; color: var(--text-muted); margin-bottom: 12px;">Создайте токен Remnawave с правами чтения пользователей и подписок. При редактировании оставьте поле пустым, чтобы сохранить текущий токен. / Create a Remnawave API token with read-only access to users and subscriptions. Leave blank when editing to keep the current token.</small>
 
       <label for="panelInsecureTls" style="display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: none; font-weight: normal; cursor: pointer; margin-bottom: 12px;">
         <input type="checkbox" id="panelInsecureTls" style="width: auto; margin-bottom: 0;" />
         <span data-i18n="lblPanelInsecureTls">Разрешить самоподписанный / не доверенный TLS</span>
       </label>
-
-      <div style="border-top: 1px solid var(--border); padding-top: 12px; margin-bottom: 16px;">
-        <label for="panelRotationEnabled" style="display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: none; font-weight: 600; cursor: pointer; margin-bottom: 8px;">
-          <input type="checkbox" id="panelRotationEnabled" style="width: auto; margin-bottom: 0;" />
-          <span data-i18n="lblPanelRotationEnabled">Включить авторотацию пароля для этой панели</span>
-        </label>
-        <div>
-          <label for="panelTargetUsername" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);" data-i18n="lblPanelTargetUsername">Целевой пользователь (для ротации)</label>
-          <input type="text" id="panelTargetUsername" placeholder="pec-user" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
-        </div>
-      </div>
 
       <div id="panelModalError" style="display: none; color: var(--danger); font-size: 12px; margin-bottom: 12px;"></div>
 

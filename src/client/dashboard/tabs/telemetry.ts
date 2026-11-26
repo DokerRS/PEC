@@ -109,7 +109,7 @@ export function filterFleetTable() {
       if (!instances || !instances.length) {
         selectedFleetInstances.clear();
         updateFleetBulkBar();
-        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Пока нет подключенных устройств. Расширения опрашивают сервер по расписанию (по умолчанию каждые 5 мин), а также немедленно при старте браузера и ротации учетных данных.' : 'No instances connected yet. Extensions poll the server on schedule (default: every 5 min), as well as immediately upon browser launch and credential rotation.') + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Пока нет подключенных устройств. Расширения опрашивают сервер по расписанию и при старте браузера.' : 'No instances connected yet. Extensions poll the server on schedule and when the browser starts.') + '</td></tr>';
         tbody.removeAttribute('data-rendered-sig');
         return;
       }
@@ -1169,13 +1169,6 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
         document.getElementById('hdrUser').textContent = data.currentUser || (isRu ? 'нет' : 'none');
         document.getElementById('hdrFleetCount').textContent = data.activeInstancesCount + (isRu ? ' активных (' : ' active (') + data.totalInstancesCount + (isRu ? ' всего)' : ' total)');
         
-        if (data.nextRotationAt) {
-          const diffMin = Math.round((new Date(data.nextRotationAt).getTime() - Date.now()) / 60000);
-          document.getElementById('hdrNextRot').textContent = (diffMin > 0 ? (isRu ? 'через ' + diffMin + ' мин' : 'in ' + diffMin + 'm') : (isRu ? 'сейчас' : 'imminent')) + ' (' + new Date(data.nextRotationAt).toLocaleTimeString() + ')';
-        } else {
-          document.getElementById('hdrNextRot').textContent = isRu ? 'Отключено' : 'Disabled';
-        }
-
         // Kill-switch state is the SERVER's truth, never a local guess:
         // a stale local flag previously let a second tab (or a reopened
         // dashboard) accidentally flip the emergency state.
@@ -1251,180 +1244,6 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
       }
     }
 
-    // ----------------- Remnawave Rotation -----------------
-    export async function fetchRotationConfig() {
-      try {
-        const res = await adminFetch('/api/rotation/config');
-        const data = await res.json();
-        const cfg = data.config;
-        
-        const rotPanelUrl = document.getElementById('rotPanelUrl') as HTMLInputElement | null;
-        if (rotPanelUrl) rotPanelUrl.value = cfg.panelUrl || '';
-        const rotAdminUser = document.getElementById('rotAdminUser') as HTMLInputElement | null;
-        if (rotAdminUser) rotAdminUser.value = cfg.adminUser || '';
-        const rotTargetUsername = document.getElementById('rotTargetUsername') as HTMLInputElement | null;
-        if (rotTargetUsername) rotTargetUsername.value = cfg.targetUsername || '';
-        const rotInterval = document.getElementById('rotInterval') as HTMLSelectElement | null;
-        if (rotInterval) rotInterval.value = String(cfg.intervalMinutes || 1440);
-        const rotEnabled = document.getElementById('rotEnabled') as HTMLSelectElement | null;
-        if (rotEnabled) rotEnabled.value = String(cfg.enabled);
-        const rotInsecure = document.getElementById('rotInsecureTls') as HTMLInputElement | null;
-        if (rotInsecure) rotInsecure.checked = Boolean(cfg.insecureSkipVerify);
-        
-        const rotStatusText = document.getElementById('rotStatusText');
-        if (rotStatusText) rotStatusText.textContent = cfg.lastStatus || 'Idle';
-        const rotNextRun = document.getElementById('rotNextRun');
-        if (rotNextRun) rotNextRun.textContent = cfg.nextRotationAt ? new Date(cfg.nextRotationAt).toLocaleString() : 'Disabled';
-        const rotLastRun = document.getElementById('rotLastRun');
-        if (rotLastRun) rotLastRun.textContent = cfg.lastRotatedAt ? new Date(cfg.lastRotatedAt).toLocaleString() : 'None';
-
-        const passBadge = document.getElementById('passwordSavedBadge');
-        if (passBadge) {
-          if ((cfg.rotAdminPass && cfg.rotAdminPass !== '') || (cfg.adminPass && cfg.adminPass !== '')) {
-            passBadge.style.display = 'inline-block';
-          } else {
-            passBadge.style.display = 'none';
-          }
-        }
-
-        renderRotationHistory(data.history || []);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    export async function saveRotationConfig() {
-      const intervalEl = document.getElementById('rotInterval') as HTMLSelectElement | null;
-      const intervalRaw = intervalEl ? intervalEl.value.trim() : '1440';
-      const intervalNum = parseInt(intervalRaw, 10);
-      if (!intervalRaw || !Number.isFinite(intervalNum) || intervalNum < 1 || String(intervalNum) !== intervalRaw) {
-        toast('Rotation interval must be a whole number of minutes (>= 1).', 'error');
-        return;
-      }
-      const rotEnabled = document.getElementById('rotEnabled') as HTMLSelectElement | null;
-      const rotInsecure = document.getElementById('rotInsecureTls') as HTMLInputElement | null;
-      const rotPanelUrl = document.getElementById('rotPanelUrl') as HTMLInputElement | null;
-      const rotAdminUser = document.getElementById('rotAdminUser') as HTMLInputElement | null;
-      const rotTargetUsername = document.getElementById('rotTargetUsername') as HTMLInputElement | null;
-      const rotAdminPass = document.getElementById('rotAdminPass') as HTMLInputElement | null;
-
-      const payload: any = {
-        intervalMinutes: intervalNum,
-        enabled: rotEnabled ? rotEnabled.value === 'true' : true,
-      };
-      if (rotPanelUrl) payload.panelUrl = rotPanelUrl.value.trim();
-      if (rotAdminUser) payload.adminUser = rotAdminUser.value.trim();
-      if (rotTargetUsername) payload.targetUsername = rotTargetUsername.value.trim();
-      if (rotInsecure) payload.insecureSkipVerify = rotInsecure.checked;
-      if (rotAdminPass && rotAdminPass.value) payload.adminPass = rotAdminPass.value;
-
-      const btn = document.querySelector('button[onclick*="saveRotationConfig"]') || document.querySelector('[data-i18n="btnSaveScheduler"]');
-      let origHtml = '';
-      if (btn) {
-        origHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="loading-spinner"></span> ' + (btn.textContent || '').trim();
-      }
-
-      try {
-        const res = await adminFetch('/api/rotation/config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-          toast(currentLang === 'ru' ? 'Расписание ротации обновлено!' : 'Rotation schedule updated!', 'success');
-          fetchRotationConfig();
-          fetchStatus();
-        } else {
-          const data = await res.json().catch(() => ({}));
-          toast((currentLang === 'ru' ? 'Ошибка сохранения настроек ротации: ' : 'Failed to save rotation settings: ') + (data.error || ('HTTP ' + res.status)), 'error');
-        }
-      } catch (e) {
-        toast((currentLang === 'ru' ? 'Ошибка сохранения настроек ротации: ' : 'Error saving rotation settings: ') + e, 'error');
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          if (origHtml) btn.innerHTML = origHtml;
-        }
-      }
-    }
-
-    export async function testRemnawave() {
-      const out = document.getElementById('testRemnawaveResult');
-      out.textContent = 'Testing connection to Remnawave API...';
-      const enteredPass = document.getElementById('rotAdminPass').value;
-      const payload: any = {
-        panelUrl: document.getElementById('rotPanelUrl').value.trim(),
-        adminUser: document.getElementById('rotAdminUser').value.trim(),
-        targetUsername: document.getElementById('rotTargetUsername').value.trim()
-      };
-      if (enteredPass && enteredPass.trim()) {
-        payload.adminPass = enteredPass.trim();
-      }
-
-      try {
-        const res = await adminFetch('/api/remnawave/test', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        out.innerHTML = (data.ok ? '<img src="/icons/check.png" class="icon-inline-sm" alt="ok"> ' : '<img src="/icons/cross.png" class="icon-inline-sm" alt="err"> ') + esc(data.message);
-        out.style.color = data.ok ? 'var(--success)' : 'var(--danger)';
-      } catch (e) {
-        out.textContent = 'Connection test failed: ' + e;
-        out.style.color = 'var(--danger)';
-      }
-    }
-
-    export async function manualRotate() {
-      const isRu = currentLang === 'ru';
-      if (!await pecConfirm({
-        title: isRu ? 'Ротация учетных данных' : 'Rotate Credentials',
-        message: isRu ? 'Выполнить немедленную ротацию учетных данных прокси?' : 'Rotate proxy credentials immediately?',
-        isDanger: true
-      })) return;
-      const btn = document.getElementById('btnRotateNow');
-      let origHtml = '';
-      if (btn) {
-        origHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="loading-spinner"></span> ' + (btn.textContent || '').trim();
-      }
-      try {
-        const res = await adminFetch('/api/rotation/rotate-now', { method: 'POST' });
-        const data = await res.json();
-        if (data.ok) {
-          toast(isRu ? ('Успешно! Новый пользователь: ' + data.result.user) : ('Rotated! New user: ' + data.result.user + ' (source: ' + data.result.source + ')'), 'success');
-          if (typeof (window as any).refreshAll === 'function') (window as any).refreshAll();
-        } else {
-          toast((isRu ? 'Ошибка ротации: ' : 'Rotation error: ') + data.error, 'error');
-        }
-      } catch (e) {
-        toast((isRu ? 'Сетевая ошибка: ' : 'Failed: ') + e, 'error');
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          if (origHtml) btn.innerHTML = origHtml;
-        }
-      }
-    }
-
-    export function renderRotationHistory(history) {
-      const tbody = document.getElementById('rotHistoryTable');
-      if (!history.length) {
-        tbody.innerHTML = '<tr><td colspan="4" style="color: var(--text-muted); text-align: center;">No rotation events yet</td></tr>';
-        return;
-      }
-      tbody.innerHTML = history.map(item => `<tr>
-        <td style="font-family: var(--mono); font-size: 12px;">${new Date(item.timestamp).toLocaleTimeString()}</td>
-        <td><code>${esc(item.source)}</code></td>
-        <td>${esc(item.user)}</td>
-        <td><span class="badge ${item.success ? 'badge-online' : 'badge-offline'}">${item.success ? 'SUCCESS' : 'FAILED'}</span></td>
-      </tr>`).join('');
-    }
-
     // ----------------- Remnawave Panels Registry -----------------
 export let currentPanelsList = [];
 
@@ -1445,18 +1264,13 @@ export let currentPanelsList = [];
       const tbody = document.getElementById('panelsRemnawaveBody');
       if (tbody) {
         if (!panels || !panels.length) {
-          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Панели Remnawave не настроены' : 'No Remnawave panels configured') + '</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Панель Remnawave не настроена' : 'No Remnawave panel configured') + '</td></tr>';
         } else {
           tbody.innerHTML = panels.map(p => {
-            const rotBadge = p.rotationEnabled
-              ? `<span class="badge badge-success" title="${isRu ? 'Авторотация включена' : 'Auto-rotation active'}">⚡ ${isRu ? 'ВКЛ' : 'ON'}</span>${p.targetUsername ? `<div style="font-size:10px; color:var(--text-muted);">${esc(p.targetUsername)}</div>` : ''}`
-              : `<span class="badge badge-secondary">${isRu ? 'ВЫКЛ' : 'OFF'}</span>`;
-
             return `<tr>
               <td><strong>${esc(p.name)}</strong></td>
               <td style="font-family: var(--mono);">${esc(p.panelUrl)}</td>
               <td><code>${p.apiToken ? (isRu ? 'API-токен настроен' : 'API token configured') : p.adminPass ? (isRu ? 'Вход по legacy-паролю' : 'Legacy login') : (isRu ? 'Нет токена' : 'No token')}</code></td>
-              <td>${rotBadge}</td>
               <td><span class="badge ${p.insecureTls ? 'badge-warning' : 'badge-success'}">${p.insecureTls ? (isRu ? 'Self-signed TLS' : 'Insecure TLS') : (isRu ? 'Строгий TLS' : 'Valid TLS')}</span></td>
               <td style="text-align: right;">
                 <div style="display: inline-flex; gap: 6px;">
@@ -1473,19 +1287,18 @@ export let currentPanelsList = [];
       // Populate select in Add from Remnawave modal
       const sel = document.getElementById('addRemnawavePanelSelect');
       if (sel) {
-        sel.innerHTML = '<option value="">' + (isRu ? 'По умолчанию (Настройки ротации)' : 'Default (Rotation Settings)') + '</option>' +
+        sel.innerHTML = '<option value="">' + (isRu ? 'Единственная панель Remnawave' : 'Single Remnawave panel') + '</option>' +
           (panels || []).map(p => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.panelUrl)})</option>`).join('');
       }
     }
 
     export function openAddRemnawavePanelModal(panel?: any) {
+      panel = panel || currentPanelsList[0];
       const idInp = document.getElementById('panelIdInput') as HTMLInputElement | null;
       const nameInp = document.getElementById('panelName') as HTMLInputElement | null;
       const urlInp = document.getElementById('panelUrl') as HTMLInputElement | null;
       const tokenInp = document.getElementById('panelApiToken') as HTMLInputElement | null;
       const tlsInp = document.getElementById('panelInsecureTls') as HTMLInputElement | null;
-      const rotInp = document.getElementById('panelRotationEnabled') as HTMLInputElement | null;
-      const remarkInp = document.getElementById('panelTargetUsername') as HTMLInputElement | null;
       const errEl = document.getElementById('panelModalError');
 
       if (idInp) idInp.value = panel ? panel.id : '';
@@ -1502,8 +1315,6 @@ export let currentPanelsList = [];
           : 'Paste API token';
       }
       if (tlsInp) tlsInp.checked = panel ? Boolean(panel.insecureTls) : false;
-      if (rotInp) rotInp.checked = panel ? Boolean(panel.rotationEnabled) : false;
-      if (remarkInp) remarkInp.value = panel ? (panel.targetUsername || '') : '';
       if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
 
       const modal = document.getElementById('modalRemnawavePanel');
@@ -1523,8 +1334,6 @@ export let currentPanelsList = [];
       const panelUrl = (document.getElementById('panelUrl') as HTMLInputElement | null)?.value?.trim();
       const apiToken = (document.getElementById('panelApiToken') as HTMLInputElement | null)?.value?.trim();
       const insecureTls = (document.getElementById('panelInsecureTls') as HTMLInputElement | null)?.checked;
-      const rotationEnabled = Boolean((document.getElementById('panelRotationEnabled') as HTMLInputElement | null)?.checked);
-      const targetUsername = ((document.getElementById('panelTargetUsername') as HTMLInputElement | null)?.value || '').trim();
       const errEl = document.getElementById('panelModalError');
 
       if (!name || !panelUrl || (!id && !apiToken)) {
@@ -1543,7 +1352,7 @@ export let currentPanelsList = [];
       try {
         const url = id ? `/api/remnawave/panels/${encodeURIComponent(id)}` : '/api/remnawave/panels';
         const method = id ? 'PUT' : 'POST';
-        const payload: Record<string, unknown> = { name, panelUrl, insecureTls, rotationEnabled, targetUsername };
+        const payload: Record<string, unknown> = { name, panelUrl, insecureTls };
         if (apiToken) payload.apiToken = apiToken;
         const res = await adminFetch(url, {
           method,
@@ -1597,6 +1406,57 @@ export let currentPanelsList = [];
         }
       } catch (e) {
         toast('Test error: ' + e, 'error');
+      }
+    }
+
+    // ----------------- REMNA-PERUSER-XRAY-1: Xray runtime settings -----------------
+
+    export async function loadXrayRuntimeSettings() {
+      try {
+        const res = await adminFetch('/api/xray-runtime');
+        if (!res.ok) return;
+        const data = await res.json();
+        const enEl = document.getElementById('xrayRuntimeEnabled') as HTMLInputElement | null;
+        const verEl = document.getElementById('xrayRuntimeVersion') as HTMLInputElement | null;
+        const portEl = document.getElementById('xrayRuntimePort') as HTMLInputElement | null;
+        if (enEl) enEl.checked = Boolean(data.enabled);
+        if (verEl) verEl.value = data.version || '';
+        if (portEl) portEl.value = String(data.listenPort || 12080);
+      } catch (e) {
+        console.warn('Failed to load Xray runtime settings:', e);
+      }
+    }
+
+    export async function saveXrayRuntimeSettingsAction() {
+      const isRu = currentLang === 'ru';
+      const enEl = document.getElementById('xrayRuntimeEnabled') as HTMLInputElement | null;
+      const verEl = document.getElementById('xrayRuntimeVersion') as HTMLInputElement | null;
+      const portEl = document.getElementById('xrayRuntimePort') as HTMLInputElement | null;
+      const errEl = document.getElementById('xrayRuntimeError');
+      const payload = {
+        enabled: Boolean(enEl && enEl.checked),
+        version: ((verEl && verEl.value) || '').trim(),
+        listenPort: Number(((portEl && portEl.value) || '').trim()) || 0,
+      };
+      if (!Number.isInteger(payload.listenPort) || payload.listenPort < 1 || payload.listenPort > 65534) {
+        if (errEl) { errEl.textContent = isRu ? 'Порт должен быть числом 1–65534' : 'Port must be an integer 1-65534'; errEl.style.display = 'block'; }
+        return;
+      }
+      try {
+        const res = await adminFetch('/api/xray-runtime', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          if (errEl) errEl.style.display = 'none';
+          toast(isRu ? 'Настройки Xray сохранены' : 'Xray runtime settings saved', 'success');
+        } else {
+          if (errEl) { errEl.textContent = data.error || 'Failed to save'; errEl.style.display = 'block'; }
+        }
+      } catch (e) {
+        if (errEl) { errEl.textContent = String(e); errEl.style.display = 'block'; }
       }
     }
 

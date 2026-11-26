@@ -128,7 +128,7 @@ test("Remnawave connection test authenticates and finds the configured username"
     });
     assert.equal(result.ok, true);
     assert.equal(result.userFound, true);
-    assert.equal(result.userId, 10);
+    assert.equal(result.userId, "10");
     assert.ok(panel.seen.includes("POST /api/auth/login"));
   } finally {
     await close();
@@ -155,23 +155,14 @@ test("Remnawave connection test distinguishes a missing user from a failed conne
   }
 });
 
-test("Remnawave rotation revokes only passwords and reads back the new credential", async () => {
-  const panel = fakeRemnawavePanel(
-    {
-      id: 25,
-      username: "pec-user",
-      status: "ACTIVE",
-      shortUuid: "stable-subscription-id",
-      trojanPassword: "old-password",
-    },
-    {
-      id: 25,
-      username: "pec-user",
-      status: "ACTIVE",
-      shortUuid: "stable-subscription-id",
-      trojanPassword: "new-password",
-    }
-  );
+test("Remnawave credential lookup never calls the revoke endpoint (rotation removed)", async () => {
+  const panel = fakeRemnawavePanel({
+    id: 25,
+    username: "pec-user",
+    status: "ACTIVE",
+    shortUuid: "stable-subscription-id",
+    trojanPassword: "stable-password",
+  });
   const { url, close } = await withHttpServer(panel.handler);
 
   try {
@@ -180,14 +171,12 @@ test("Remnawave rotation revokes only passwords and reads back the new credentia
       adminUser: "admin",
       adminPass: "pass",
       username: "pec-user",
-      rotatePassword: true,
       timeoutSec: 3,
     });
     assert.equal(result.ok, true);
-    assert.equal(result.rotated, true);
-    assert.equal(result.password, "new-password");
+    assert.equal(result.password, "stable-password");
     assert.equal(result.shortUuid, "stable-subscription-id");
-    assert.deepEqual(panel.getRevokeBody(), { revokeOnlyPasswords: true });
+    assert.ok(!panel.seen.some((request) => request.includes("/actions/revoke")));
   } finally {
     await close();
   }
@@ -211,7 +200,6 @@ test("Remnawave credential lookup is read-only and supports Shadowsocks credenti
       timeoutSec: 3,
     });
     assert.equal(result.ok, true);
-    assert.equal(result.rotated, false);
     assert.equal(result.password, "ss-secret");
     assert.ok(!panel.seen.some((request) => request.includes("/actions/revoke")));
   } finally {

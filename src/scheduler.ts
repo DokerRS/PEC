@@ -277,7 +277,11 @@ export function periodicAdSyncTask(): void {
 
 export function startScheduler() {
   periodicAdSyncTask();
-  armRotationInterval();
+  if (timerHandle) {
+    clearInterval(timerHandle);
+    timerHandle = null;
+  }
+  logger.info("[scheduler] Automatic credential rotation is disabled.");
 }
 
 /**
