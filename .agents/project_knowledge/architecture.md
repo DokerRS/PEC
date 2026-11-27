@@ -31,12 +31,15 @@ Architectural map, subsystem interaction, and data flows.
 +----------------------------+                +--------------+--------------+
               ^                                              |
               | Loopback                                     | Inbound Creds
-              v (127.0.0.1)                                  v Rotation
+              | (127.0.0.1)                                  v Rotation
+              | per-user HTTP/SOCKS                          |
+              | listener from local Xray core                |
 +----------------------------+                +-----------------------------+
-| Desktop Client (PEC-App)   | -------------> | 3x-ui / Xray Panels         |
+| Desktop Client (PEC-App)   | -------------> | Remnawave Panel             |
 | - DirectX 11 / Dear ImGui  |   Sync Telemetry| (SSRF Guard & DNS Rebinding |
 | - Service / Daemon         |                |  Protection)                |
-+----------------------------+                +-----------------------------+
+| - Local Xray Core (child)  |                +-----------------------------+
++----------------------------+
 ```
 
 ### 2.1 Server Core & Security Gateway
@@ -56,15 +59,17 @@ Architectural map, subsystem interaction, and data flows.
 
 ### 2.4 Credential Rotation & External Integration
 - **Modules:** `src/rotate.ts`, `src/scheduler.ts`, `src/routes/rotationRoutes.ts`.
-- **Function:** Automated rotation of proxy credentials with 3x-ui / Xray panels.
+- **Function:** Authenticates to Remnawave with a panel API token (`Authorization: Bearer`), resolves users by username, and rotates credentials through the user revoke action while preserving subscription identifiers. Legacy panel records without an API token retain username/password login compatibility.
+- **API client:** `src/remnawave.ts` uses configured API tokens directly and falls back to `POST /api/auth/login` only for legacy credentials; authenticated health checks use the same Bearer/JWT path, alongside user/node listing and `POST /api/users/{userId}/actions/revoke` with `revokeOnlyPasswords: true`. `src/rotate.ts` adapts those operations to the credential store and rotation scheduler; API tokens are stored in the Remnawave panel registry and masked in dashboard responses.
 - **SSRF Hardening:** Synchronous and asynchronous DNS resolution checks (`validateSafeEndpointUrlAsync`) blocking loopback, link-local, RFC1918 private subnets, and cloud metadata endpoints (`169.254.169.254`).
-- **SSRF TOCTOU Pinning (AUDIT-SEC-2):** `createSsrfPinnedFetch` / `makePinnedLookup` (`src/rotate.ts`) freeze validated DNS answers into a custom `undici` Agent `lookup` with `redirect: "manual"`, so panel fetches never re-resolve to a rebound address between validation and connection. Used by all 3x-ui panel calls and `routingRoutes` import-url/refresh.
+- **SSRF TOCTOU Pinning (AUDIT-SEC-2):** `createSsrfPinnedFetch` / `makePinnedLookup` (`src/rotate.ts`) freeze validated DNS answers into a custom `undici` Agent `lookup` with `redirect: "manual"`, so panel fetches never re-resolve to a rebound address between validation and connection. Used by Remnawave API calls and `routingRoutes` import-url/refresh.
 
 ### 2.5 Packaging & Builder Studio
 - **Modules:** `src/packager.ts`, `src/appPackager.ts`, `src/codeSigner.ts`, `src/routes/builderRoutes.ts`, `src/routes/appBuilderRoutes.ts`.
-- **Function:** Compiles and signs `.CRX` extension packages with 2048-bit RSA keys (`extension/key.pem`), generates canonical GPO deployment package (`pec-policy-user.reg`, `pec-policy-machine.reg`, `README-GPO.txt`), and builds cross-platform desktop installers.
+- **Function:** Compiles and signs `.CRX` extension packages with 2048-bit RSA keys (`extension/key.pem`), generates canonical GPO deployment package (`pec-policy-user.reg`, `pec-policy-machine.reg`, `pec-app-client.reg`, `README-GPO.txt`), and builds cross-platform desktop installers.
 - **MV3 CSP-Safe Popup Theme Bootstrap (AUDIT-EXT-2):** `extension/popupTheme.js` — external pre-paint theme script loaded in `popup.html` `<head>` (replaces the former inline FOUC bootstrap rejected by MV3 CSP `script-src 'self'`); generated from `src/templates/popupThemeTemplate.ts` and kept in sync via `npm run sync:templates`.
 - **Test Sandbox Contract (AUDIT-NAT-2-TS):** `writeVersionGenHeaders` sanitizes placeholder fleet tokens into an empty `PEC_DEFAULT_FLEET_TOKEN`, and `test/helpers/setup.ts` redirects header regeneration into a sandbox replica via `PEC_CLIENT_WIN_DIR` — `npm test` can never rewrite the committed `client/Windows/**/version_gen.h` copies.
+- **Self-Contained Setup Payload (INSTALLER-EMBED-1):** `buildInstallerPayloadZip` (`src/appPackager.ts`) zips the compiled binaries (PEC-App.exe, PEC-CLI.exe, PECAppSvc.exe, plus signed PECAppCore.dll/WinDivert files) into `client/Windows/installer/payload.zip` before installer resource compilation; both MinGW (`-DEMBED_PAYLOAD`) and MSVC (`/dEMBED_PAYLOAD`) paths then embed it as RCDATA resource 101 (`setup.rc`), so a standalone `PEC-App-Setup.exe` extracts its own payload instead of failing the `CopyFromSourceFolder` fallback. Unsigned kernel/core drivers are excluded from the zip; `payload.zip` is cleaned by `cleanAppBinaries`.
 
 ### 2.6 Fleet Telemetry & Sync
 - **Modules:** `src/instances.ts`, `src/routes/instancesRoutes.ts`, `src/routes/appSyncRoutes.ts`.
@@ -90,11 +95,19 @@ Architectural map, subsystem interaction, and data flows.
 - **Perceptual Luminance Clamps (THEME-WEB-3):** `computeHexLuminance` / `isDarkHexColor` / `isLightHexColor` (`appPackager.ts`, weights 0.299/0.587/0.114, dark < 100, light > 175) replaced the leaky `^#2[0-4]` prefix-regex heuristic in both dark-sync clamp sites (`appPackager` profile path + `appSyncRoutes` sync path); non-colors are never clamped. Clamp matrix and the behavioral nord `#2e3440` sync-route case are covered by `test/themeLuminanceClamps.test.ts`.
 - **Reactive Studio Simulator Bus (UI-PREVIEW-FLEET-CLEAN-1):** In `studio.ts`, the Extension Studio preview iframe eliminates 404 console errors by directly inlining the theme bootstrap into `<script>` inside `generateMockPopupHtml` rather than requesting the external `popupTheme.js`. The extension preview state (`liveSimState`) dynamically mirrors actual fleet proxies (`availableProxies`, `activeProxyId`, host/port/protocol), PAC routing presets, and permission toggles (`allowUserProxySwitch`, `allowUserBypass`) with two-way `SET_ACTIVE_PROXY` messaging. App Studio replaces the static 30s timing hardcode with dynamic interval display (`appSyncIntervalMinutes`), reactive log sync ticks, and a dynamic traffic intercept generator matching active rules (`currentAppRules`).
 - **Fleet Telemetry Contract Hygiene (UI-PREVIEW-FLEET-CLEAN-1):** Removed redundant desktop pairing badges (`🔗 Десктоп`) from the extensions table user column, ensuring clean visual separation between the browser extensions fleet table and native application instances table.
-- **Multi-Server 3x-ui Fleet Rotation & Micro-Editor (UI-LOGIC-ROTATION-CLEAN-1):** `Panel3xuiConfig` supports multi-server rotation flags (`rotationEnabled`, `targetRemark`, `rotationIntervalMinutes`) with rotation isolated to active panels without affecting static proxy nodes. App Studio code editor is upgraded to a lightweight CodeJar + Prism.js micro-implementation with syntax highlighting, indentation, and responsive container bounds. Dashboard assets enforce automatic cache-busting (`?v=${currentVersion}`).
+- **Multi-Panel Remnawave Fleet Rotation & Micro-Editor:** `PanelRemnawaveConfig` supports per-panel rotation flags (`rotationEnabled`, `targetUsername`, `rotationIntervalMinutes`) with rotation isolated to active Remnawave-backed proxy nodes. App Studio code editor is upgraded to a lightweight CodeJar + Prism.js micro-implementation with syntax highlighting, indentation, and responsive container bounds. Dashboard assets enforce automatic cache-busting (`?v=${currentVersion}`).
 
 ### 2.10 Deployment Secrets & Secret Scanning
 - **Modules:** `src/loadEnv.ts` (`loadDockerSecrets`), `docker-compose.yml` / `docker-compose.prod.yml`, `.gitleaks.toml`, `.github/workflows/security.yml`.
 - **Function:** Compose deployments can inject all five sensitive variables (`ADMIN_TOKEN`, `EXT_SHARED_TOKEN`, `ADMIN_PASSWORD`, `PAC_SIGNING_SECRET`, `CODE_SIGN_MASTER_KEY`) as `<VAR>_FILE` Docker secrets, resolved by `loadDockerSecrets` with plain-env fallback. `.gitleaks.toml` extends the SHA-pinned gitleaks action with PEC-specific token patterns and fixture allowlists (AUDIT-INFRA-P3).
+
+### 2.11 Per-User Xray Runtime (REMNA-PERUSER-XRAY-1)
+- **Modules:** `src/xrayRuntime.ts`, `src/xrayBinaries.ts`, `src/routes/xrayRuntimeRoutes.ts`; consumers `extension/background.js` (mirrored in `src/templates/backgroundTemplate.ts`) and `client/Windows/gui/ui/xray_rt.h` (wired via `client/Windows/gui/ui/pec_sync.h`).
+- **Function:** The PEC server is a control plane only — it never runs Xray and never stores subscriptions. Admin pins one Xray core version in the dashboard (dropdown fed by `GET /api/xray-runtime/versions`, a 10-min-cached proxy-aware GitHub releases lookup in `src/xrayBinaries.ts`); the server caches pinned GitHub release archives (`src/xrayBinaries.ts`) and serves them to the fleet over `GET /api/xray-runtime/binaries/:version/download` (fleet-token authenticated, SHA-256 verified).
+- **Per-user derivation:** For each AD user, `buildXraySyncBlock` derives a personal localhost listener port via `deriveLocalPort(username, basePort)` (HMAC-SHA256 of `pec-xray-port-v1:{user}` keyed by the master secret, offset into a 4096-port window) and a personal proxy secret. The rendered Xray config's HTTP/SOCKS inbound accounts use exactly the delivered `proxyUser`/`proxyPass` pair, so extension and PEC-App authenticate identically.
+- **Consumption:** The extension stores Xray credentials in a separate realm (`memoryXrayCreds` / `chrome.storage.session` key `pecXrayCreds`) and points Chrome at `127.0.0.1:{listenPort}`, failing closed to the legacy PAC when the local listener is dead. PEC-App downloads the pinned core, atomically writes `config.json`, and supervises a local `xray.exe run` child process.
+- **Machine bootstrap (GPO):** `packager.ts` emits `pec-app-client.reg` (`HKLM\SOFTWARE\PEC-App` with `ServerUrl` + fleet-only `FleetToken`) into the GPO Deployment Pack; `main_imgui.cpp` reads that key as its registry fallback, so a GPO-imported reg file pre-configures every machine install without shipping the admin token. See `docs/gpo-deployment-guide.md` §3 Step 4.
+- **Status visibility (XRAY-STATUS-UI-1):** `xray_rt.h` keeps lock-guarded (`g_xrayLock`) status fields (`reason`, `note`, `serverCount`, `lastApplyTick`) exposed to the UI thread via `PecXrayGetSnapshot()`; `PecXrayBuildStatusJson()` renders a `xrayStatus` fragment that `pec_sync.h` appends to the desktop heartbeat body. Server side: `sanitizeDesktopXrayStatus()` (`src/instances.ts`) clamps the payload to a fixed shape with a whitelisted `reason` set (`user_not_found`, `no_active_subscription`, `panel_error`, `ad_disabled`, `user_not_allowed`), `registerDesktopHeartbeat` stores it (preserving the previous value when a beat omits it), and `/api/app/instances` returns it. Dashboard renders a per-machine "Xray / Подписка" badge column plus a fleet summary (`#xrayFleetSummary`) in `telemetry.ts`; PEC-App shows a header pill and an Overview tab (`RenderOverviewTab`) with engine/sync/core/subscription/extension cards.
 
 ---
 
@@ -111,7 +124,11 @@ Architectural map, subsystem interaction, and data flows.
 
 3. **Scheduled Credential Rotation:**
    - `scheduler.ts` triggers `rotateCredentials()` based on `ROTATION_INTERVAL_MIN`.
-   - `rotate.ts` connects to 3x-ui panel over validated URL (SSRF check passed), rotates inbound client password, and updates `current_creds.json` atomically.
+   - `rotate.ts` connects to the configured Remnawave panel over a validated, DNS-pinned URL, resolves the target username, revokes only its passwords, and updates `current_creds.json` atomically after the panel confirms the new credential.
+
+4. **Per-User Xray Delivery (REMNA-PERUSER-XRAY-1):**
+   - Extension/PEC-App sync (`POST /api/sync`, `GET /api/app/sync`) receives an `xrayRuntime` block built by `buildXraySyncBlock`: enabled flag, pinned core version, per-user derived `listenPort`/`socksPort`, and `proxyUser`/`proxyPass`.
+   - The consumer downloads the pinned core from `/api/xray-runtime/binaries/:version/download` (fleet token, SHA-256 verified), runs a local Xray core, and routes traffic through the loopback listener authenticated with the same per-user credentials.
 
 ---
 

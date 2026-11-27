@@ -13,8 +13,8 @@ const rotationCounters = new Map<string, number>();
 const rateLimitCounters = new Map<string, number>();
 
 // Initialize default rotation keys
-rotationCounters.set("3x-ui:success", 0);
-rotationCounters.set("3x-ui:failure", 0);
+rotationCounters.set("remnawave:success", 0);
+rotationCounters.set("remnawave:failure", 0);
 rotationCounters.set("standalone:success", 0);
 rotationCounters.set("standalone:failure", 0);
 
@@ -36,8 +36,8 @@ export function recordRateLimitBlock(endpoint?: string): void {
 
 export function resetMetricsForTest(): void {
   rotationCounters.clear();
-  rotationCounters.set("3x-ui:success", 0);
-  rotationCounters.set("3x-ui:failure", 0);
+  rotationCounters.set("remnawave:success", 0);
+  rotationCounters.set("remnawave:failure", 0);
   rotationCounters.set("standalone:success", 0);
   rotationCounters.set("standalone:failure", 0);
   rateLimitCounters.clear();

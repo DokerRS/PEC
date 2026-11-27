@@ -67,6 +67,7 @@ static int PecCompareVersion(const int a[3], const int b[3])
 #include <stdlib.h>
 #include <string.h>
 #include "../profile/json.h"
+#include "xray_rt.h"
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "winhttp.lib")
@@ -713,8 +714,11 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                         if (hRequest)
                         {
                             // Build headers: use instanceToken if available (enrolled), otherwise fleetToken
+                            // SYNC-REENROLL-1: a "dpapi:"-prefixed value means the profile blob
+                            // could not be decrypted (wrong user/machine) — it is not a usable
+                            // token; fall back to the plaintext file / fleet token instead.
                             wchar_t tokenBuf[256] = { 0 };
-                            if (instTok[0] != 0)
+                            if (instTok[0] != 0 && wcsncmp(instTok, L"dpapi:", 6) != 0)
                             {
                                 lstrcpynW(tokenBuf, instTok, 256);
                             }
@@ -729,16 +733,22 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                 }
                             }
 
-                            wchar_t hdrs[512];
+                            /* SYNC-REENROLL-1: always send the fleet token alongside the
+                             * instance token. If the server lost our enrollment record
+                             * (state reset/wipe), a stale instance token alone can never
+                             * re-enroll and the client is stuck on HTTP 401 forever.
+                             * The server prefers the instance token when it still matches
+                             * and falls back to fleet-token re-enrollment otherwise. */
+                            wchar_t hdrs[640];
                             if (tokenBuf[0] != 0)
                             {
-                                _snwprintf_s(hdrs, 512, _TRUNCATE,
-                                    L"Content-Type: application/json\r\nx-instance-token: %ls\r\n",
-                                    tokenBuf);
+                                _snwprintf_s(hdrs, 640, _TRUNCATE,
+                                    L"Content-Type: application/json\r\nx-fleet-token: %ls\r\nx-instance-token: %ls\r\n",
+                                    fltTok, tokenBuf);
                             }
                             else
                             {
-                                _snwprintf_s(hdrs, 512, _TRUNCATE,
+                                _snwprintf_s(hdrs, 640, _TRUNCATE,
                                     L"Content-Type: application/json\r\nx-fleet-token: %ls\r\n",
                                     fltTok);
                             }
@@ -819,6 +829,21 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                 }
                             }
                             LeaveCriticalSection(&g_syncLock);
+
+                            /* XRAY-STATUS-UI-1: report local core state so the
+                             * admin fleet table can show Xray/subscription. */
+                            {
+                                char xrFrag[320];
+                                PecXrayBuildStatusJson(xrFrag, sizeof(xrFrag));
+                                if (xrFrag[0]) {
+                                    char* closeBrace = strrchr(jsonBody, '}');
+                                    size_t fragLen = strlen(xrFrag);
+                                    if (closeBrace && fragLen + 2 < sizeof(jsonBody) - (size_t)(closeBrace - jsonBody)) {
+                                        memmove(closeBrace + fragLen, closeBrace, 2);
+                                        memcpy(closeBrace, xrFrag, fragLen);
+                                    }
+                                }
+                            }
 
                             DWORD bodyLen = (DWORD)strlen(jsonBody);
                             g_isSyncing = TRUE;
@@ -1273,6 +1298,13 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                                     }
                                                 }
                                             }
+                                            // REMNA-PERUSER-XRAY-1: per-user local Xray core runtime
+                                            JVal* xrBlock = json_get(respRoot, "xrayRuntime");
+                                            if (xrBlock)
+                                            {
+                                                PecXrayHandleSyncBlock(xrBlock, srvUrl, fltTok);
+                                            }
+
                                             json_free(respRoot);
                                         }
                                         free(rBuf);
@@ -1366,6 +1398,7 @@ static void PecSyncStart(HWND hwndMain)
 static void PecSyncStop(void)
 {
     g_syncRunning = FALSE;
+    PecXrayShutdown();
     if (g_hSyncWakeEvent) SetEvent(g_hSyncWakeEvent);
 
     if (g_loopbackSocket != INVALID_SOCKET)

@@ -42,12 +42,20 @@ services:
       # Public URL used in updates.xml / GPO artifacts (prevents Host-header
       # poisoning). Set it to the URL your fleet uses to reach this server.
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
-      # 3x-ui panel integration (credential rotation) - without these the
-      # container cannot reach the panel and .env values are ignored.
+      # Legacy Remnawave API-login fallback for single-panel rotation. New
+      # dashboard panel entries store their API token in the persistent data volume.
+      # This flag relaxes SSRF checks for private endpoints; keep false unless required.
+      - ALLOW_INTERNAL_PANEL=${ALLOW_INTERNAL_PANEL:-false}
+      - REMNAWAVE_PANEL_URL=${REMNAWAVE_PANEL_URL:-}
+      - REMNAWAVE_ADMIN_USER=${REMNAWAVE_ADMIN_USER:-}
+      - REMNAWAVE_ADMIN_PASS=${REMNAWAVE_ADMIN_PASS:-}
+      - REMNAWAVE_TARGET_USERNAME=${REMNAWAVE_TARGET_USERNAME:-pec-user}
+      - REMNAWAVE_INSECURE_SKIP_VERIFY=${REMNAWAVE_INSECURE_SKIP_VERIFY:-false}
+      # Legacy 3x-ui names kept as fallback for existing deployments.
       - XUI_PANEL_URL=${XUI_PANEL_URL:-}
       - XUI_ADMIN_USER=${XUI_ADMIN_USER:-}
       - XUI_ADMIN_PASS=${XUI_ADMIN_PASS:-}
-      - XUI_INBOUND_REMARK=${XUI_INBOUND_REMARK:-squid-in}
+      - XUI_INBOUND_REMARK=${XUI_INBOUND_REMARK:-}
       - ROTATION_INTERVAL_MIN=${ROTATION_INTERVAL_MIN:-1440}
       - PAC_SIGNING_SECRET=${PAC_SIGNING_SECRET:-}
       - PAC_REQUIRE_SIGNATURE=${PAC_REQUIRE_SIGNATURE:-false}

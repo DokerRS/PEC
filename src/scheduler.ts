@@ -15,14 +15,14 @@ const HISTORY_FILE = getRotationHistoryPath();
 const MIN_INTERVAL_MINUTES = 1;
 // setTimeout/setInterval accept delays only up to 2^31-1 ms (~24.8 days):
 // a larger value makes Node clamp the timer to 1 ms, turning the rotation
-// scheduler into a hot loop that hammers the 3x-ui panel with logins.
+// scheduler into a hot loop that hammers the Remnawave panel with logins.
 const MAX_INTERVAL_MINUTES = Math.floor((2 ** 31 - 1) / 60_000); // 35791 (~24.8 days)
 const MAX_HISTORY_ENTRIES = 50;
 
 /**
  * Validate and normalize a rotation interval. Prevents NaN / 0 / strings
  * from reaching setInterval - a NaN interval previously degraded to a 1 ms
- * timer that hammered the 3x-ui API and the filesystem.
+ * timer that hammered the Remnawave API and the filesystem.
  */
 function normalizeIntervalMinutes(value: unknown): number {
   const n = typeof value === "number" ? value : parseInt(String(value), 10);
@@ -34,15 +34,26 @@ function normalizeIntervalMinutes(value: unknown): number {
   return n;
 }
 
+/**
+ * Placeholder panel URLs mark a deployment where the panel was never
+ * configured (rotation then runs in standalone mode). Both the Remnawave
+ * sentinel and the legacy 3x-ui one are recognised so old configs keep
+ * behaving the same after the upgrade.
+ */
+function isPlaceholderPanelUrl(url: string): boolean {
+  return url.includes("remnawave-host") || url.includes("3xui-host");
+}
+
 const DEFAULT_CONFIG: RotationConfig = {
   enabled: true,
   intervalMinutes: parseInt(process.env.ROTATION_INTERVAL_MIN || "1440", 10), // default 24h
-  panelUrl: process.env.XUI_PANEL_URL || "https://3xui-host:2053/basepath",
-  adminUser: process.env.XUI_ADMIN_USER || "admin",
-  adminPass: process.env.XUI_ADMIN_PASS || "",
-  inboundRemark: process.env.XUI_INBOUND_REMARK || "squid-in",
-  inboundTag: process.env.XUI_INBOUND_TAG || undefined,
-  insecureSkipVerify: process.env.XUI_INSECURE_SKIP_VERIFY === "true",
+  panelUrl: process.env.REMNAWAVE_PANEL_URL || process.env.XUI_PANEL_URL || "https://remnawave-host:3000",
+  adminUser: process.env.REMNAWAVE_ADMIN_USER || process.env.XUI_ADMIN_USER || "admin",
+  adminPass: process.env.REMNAWAVE_ADMIN_PASS || process.env.XUI_ADMIN_PASS || "",
+  targetUsername:
+    process.env.REMNAWAVE_TARGET_USERNAME || process.env.XUI_INBOUND_REMARK || "pec-user",
+  insecureSkipVerify:
+    process.env.REMNAWAVE_INSECURE_SKIP_VERIFY === "true" || process.env.XUI_INSECURE_SKIP_VERIFY === "true",
   lastStatus: "Idle",
 };
 
@@ -67,27 +78,34 @@ function loadInitialConfig(): RotationConfig {
   // Merge: Never let an empty adminPass or placeholder panelUrl wipe out environment variables
   const finalPass =
     (loaded.adminPass && loaded.adminPass.trim()) ||
-    (process.env.XUI_ADMIN_PASS && process.env.XUI_ADMIN_PASS.trim()) ||
+    (process.env.REMNAWAVE_ADMIN_PASS || process.env.XUI_ADMIN_PASS || "").trim() ||
     DEFAULT_CONFIG.adminPass ||
     "";
 
+  const envPanel = (process.env.REMNAWAVE_PANEL_URL || process.env.XUI_PANEL_URL || "").trim();
+
   const finalPanel =
-    (loaded.panelUrl && !loaded.panelUrl.includes("3xui-host") && loaded.panelUrl.trim()) ||
-    (process.env.XUI_PANEL_URL && !process.env.XUI_PANEL_URL.includes("3xui-host") && process.env.XUI_PANEL_URL.trim()) ||
+    (loaded.panelUrl && !isPlaceholderPanelUrl(loaded.panelUrl) && loaded.panelUrl.trim()) ||
+    (envPanel && !isPlaceholderPanelUrl(envPanel) ? envPanel : "") ||
     loaded.panelUrl ||
     DEFAULT_CONFIG.panelUrl;
 
   const finalUser =
     (loaded.adminUser && loaded.adminUser.trim()) ||
-    (process.env.XUI_ADMIN_USER && process.env.XUI_ADMIN_USER.trim()) ||
+    ((process.env.REMNAWAVE_ADMIN_USER || process.env.XUI_ADMIN_USER || "").trim()) ||
     DEFAULT_CONFIG.adminUser ||
     "admin";
 
-  const finalRemark =
-    (loaded.inboundRemark && loaded.inboundRemark.trim()) ||
-    (process.env.XUI_INBOUND_REMARK && process.env.XUI_INBOUND_REMARK.trim()) ||
-    DEFAULT_CONFIG.inboundRemark ||
-    "squid-in";
+  // A pre-Remnawave rotation_config.json stored the target as `inboundRemark`
+  // (or `inboundTag`); honour it so an upgrade keeps rotating the same target.
+  const legacy = loaded as Partial<RotationConfig> & { inboundRemark?: string; inboundTag?: string };
+  const finalUsername =
+    (loaded.targetUsername && loaded.targetUsername.trim()) ||
+    (legacy.inboundRemark && legacy.inboundRemark.trim()) ||
+    (legacy.inboundTag && legacy.inboundTag.trim()) ||
+    ((process.env.REMNAWAVE_TARGET_USERNAME || process.env.XUI_INBOUND_REMARK || "").trim()) ||
+    DEFAULT_CONFIG.targetUsername ||
+    "pec-user";
 
   return {
     ...DEFAULT_CONFIG,
@@ -95,7 +113,7 @@ function loadInitialConfig(): RotationConfig {
     adminPass: finalPass,
     panelUrl: finalPanel,
     adminUser: finalUser,
-    inboundRemark: finalRemark,
+    targetUsername: finalUsername,
   };
 }
 
@@ -136,7 +154,7 @@ export function getRotationConfig(): RotationConfig {
 
 /**
  * Masked view of the rotation config for API responses.
- * The 3x-ui admin password must never leave the server in plaintext.
+ * The Remnawave admin password must never leave the server in plaintext.
  */
 export function getRotationConfigPublic(): RotationConfig {
   return { ...currentConfig, adminPass: currentConfig.adminPass ? "********" : "" };
@@ -196,7 +214,8 @@ async function doRunManualRotation(): Promise<RotationHistoryItem> {
     const failItem: RotationHistoryItem = {
       id: crypto.randomUUID?.() ?? Math.random().toString(36).substring(2, 9),
       timestamp: new Date().toISOString(),
-      source: currentConfig.panelUrl && !currentConfig.panelUrl.includes("3xui-host") ? "3x-ui" : "manual",
+      source:
+        currentConfig.panelUrl && !isPlaceholderPanelUrl(currentConfig.panelUrl) ? "remnawave" : "manual",
       user,
       success: false,
       error: errMsg,
@@ -258,7 +277,11 @@ export function periodicAdSyncTask(): void {
 
 export function startScheduler() {
   periodicAdSyncTask();
-  armRotationInterval();
+  if (timerHandle) {
+    clearInterval(timerHandle);
+    timerHandle = null;
+  }
+  logger.info("[scheduler] Automatic credential rotation is disabled.");
 }
 
 /**

@@ -147,6 +147,7 @@ export interface GpoConfig {
   regContent: string;
   regContentUser: string;
   regContentMachine: string;
+  regContentClientApp: string;
   readmeContent: string;
 }
 
@@ -156,8 +157,8 @@ export interface RotationConfig {
   panelUrl: string;
   adminUser: string;
   adminPass: string;
-  inboundRemark: string;
-  inboundTag?: string;
+  /** Remnawave user whose credentials are rotated (replaces the 3x-ui inbound remark). */
+  targetUsername: string;
   panelId?: string;
   insecureSkipVerify: boolean;
   lastRotatedAt?: string;
@@ -166,15 +167,19 @@ export interface RotationConfig {
   lastError?: string;
 }
 
-export interface Panel3xuiConfig {
+export interface PanelRemnawaveConfig {
   id: string;
   name: string;
   panelUrl: string;
-  adminUser: string;
-  adminPass: string;
+  /** Remnawave API token sent as a Bearer credential. */
+  apiToken?: string;
+  /** Legacy login credentials retained for existing panel configurations. */
+  adminUser?: string;
+  adminPass?: string;
   insecureTls?: boolean;
+  /** Read from legacy panel records but ignored; Remnawave credential rotation is disabled. */
   rotationEnabled?: boolean;
-  targetRemark?: string;
+  targetUsername?: string;
   rotationIntervalMinutes?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -183,7 +188,7 @@ export interface Panel3xuiConfig {
 export interface RotationHistoryItem {
   id: string;
   timestamp: string;
-  source: "3x-ui" | "standalone-atomic" | "manual";
+  source: "remnawave" | "standalone-atomic" | "manual";
   user: string;
   success: boolean;
   error?: string;
@@ -273,8 +278,9 @@ export interface ProxyNode {
   id: string;                      // Unique ID (crypto.randomBytes(4).toString("hex") or uuid)
   tag: string;                     // Inbound tag or manual custom tag
   name: string;                    // Friendly display name
-  type: "3x-ui" | "manual";        // Source type
-  panelId?: string;                // Reference to Panel3xuiConfig.id
+  type: "remnawave" | "manual";    // Source type
+  panelId?: string;                // Reference to PanelRemnawaveConfig.id
+  remnawaveUsername?: string;      // Remnawave user backing this node
   protocol: "socks5" | "http" | "https";
   host: string;                    // Proxy IP or FQDN
   port: number;                    // Listen port (1-65535)
@@ -394,6 +400,27 @@ export interface AppBuildInfo {
   };
 }
 
+/**
+ * Xray core status self-reported by PEC-App on /api/app/sync.
+ * Sanitized server-side: only fixed-shape primitives are stored.
+ */
+export interface DesktopXrayStatus {
+  /** Server policy has the Xray runtime enabled for this user */
+  enabled: boolean;
+  /** Local xray.exe process is alive */
+  running: boolean;
+  /** Kernel version managed by the server (e.g. "26.3.27") */
+  version?: string;
+  /** Local SOCKS5 port the core is listening on */
+  socksPort?: number;
+  /** Fail-closed reason when the server withheld the runtime (user_not_found, ...) */
+  reason?: string;
+  /** Subscription servers currently loaded into the local config */
+  serverCount?: number;
+  /** Client-side timestamp of the last successful config apply */
+  updatedAt?: string;
+}
+
 export interface DesktopInstance {
   appInstanceId: string;
   hostname: string;
@@ -410,6 +437,8 @@ export interface DesktopInstance {
     instanceId: string;
     browser?: string;
   };
+  /** Last Xray core / subscription status reported by the client */
+  xrayStatus?: DesktopXrayStatus;
 }
 
 export interface ReleaseItem {

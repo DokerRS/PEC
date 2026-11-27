@@ -588,11 +588,11 @@ static DWORD WINAPI InstallThread(LPVOID lpParam)
             LogMessage(L"ERROR: File copy and verification from '%ls' failed! Aborting installation.", myDir);
             if (!g_silent) {
                 MessageBoxW(g_hMain,
-                    L"Failed to verify digital signature (Authenticode) of fallback installer files. Installation aborted.",
-                    L"PEC-App Security Verification Error",
+                    L"The installer could not obtain its payload: no embedded payload was found and the fallback folder next to setup did not contain the required binaries (PEC-App.exe + PECAppSvc.exe), or their signature check failed. Installation aborted.",
+                    L"PEC-App Installer Payload Error",
                     MB_ICONERROR | MB_OK);
             }
-            SetStatus(L"Installation aborted: digital signature verification failed.", 0);
+            SetStatus(L"Installation aborted: installer payload missing or failed verification.", 0);
             if (g_hChkRun && IsWindow(g_hChkRun)) {
                 SendMessageW(g_hChkRun, BM_SETCHECK, BST_UNCHECKED, 0);
                 ShowWindow(g_hChkRun, SW_HIDE);

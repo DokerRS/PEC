@@ -2,7 +2,7 @@
 
 > **Примечание (актуализация).** Документ изначально описывал Python-версию мини-сервера (`server/app.py`, FastAPI). Сервер переписан на TypeScript: точка входа `server.ts`, модули в `src/` (Express), деплой — `Dockerfile`, `docker-compose*.yml` и скрипты `deploy/`. Команды Python/venv ниже заменены на актуальные.
 
-Данный документ описывает архитектуру, порядок развертывания и эксплуатационные требования для системы избирательного доступа к корпоративному VPN-прокси через связку Active Directory (GPO), Google Chrome Extension (Manifest V3) и Xray/3x-ui.
+Данный документ описывает архитектуру, порядок развертывания и эксплуатационные требования для системы избирательного доступа к корпоративному прокси через Active Directory (GPO), Google Chrome Extension (Manifest V3) и Remnawave API.
 
 ---
 
@@ -11,28 +11,30 @@
 ```
 Пользователь (Windows, Chrome)
   │
-  │  PAC (раздаётся всем через GPO; домены из списка → PROXY/HTTPS xray-host:10809, иначе DIRECT)
+  │  PAC (раздаётся через GPO; домены из списка → PROXY/HTTPS corporate-proxy.example:10809, иначе DIRECT)
   ▼
-Xray / 3x-ui (http-inbound :10809)
-  │  Basic-Auth — логин/пароль автоматически подставляет расширение через onAuthRequired
-  │  пароль ротируется мини-сервером ежедневно через 3x-ui API
-  ▼
-Remnawave outbound (ключи подписки, routing по inboundTag)
+Корпоративный прокси, связанный с пользователем Remnawave
+  │  PEC синхронизирует credentials по username
   ▼
 Интернет
 
+Remnawave API (self-hosted panel)
+  ▲  HTTPS: JWT login, username lookup и revokeOnlyPasswords
+  │  subscription short UUID остаётся неизменным при ротации
+Мини-сервер PEC (src/remnawave.ts + src/rotate.ts)
+
 Расширение Chrome (extension/)
-  — Устанавливается принудительно через GPO (ExtensionInstallForcelist).
+  — Устанавливается централизованно через GPO (ExtensionSettings + Allowlist/Sources).
   — Security Filtering на группу SEC-Proxy-VPN (доступ имеют только члены группы).
   — Раз в TTL (5 мин) или при первом 407 обращается к мини-серверу за актуальными credentials.
   — Защищено от шторма запросов (дедупликация промисов) и зацикливания авторизации (лимит попыток).
 
-Мини-сервер PEC (server.ts + src/, Node.js/Express) [colocated с 3x-ui]
+Мини-сервер PEC (server.ts + src/, Node.js/Express)
   — /creds и /api/sync: отдают текущий логин/пароль и PAC-конфиг; проверка fleet-токена (X-Ext-Token) с защитой от timing attacks. Management-API защищены отдельным админ-токеном (X-Admin-Token).
   — /updates/: раздача собранного пакета расширения (.crx) и update-манифеста (updates.xml).
   — Защищён Nginx (TLS-терминация + allow/deny по корпоративным подсетям).
-  — Встроенный планировщик (src/scheduler.ts): по расписанию генерирует новый пароль, обновляет 3x-ui через API,
-    сверяет результат и атомарно записывает хранилище (src/rotate.ts).
+  — Встроенный планировщик (src/scheduler.ts): отзывает только credentials целевого пользователя Remnawave,
+    получает обновленный credential и атомарно записывает хранилище (src/rotate.ts).
 ```
 
 Squid в архитектуру не входит: фильтрацию доменов осуществляет PAC-файл, разграничение доступа по AD — GPO-scoped расширение.
@@ -41,23 +43,21 @@ Squid в архитектуру не входит: фильтрацию доме
 
 ## 2. Пошаговый план внедрения
 
-### Этап 1. Xray / 3x-ui
-1. Создать `http`-инбаунд в панели 3x-ui:
-   - Слушать на интерфейсе, доступном из корпоративных подсетей (например, порт `10809`).
-   - Начальные учетные данные в `accounts` — любые (будут перезаписаны скриптом ротации при первом запуске).
-2. Настроить Routing / Outbound на Remnawave-балансировщик по тегу инбаунда.
-3. Настроить сетевой экран: открыть порт инбаунда только для доверенных корпоративных диапазонов IP.
+### Этап 1. Remnawave
+1. Настроить Remnawave и создать пользователя с уникальным username, который PEC будет синхронизировать.
+2. Убедиться, что API возвращает его credential и subscription short UUID.
+3. Настроить корпоративный прокси-узел и PAC-маршрутизацию отдельно от панели управления; доступ к API Remnawave разрешить только серверу PEC.
 4. **Рекомендация по шифрованию учетных данных (Secure Web Proxy):**
    - По умолчанию схема `PROXY host:port` передает заголовок `Proxy-Authorization: Basic ...` в открытом виде по локальной сети.
-   - Для предотвращения сниффинга пароля в корпоративном сегменте переведите HTTP-инбаунд на TLS и в PAC-файле используйте схему `HTTPS xray-host:10809; DIRECT`. Chrome поддерживает Secure Web Proxy и предварительно поднимает шифрованный TLS-туннель до прокси.
+   - Для предотвращения сниффинга пароля используйте TLS между клиентом и корпоративным прокси; Chrome поддерживает Secure Web Proxy и предварительно поднимает шифрованный TLS-туннель до прокси.
 
 ### Этап 2. Развертывание мини-сервера и ротации
 1. Развернуть сервер одним из способов:
    - Docker: `deploy/install-docker.sh` (или вручную `docker compose up -d --build`);
    - systemd: `sudo bash deploy/install-systemd.sh` — скрипт ставит Node.js 20, собирает `dist/server.cjs`, регистрирует службу и генерирует `EXT_SHARED_TOKEN` + `ADMIN_TOKEN`.
-2. Конфигурация берется из `.env` (шаблон — `.env.example`): задайте `EXT_SHARED_TOKEN`, `ADMIN_TOKEN`, `PUBLIC_BASE_URL`, доступы к 3x-ui API.
+2. Конфигурация берется из `.env` (шаблон — `.env.example`): задайте `EXT_SHARED_TOKEN`, `ADMIN_TOKEN`, `PUBLIC_BASE_URL`, `REMNAWAVE_PANEL_URL` и `REMNAWAVE_TARGET_USERNAME`. Для новых записей панели в дашборде используйте Remnawave API token; `REMNAWAVE_ADMIN_USER` / `REMNAWAVE_ADMIN_PASS` остаются только legacy API-login fallback.
 3. Nginx настраивается по шаблону `deploy/nginx-proxy.conf` (TLS-терминация, allow/deny, rate limiting).
-4. Прогнать ротацию вручную через дашборд (`POST /api/rotation/rotate-now`) и убедиться, что `current_creds.json` создан с правами 0600, а пароль инбаунда в панели 3x-ui обновился.
+4. Прогнать ротацию вручную через дашборд (`POST /api/rotation/rotate-now`) и убедиться, что `current_creds.json` создан с правами 0600, credentials пользователя обновились, а subscription short UUID остался прежним.
 
 ### Этап 3. Упаковка расширения и доставка через GPO
 1. **Упаковка расширения в .crx:**
@@ -74,10 +74,11 @@ Squid в архитектуру не входит: фильтрацию доме
     - **Способы развертывания политик GPO:**
       - **Канонический (GPMC и .REG файлы):** Используйте готовые файлы реестра `pec-policy-user.reg` и `pec-policy-machine.reg` из архива *GPO Deployment Pack* веб-панели PEC, либо настройте параметры напрямую в GPMC:
         - Путь: `Конфигурация пользователя (или Компьютера) → Настройка → Конфигурация Windows → Реестр`
-        - Для каждого браузера настраиваются 3 параметра:
-          1. `ExtensionInstallForcelist`: параметр со значением `<ID>;https://<serverBaseUrl>/updates/updates.xml`
-          2. `ExtensionSettings`: JSON с разрешенным источником установки и режимом установки (`force_installed` или `normal_installed`)
-          3. `domainUser`: параметр со значением `%USERDOMAIN%\%USERNAME%` в ветке `3rdparty\extensions\<ID>\policy` для сквозной идентификации в Active Directory Zero-Trust
+        - Для каждого браузера настраиваются параметры:
+          1. `ExtensionInstallAllowlist`: значение `<ID>` с настраиваемым индексом
+          2. `ExtensionInstallSources`: значение `https://<serverBaseUrl>/*` с тем же индексом
+          3. `ExtensionSettings`: разрешенный источник и режим установки (`force_installed` или `normal_installed`)
+          4. `domainUser`: `%USERDOMAIN%\%USERNAME%` в ветке `3rdparty\extensions\<ID>\policy` для сквозной идентификации в Active Directory Zero-Trust
     - **Параметры для браузеров:**
       - **Google Chrome** (`Software\Policies\Google\Chrome`): `installation_mode = force_installed`
       - **Microsoft Edge** (`Software\Policies\Microsoft\Edge`): `installation_mode = force_installed`
@@ -94,7 +95,7 @@ Squid в архитектуру не входит: фильтрацию доме
        if (dnsDomainIs(host, "blocked-domain1.com") ||
            dnsDomainIs(host, "blocked-domain2.org") ||
            shExpMatch(host, "*.target-internal.net")) {
-           return "HTTPS xray-host:10809; PROXY xray-host:10809; DIRECT";
+           return "HTTPS corporate-proxy.example:10809; PROXY corporate-proxy.example:10809; DIRECT";
        }
        return "DIRECT";
    }
@@ -111,8 +112,8 @@ Squid в архитектуру не входит: фильтрацию доме
 3. **Исключение из группы:**
    - Пользователь удаляется из AD-группы `SEC-Proxy-VPN`.
    - После обновления политик GPO и перезапуска Chrome расширение удаляется, доступ прекращается.
-4. **Ротация пароля:**
-   - При плановой ротации (таймер systemd) расширение при следующем обращении к прокси получает 407, мгновенно сбрасывает кэш, запрашивает новый пароль у `/creds` и продолжает работу без разрыва пользовательских сессий.
+4. **Ротация credentials:**
+   - После плановой ротации Remnawave-credential локальное хранилище PEC обновляется атомарно; расширение получает актуальные credentials при следующей синхронизации с `/creds` или `/api/sync`.
 
 ---
 
@@ -134,7 +135,8 @@ proxy_extention_corp/
 │   ├── geodatParser.ts            # Высокопроизводительный парсер бинарных гео-баз geosite/geoip
 │   ├── packager.ts                # CRX3-упаковщик, подпись RSA-SHA256, генератор GPO
 │   ├── releases.ts                # Менеджер версий, менеджер откатов, проверка SHA-256
-│   ├── rotate.ts                  # Атомарное хранилище учетных данных, интеграция 3x-ui, SSRF-защита
+│   ├── remnawave.ts               # JWT-клиент Remnawave API с SSRF-защитой
+│   ├── rotate.ts                  # Атомарное хранилище учетных данных и ротация Remnawave-пользователя
 │   ├── routing.ts                 # Генератор PAC, иерархия профилей, CIDR и доменные маски
 │   ├── scheduler.ts               # Планировщик периодической ротации учетных данных
 │   └── views/dashboardView.ts     # HTML дашборда управления и Extension/App Studio
@@ -163,7 +165,7 @@ proxy_extention_corp/
 ### 4.2. Защитный барьер `binariesStale`
 - Если обнаружено, что версия в скомпилированных PE-модулях (`embeddedVersion`) не совпадает с целевой версией релиза (`cfg.version`), в объекте `AppBuildInfo` выставляется флаг `binariesStale: true`.
 - **Защита от бесконечного цикла обновлений:** Клиентские инсталляции на рабочих станциях при получении пакета со старой версией бинарника повторно обнаруживали бы несоответствие версий и непрерывно запрашивали скачивание обновления. Флаг `binariesStale` блокирует ошибочную публикацию устаревших артефактов.
-- В панели управления **App Studio** (`public/dashboard.js`) при наличии флага `binariesStale: true` отрисовывается заметный янтарный баннер:
+- В панели управления **App Studio** (`src/client/dashboard/tabs/studio.ts`) при наличии флага `binariesStale: true` отрисовывается заметный янтарный баннер:
   > ⚠️ **Внимание:** Версия в бинарниках (`embeddedVersion`) не совпадает с версией релиза (`version`). Перед публикацией релиза пересоберите бинарники (кнопка «Собрать бинарники»), чтобы исключить вечный цикл обновлений у клиентов.
 
 ### 4.3. Контроль целостности модулей ядра (`coreModulesIntegrity`)

@@ -9,8 +9,7 @@ import {
   probeProxyEgress,
   probeAllProxies,
 } from "../proxies.js";
-import { getRotationConfig } from "../scheduler.js";
-import { sync3xuiInboundByTag, get3xuiPanelById, isRotationInFlight } from "../rotate.js";
+import { syncRemnawaveUser, getRemnawavePanel } from "../rotate.js";
 import { recordAudit, getClientIp } from "../audit.js";
 import { ProxyNode } from "../types.js";
 
@@ -35,71 +34,58 @@ export function createProxiesRouter(): Router {
     res.json(getAllProxies(true));
   });
 
-  // POST /api/proxies - create manual or 3x-ui proxy
+  // POST /api/proxies - create manual or Remnawave proxy
   router.post("/api/proxies", async (req: Request, res: Response) => {
     try {
-      const { type, tag, name, protocol, host, port, username, password, isActive, panelId } = req.body || {};
+      const { type, tag, name, protocol, host, port, username, password, isActive } = req.body || {};
 
-      if (type !== undefined && type !== "manual" && type !== "3x-ui") {
-        return res.status(400).json({ error: "Invalid proxy type: must be 'manual' or '3x-ui'" });
+      if (type !== undefined && type !== "manual" && type !== "remnawave") {
+        return res.status(400).json({ error: "Invalid proxy type: must be 'manual' or 'remnawave'" });
       }
 
-      if (type === "3x-ui") {
-        if (!tag || typeof tag !== "string" || !tag.trim()) {
-          return res.status(400).json({ error: "tag is required for 3x-ui proxy" });
+      if (type === "remnawave") {
+        // A Remnawave node is backed by a panel user, not an inbound tag.
+        const remnawaveUsername = String(username || tag || "").trim();
+        if (!remnawaveUsername) {
+          return res.status(400).json({ error: "username is required for remnawave proxy" });
         }
 
-        let panelUrl = "";
-        let adminUser = "";
-        let adminPass = "";
-        if (panelId) {
-          const panel = get3xuiPanelById(panelId);
-          if (panel) {
-            panelUrl = panel.panelUrl;
-            adminUser = panel.adminUser;
-            adminPass = panel.adminPass;
-          }
-        }
-        if (!panelUrl) {
-          const rotConfig = getRotationConfig();
-          panelUrl = rotConfig.panelUrl;
-          adminUser = rotConfig.adminUser;
-          adminPass = rotConfig.adminPass;
+        const panel = getRemnawavePanel();
+        if (!panel) {
+          return res.status(400).json({ error: "Remnawave panel is not configured" });
         }
 
-        if (!panelUrl) {
-          return res.status(400).json({ error: "3x-ui panel URL is not configured in rotation settings" });
-        }
-
-        const syncResult = await sync3xuiInboundByTag({
-          panelUrl,
-          adminUser,
-          adminPass,
-          tag: tag.trim(),
-          rotatePassword: false,
+        const syncResult = await syncRemnawaveUser({
+          panelUrl: panel.panelUrl,
+          apiToken: panel.apiToken,
+          adminUser: panel.adminUser,
+          adminPass: panel.adminPass,
+          username: remnawaveUsername,
+          insecureTls: panel.insecureTls,
         });
 
         if (!syncResult.ok) {
-          return res.status(400).json({ error: syncResult.message || "Failed to sync inbound from 3x-ui" });
+          return res.status(400).json({ error: syncResult.message || "Failed to sync user from Remnawave" });
         }
 
         let finalHost = host ? String(host).trim() : "";
         if (!finalHost) {
           try {
-            finalHost = new URL(panelUrl).hostname;
+            finalHost = new URL(panel.panelUrl).hostname;
           } catch {
             finalHost = "127.0.0.1";
           }
         }
 
         const created = createProxy({
-          tag: tag.trim(),
-          name: name ? String(name).trim() : syncResult.remark || tag.trim(),
-          type: "3x-ui",
-          panelId: panelId || undefined,
-          protocol: syncResult.protocol || "socks5",
+          tag: tag ? String(tag).trim() : remnawaveUsername,
+          name: name ? String(name).trim() : remnawaveUsername,
+          type: "remnawave",
+          panelId: panel.id,
+          remnawaveUsername: syncResult.username || remnawaveUsername,
+          protocol: protocol === "http" || protocol === "https" ? protocol : "socks5",
           host: finalHost,
-          port: syncResult.port || 10809,
+          port: port !== undefined && port !== null && port !== "" ? port : 443,
           username: syncResult.username,
           password: syncResult.password,
           isActive: isActive !== undefined ? Boolean(isActive) : undefined,
@@ -112,7 +98,7 @@ export function createProxiesRouter(): Router {
           endpoint: "/api/proxies",
           status: 201,
           result: "PROXY_CREATED",
-          details: `Created 3x-ui proxy: ${created.tag} (${created.protocol}://${created.host}:${created.port})`,
+          details: `Created Remnawave proxy: ${created.tag} (${created.protocol}://${created.host}:${created.port})`,
         });
 
         return res.status(201).json(maskPassword(created));
@@ -207,11 +193,8 @@ export function createProxiesRouter(): Router {
     }
   });
 
-  // POST /api/proxies/:id/sync - sync 3x-ui proxy inbound
+  // POST /api/proxies/:id/sync - sync Remnawave proxy credentials
   router.post("/api/proxies/:id/sync", async (req: Request, res: Response) => {
-    if (isRotationInFlight()) {
-      return res.status(409).json({ error: "Rotation is currently in flight. Please try again later." });
-    }
     const proxyId = req.params.id;
 
     // AUDIT-SRV-P3: coalesce concurrent syncs for the same node instead of
@@ -230,41 +213,27 @@ export function createProxiesRouter(): Router {
       if (!proxy) {
         return { status: 404, body: { error: "Proxy not found" } };
       }
-      if (proxy.type !== "3x-ui") {
-        return { status: 400, body: { error: "Only 3x-ui proxy nodes can be synced" } };
+      if (proxy.type !== "remnawave") {
+        return { status: 400, body: { error: "Only Remnawave proxy nodes can be synced" } };
       }
 
-      let panelUrl = "";
-      let adminUser = "";
-      let adminPass = "";
-      if (proxy.panelId) {
-        const panel = get3xuiPanelById(proxy.panelId);
-        if (panel) {
-          panelUrl = panel.panelUrl;
-          adminUser = panel.adminUser;
-          adminPass = panel.adminPass;
-        }
-      }
-      if (!panelUrl) {
-        const rotConfig = getRotationConfig();
-        panelUrl = rotConfig.panelUrl;
-        adminUser = rotConfig.adminUser;
-        adminPass = rotConfig.adminPass;
-      }
-      if (!panelUrl) {
-        return { status: 400, body: { error: "3x-ui panel URL is not configured in rotation settings" } };
+      const panel = getRemnawavePanel();
+      if (!panel) {
+        return { status: 400, body: { error: "Remnawave panel is not configured" } };
       }
 
-      const rotatePassword =
-        req.body?.rotatePassword !== undefined ? Boolean(req.body.rotatePassword) : true;
+      const targetUsername = proxy.remnawaveUsername || proxy.username;
+      if (!targetUsername) {
+        return { status: 400, body: { error: "Proxy node has no Remnawave username to sync" } };
+      }
 
-      const syncResult = await sync3xuiInboundByTag({
-        panelUrl,
-        adminUser,
-        adminPass,
-        tag: proxy.tag,
-        targetUsername: proxy.username,
-        rotatePassword,
+      const syncResult = await syncRemnawaveUser({
+        panelUrl: panel.panelUrl,
+        apiToken: panel.apiToken,
+        adminUser: panel.adminUser,
+        adminPass: panel.adminPass,
+        username: targetUsername,
+        insecureTls: panel.insecureTls,
       });
 
       if (!syncResult.ok) {
@@ -282,9 +251,10 @@ export function createProxiesRouter(): Router {
         lastSync: new Date().toISOString(),
       };
       if (syncResult.password !== undefined) updates.password = syncResult.password;
-      if (syncResult.username !== undefined) updates.username = syncResult.username;
-      if (syncResult.port !== undefined) updates.port = syncResult.port;
-      if (syncResult.protocol !== undefined) updates.protocol = syncResult.protocol;
+      if (syncResult.username !== undefined) {
+        updates.username = syncResult.username;
+        updates.remnawaveUsername = syncResult.username;
+      }
 
       const updated = updateProxy(proxy.id, updates);
 
@@ -338,42 +308,26 @@ export function createProxiesRouter(): Router {
   });
 
 
-  // POST /api/3xui/inbound-lookup - lookup inbound details by tag
-  router.post("/api/3xui/inbound-lookup", async (req: Request, res: Response) => {
+  // POST /api/remnawave/user-lookup - read a Remnawave user's credentials
+  router.post("/api/remnawave/user-lookup", async (req: Request, res: Response) => {
     try {
-      const tag = req.body?.tag;
-      const panelId = req.body?.panelId;
-      if (!tag || typeof tag !== "string" || !tag.trim()) {
-        return res.status(400).json({ error: "tag is required" });
+      const username = req.body?.username || req.body?.tag;
+      if (!username || typeof username !== "string" || !username.trim()) {
+        return res.status(400).json({ error: "username is required" });
       }
 
-      let panelUrl = "";
-      let adminUser = "";
-      let adminPass = "";
-      if (panelId) {
-        const panel = get3xuiPanelById(panelId);
-        if (panel) {
-          panelUrl = panel.panelUrl;
-          adminUser = panel.adminUser;
-          adminPass = panel.adminPass;
-        }
-      }
-      if (!panelUrl) {
-        const rotConfig = getRotationConfig();
-        panelUrl = rotConfig.panelUrl;
-        adminUser = rotConfig.adminUser;
-        adminPass = rotConfig.adminPass;
-      }
-      if (!panelUrl) {
-        return res.status(400).json({ error: "3x-ui panel URL is not configured in rotation settings" });
+      const panel = getRemnawavePanel();
+      if (!panel) {
+        return res.status(400).json({ error: "Remnawave panel is not configured" });
       }
 
-      const syncResult = await sync3xuiInboundByTag({
-        panelUrl,
-        adminUser,
-        adminPass,
-        tag: tag.trim(),
-        rotatePassword: false,
+      const syncResult = await syncRemnawaveUser({
+        panelUrl: panel.panelUrl,
+        apiToken: panel.apiToken,
+        adminUser: panel.adminUser,
+        adminPass: panel.adminPass,
+        username: username.trim(),
+        insecureTls: panel.insecureTls,
       });
 
       if (!syncResult.ok) {
@@ -382,11 +336,12 @@ export function createProxiesRouter(): Router {
 
       return res.json({
         ok: true,
-        inbound: {
-          tag: syncResult.tag || tag.trim(),
-          protocol: syncResult.protocol,
-          port: syncResult.port,
-          username: syncResult.username,
+        user: {
+          username: syncResult.username || username.trim(),
+          userId: syncResult.userId,
+          shortUuid: syncResult.shortUuid,
+          status: syncResult.status,
+          subscriptionUrl: syncResult.subscriptionUrl,
           hasPassword: Boolean(syncResult.password),
         },
       });

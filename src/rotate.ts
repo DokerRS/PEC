@@ -1,4 +1,4 @@
-import "./loadEnv.js";
+﻿import "./loadEnv.js";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -7,13 +7,34 @@ import { createRequire } from "node:module";
 import type { Agent } from "undici";
 
 const requireCompat = typeof require === "function" ? require : createRequire(path.resolve("package.json"));
-import { RotationConfig, RotationHistoryItem, Panel3xuiConfig } from "./types.js";
+import { RotationConfig, RotationHistoryItem, PanelRemnawaveConfig } from "./types.js";
 import { writeJsonAtomic, readJsonStore, restrictSecretFilePermissions } from "./jsonStore.js";
-import { getCredsStorePath, get3xuiPanelsPath, getRotationConfigPath } from "./storage.js";
+import {
+  getCredsStorePath,
+  getProxiesStorePath,
+  getRemnawavePanelsPath,
+  getLegacy3xuiPanelsPath,
+  getRotationConfigPath,
+} from "./storage.js";
 import { logger } from "./logger.js";
 import { recordRotation } from "./metrics.js";
+import type {
+  RemnawaveConnection,
+  RemnawaveSubscription,
+  RemnawaveSyncResult,
+  RemnawaveUser,
+} from "./remnawave.js";
 
-export { getCredsStorePath, get3xuiPanelsPath };
+export { getCredsStorePath, getRemnawavePanelsPath };
+
+/**
+ * The Remnawave client lives in remnawave.ts, which statically imports the
+ * SSRF helpers exported here. Loading it through `import()` keeps the module
+ * graph acyclic while still giving these call sites the real client.
+ */
+async function loadRemnawaveClient() {
+  return import("./remnawave.js");
+}
 
 /**
  * Create the credentials store with a cryptographically random password if
@@ -93,7 +114,7 @@ export function atomicWriteCreds(filePath: string, creds: { user: string; pass: 
 
 /**
  * AUDIT-SRV-3: rotation local persistence with transient-failure retries.
- * Windows AV/indexer can hold the creds file (EPERM/EBUSY) for a moment —
+ * Windows AV/indexer can hold the creds file (EPERM/EBUSY) for a moment вЂ”
  * failing the whole rotation over a retryable rename would desync the fleet
  * for no reason.
  */
@@ -261,20 +282,17 @@ function assertNoRedirect(res: Response, what: string): void {
 }
 
 /**
- * Login to the 3x-ui panel, transparently supporting both generations:
- * - current panels issue a CSRF token (GET /csrf-token with the session
- *   cookie, then X-CSRF-Token on POST /login) - without it login is a bare 403;
- * - older panels accept a plain POST /login.
- * Returns the Cookie header value to authorize subsequent API calls.
+ * Resolve whether TLS verification is skipped for a panel: an explicit
+ * argument wins, then the stored panel entry, then the legacy global
+ * `insecureSkipVerify` rotation setting.
  */
-
 function resolveInsecureTls(panelUrl?: string, explicit?: boolean): boolean {
   if (explicit !== undefined) return Boolean(explicit);
   if (panelUrl) {
     try {
       const cleanUrl = panelUrl.replace(/\/+$/, "");
-      const panelsFile = get3xuiPanelsPath();
-      const list = readJsonStore<Panel3xuiConfig[]>(panelsFile) || [];
+      const panelsFile = getRemnawavePanelsPath();
+      const list = readJsonStore<PanelRemnawaveConfig[]>(panelsFile) || [];
       const p = list.find((item) => item.panelUrl.replace(/\/+$/, "") === cleanUrl);
       if (p && p.insecureTls !== undefined) {
         return Boolean(p.insecureTls);
@@ -342,7 +360,7 @@ function getFetchDispatcher(insecureTls?: boolean): Agent | undefined {
 /**
  * SSRF TOCTOU pinning (AUDIT-SEC-2): validateSafeEndpointUrlAsync resolves and
  * vets the hostname, but a subsequent plain fetch() re-resolves DNS at connect
- * time — a rebinding attacker flips the record between check and use and the
+ * time вЂ” a rebinding attacker flips the record between check and use and the
  * authenticated panel request lands on 127.0.0.1 / RFC1918. The pinned lookup
  * freezes name resolution to the addresses that were actually verified.
  */
@@ -356,7 +374,7 @@ export function makePinnedLookup(hostname: string, pinned: Array<{ address: stri
       opts = {};
     }
     if (!pinned.length || String(hostnameArg || "").toLowerCase() !== target) {
-      // Not the validated host (cannot happen inside panel flows) — normal DNS.
+      // Not the validated host (cannot happen inside panel flows) вЂ” normal DNS.
       return dns.lookup(hostnameArg, opts, cb);
     }
     const family = opts?.family ?? 0;
@@ -400,7 +418,7 @@ export async function createSsrfPinnedFetch(rawUrl: string, opts?: { insecureTls
 
   if (process.env.ALLOW_INTERNAL_PANEL === "true") {
     // Operator explicitly allowed private endpoints: no DNS validation ran and
-    // there is nothing to pin — keep the insecure-dispatcher semantics.
+    // there is nothing to pin вЂ” keep the insecure-dispatcher semantics.
     const dispatcher = getFetchDispatcher(isInsecure);
     return {
       valid: true,
@@ -447,343 +465,69 @@ export async function createSsrfPinnedFetch(rawUrl: string, opts?: { insecureTls
   };
 }
 
-async function panelLogin(
-  panel: string,
-  username: string,
-  password: string,
-  timeoutMs: number,
-  panelFetch: SafeEndpointFetch
-): Promise<{ cookie: string; csrfToken: string | null }> {
-  let cookie = "";
-  let csrfToken: string | null = null;
+// ==================== REMNAWAVE READ-ONLY SYNC ====================
 
-  // Newer panels: obtain the session cookie + CSRF token first.
-  // Network failures throw immediately (no point retrying /login on an unreachable host).
-  // HTTP non-200 responses (e.g. 404 on older panels without CSRF) fall through to plain login.
-  const csrfRes = await panelFetch(`${panel}/csrf-token`, {
-    redirect: "manual",
-    signal: AbortSignal.timeout(timeoutMs),
+/** Read a Remnawave user's credentials through the panel API. */
+export async function syncRemnawaveUser(params: {
+  panelUrl: string;
+  apiToken?: string;
+  adminUser?: string;
+  adminPass?: string;
+  username: string;
+  timeoutSec?: number;
+  insecureTls?: boolean;
+}): Promise<RemnawaveSyncResult> {
+  const { syncRemnawaveUserByUsername } = await loadRemnawaveClient();
+  return syncRemnawaveUserByUsername({
+    panelUrl: params.panelUrl,
+    apiToken: params.apiToken,
+    adminUser: params.adminUser,
+    adminPass: params.adminPass,
+    username: params.username,
+    timeoutSec: params.timeoutSec,
+    insecureTls: resolveInsecureTls(params.panelUrl, params.insecureTls),
   });
-  assertNoRedirect(csrfRes, "csrf-token");
-  if (csrfRes.ok) {
-    cookie = csrfRes.headers.get("set-cookie") || "";
-    const data = (await csrfRes.json().catch(() => null)) as { obj?: string } | null;
-    if (data && typeof data.obj === "string" && data.obj) {
-      csrfToken = data.obj;
-    }
-  }
-
-  const loginRes = await panelFetch(`${panel}/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-      ...(cookie ? { Cookie: cookie } : {}),
-    },
-    body: JSON.stringify({ username, password }),
-    redirect: "manual",
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  assertNoRedirect(loginRes, "login");
-
-  if (!loginRes.ok) {
-    throw new Error(`3x-ui login failed: HTTP ${loginRes.status}`);
-  }
-
-  const freshCookie = loginRes.headers.get("set-cookie");
-  const mergedCookie = mergeCookies(cookie, freshCookie);
-  const loginData = await loginRes.json().catch(() => ({}));
-  if (loginData && loginData.success === false) {
-    throw new Error(`3x-ui login rejected: ${loginData.msg || "Invalid credentials"}`);
-  }
-  return { cookie: mergedCookie, csrfToken };
 }
 
-/** Combine a session cookie from the CSRF handshake with login Set-Cookies. */
-function mergeCookies(base: string, fresh: string | null): string {
-  const jar = new Map<string, string>();
-  for (const raw of [base, fresh || ""]) {
-    for (const part of raw.split(/,(?=[^;]+?=)/)) {
-      const pair = part.split(";")[0].trim();
-      const eq = pair.indexOf("=");
-      if (eq > 0) jar.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
-    }
-  }
-  return [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
-}
-
-/** Auth headers for panel API calls (cookie + CSRF where the panel issued one). */
-function panelApiHeaders(auth: { cookie: string; csrfToken: string | null }): Record<string, string> {
-  return {
-    ...(auth.cookie ? { Cookie: auth.cookie } : {}),
-    ...(auth.csrfToken ? { "X-CSRF-Token": auth.csrfToken } : {}),
-  };
+/** Fetch one user's subscription links without persisting them on the PEC server. */
+export async function fetchRemnawaveSubscription(username: string): Promise<RemnawaveSubscription | null> {
+  const panel = getRemnawavePanel();
+  if (!panel) throw new Error("Remnawave panel is not configured");
+  const { RemnawaveClient } = await loadRemnawaveClient();
+  const client = new RemnawaveClient({
+    panelUrl: panel.panelUrl,
+    apiToken: panel.apiToken,
+    adminUser: panel.adminUser,
+    adminPass: panel.adminPass,
+    insecureTls: panel.insecureTls,
+  });
+  return client.getSubscriptionByUsername(username);
 }
 
 /**
- * Look up an inbound by tag or remark:
- * 1. Exact or trimmed match by tag
- * 2. Exact or trimmed match by remark
- * 3. Case-insensitive match by tag
- * 4. Case-insensitive match by remark
+ * Connectivity probe for a panel: health + API access + target user lookup.
+ * A reachable panel without the target user is still reported as `ok`
+ * (the operator may register the user afterwards) but flags `userFound: false`.
  */
-export function findInboundByTagOrRemark(inbounds: any[], target: string): any | undefined {
-  if (!Array.isArray(inbounds) || typeof target !== "string") return undefined;
-  const t = target.trim();
-  if (!t) return undefined;
-  const tLower = t.toLowerCase();
-
-  // 1. Exact or trimmed match by tag
-  let found = inbounds.find((i) => i && typeof i.tag === "string" && i.tag.trim() === t);
-  if (found) return found;
-
-  // 2. Exact or trimmed match by remark
-  found = inbounds.find((i) => i && typeof i.remark === "string" && i.remark.trim() === t);
-  if (found) return found;
-
-  // 3. Case-insensitive match by tag
-  found = inbounds.find((i) => i && typeof i.tag === "string" && i.tag.trim().toLowerCase() === tLower);
-  if (found) return found;
-
-  // 4. Case-insensitive match by remark
-  found = inbounds.find((i) => i && typeof i.remark === "string" && i.remark.trim().toLowerCase() === tLower);
-  return found;
-}
-
-export async function sync3xuiInboundByTag(params: {
+export async function testRemnawaveConnection(config: {
   panelUrl: string;
-  adminUser: string;
-  adminPass: string;
-  tag: string;
+  apiToken?: string;
+  adminUser?: string;
+  adminPass?: string;
   targetUsername?: string;
-  rotatePassword?: boolean;
   timeoutSec?: number;
   insecureTls?: boolean;
-}): Promise<{
-  ok: boolean;
-  inboundId?: number;
-  tag?: string;
-  remark?: string;
-  protocol?: "socks5" | "http" | "https";
-  port?: number;
-  username?: string;
-  password?: string;
-  message: string;
-}> {
-  const ssrf = await createSsrfPinnedFetch(params.panelUrl, { insecureTls: params.insecureTls });
-  if (!ssrf.valid) {
-    return { ok: false, message: `SSRF Security Check Failed: ${ssrf.error}` };
-  }
-
-  const panel = params.panelUrl.replace(/\/+$/, "");
-  const timeoutMs = (params.timeoutSec || 10) * 1000;
-
-  try {
-    const auth = await panelLogin(panel, params.adminUser, params.adminPass, timeoutMs, ssrf.fetch);
-
-    // Fetch inbounds
-    const inboundsRes = await ssrf.fetch(`${panel}/panel/api/inbounds/list`, {
-      headers: panelApiHeaders(auth),
-      redirect: "manual",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    assertNoRedirect(inboundsRes, "inbounds list");
-    if (!inboundsRes.ok) {
-      return { ok: false, message: `Failed to list inbounds: HTTP ${inboundsRes.status}` };
-    }
-
-    const inboundsData = await inboundsRes.json();
-    const inbounds: Array<{
-      id: number;
-      tag?: string;
-      remark?: string;
-      protocol?: string;
-      port?: number;
-      settings?: string | Record<string, unknown>;
-      streamSettings?: string | Record<string, unknown>;
-    }> = inboundsData.obj || [];
-
-    const target = findInboundByTagOrRemark(inbounds, params.tag);
-    if (!target) {
-      return { ok: false, message: `Inbound with tag '${params.tag}' not found` };
-    }
-
-    // Parse settings
-    let settings: any = {};
-    if (typeof target.settings === "string") {
-      try {
-        settings = JSON.parse(target.settings);
-      } catch {
-        settings = {};
-      }
-    } else if (typeof target.settings === "object" && target.settings !== null) {
-      settings = target.settings;
-    }
-
-    const accounts = Array.isArray(settings.accounts) ? settings.accounts : [];
-    let targetAccountIdx = 0;
-    if (params.targetUsername && accounts.length > 0) {
-      const idx = accounts.findIndex((a: any) => a && a.user === params.targetUsername);
-      if (idx !== -1) {
-        targetAccountIdx = idx;
-      }
-    }
-    const targetAccount = accounts[targetAccountIdx];
-    const user = targetAccount?.user;
-    const pass = targetAccount?.pass;
-
-    // Protocol mapping
-    let streamSettings: any = {};
-    if (typeof target.streamSettings === "string") {
-      try {
-        streamSettings = JSON.parse(target.streamSettings);
-      } catch {
-        streamSettings = {};
-      }
-    } else if (typeof target.streamSettings === "object" && target.streamSettings !== null) {
-      streamSettings = target.streamSettings;
-    }
-
-    let protocol: "socks5" | "http" | "https" = "socks5";
-    if (streamSettings?.security === "tls") {
-      protocol = "https";
-    } else if (target.protocol === "socks") {
-      protocol = "socks5";
-    } else if (target.protocol === "http") {
-      protocol = "http";
-    } else if (target.protocol === "socks5" || target.protocol === "https") {
-      protocol = target.protocol;
-    } else {
-      protocol = "socks5";
-    }
-
-    if (params.rotatePassword) {
-      if (!accounts || accounts.length === 0) {
-        return { ok: false, message: "Inbound has no accounts" };
-      }
-
-      const newPassword = crypto.randomBytes(18).toString("base64url");
-      settings.accounts[targetAccountIdx].pass = newPassword;
-      target.settings = typeof target.settings === "string" ? JSON.stringify(settings) : settings;
-
-      const updateRes = await ssrf.fetch(`${panel}/panel/api/inbounds/update/${target.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...panelApiHeaders(auth) },
-        body: JSON.stringify(target),
-        redirect: "manual",
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      assertNoRedirect(updateRes, "inbound update");
-
-      if (!updateRes.ok) {
-        return { ok: false, message: `3x-ui inbound update failed: HTTP ${updateRes.status}` };
-      }
-
-      const updateData = await updateRes.json().catch(() => ({}));
-      if (updateData && updateData.success === false) {
-        return { ok: false, message: `3x-ui inbound update rejected: ${updateData.msg || "Unknown error"}` };
-      }
-
-      return {
-        ok: true,
-        inboundId: target.id,
-        tag: target.tag,
-        remark: target.remark,
-        protocol,
-        port: target.port,
-        username: user,
-        password: newPassword,
-        message: "Rotated successfully",
-      };
-    }
-
-    return {
-      ok: true,
-      inboundId: target.id,
-      tag: target.tag,
-      remark: target.remark,
-      protocol,
-      port: target.port,
-      username: user,
-      password: pass,
-      message: "Inbound fetched successfully",
-    };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, message: msg };
-  } finally {
-    ssrf.close();
-  }
-}
-
-export async function test3xuiConnection(config: {
-  panelUrl: string;
-  adminUser: string;
-  adminPass: string;
-  inboundRemark?: string;
-  inboundTag?: string;
-  timeoutSec?: number;
-  insecureTls?: boolean;
-}): Promise<{ ok: boolean; message: string; inboundFound?: boolean; inboundId?: number }> {
-  const ssrf = await createSsrfPinnedFetch(config.panelUrl, { insecureTls: config.insecureTls });
-  if (!ssrf.valid) {
-    return { ok: false, message: `SSRF Security Check Failed: ${ssrf.error}` };
-  }
-
-  const panel = config.panelUrl.replace(/\/+$/, "");
-  const timeoutMs = (config.timeoutSec || 8) * 1000;
-
-  try {
-    const auth = await panelLogin(panel, config.adminUser, config.adminPass, timeoutMs, ssrf.fetch);
-
-    // Check inbounds list
-    const inboundsRes = await ssrf.fetch(`${panel}/panel/api/inbounds/list`, {
-      headers: panelApiHeaders(auth),
-      redirect: "manual",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    assertNoRedirect(inboundsRes, "inbounds list");
-    if (!inboundsRes.ok) {
-      return { ok: false, message: `Failed to list inbounds: HTTP ${inboundsRes.status}` };
-    }
-
-    const inboundsData = await inboundsRes.json();
-    const inbounds: Array<{ id: number; tag?: string; remark?: string; protocol?: string }> = inboundsData.obj || [];
-
-    let target = undefined;
-    const targetTag = config.inboundTag?.trim();
-    const targetRemark = config.inboundRemark?.trim();
-
-    if (targetTag) {
-      target = findInboundByTagOrRemark(inbounds, targetTag);
-    }
-    if (!target && targetRemark) {
-      target = findInboundByTagOrRemark(inbounds, targetRemark);
-    }
-
-    if (!target) {
-      const searchKey = targetTag || targetRemark || "";
-      const label = targetTag ? `tag/remark "${searchKey}"` : `remark "${searchKey}"`;
-      return {
-        ok: true,
-        inboundFound: false,
-        message: `Connected successfully, but inbound with ${label} was not found (found ${inbounds.length} inbounds).`,
-      };
-    }
-
-    const displayName = target.remark || target.tag || String(target.id);
-    return {
-      ok: true,
-      inboundFound: true,
-      inboundId: target.id,
-      message: `Connected successfully to 3x-ui! Found inbound "${displayName}" (id: ${target.id}, protocol: ${target.protocol || "http"}).`,
-    };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, message: `Connection failed: ${msg}` };
-  } finally {
-    ssrf.close();
-  }
+}): Promise<{ ok: boolean; message: string; userFound?: boolean; userId?: string }> {
+  const { testRemnawaveConnection: probe } = await loadRemnawaveClient();
+  return probe({
+    panelUrl: config.panelUrl,
+    apiToken: config.apiToken,
+    adminUser: config.adminUser,
+    adminPass: config.adminPass,
+    targetUsername: config.targetUsername,
+    timeoutSec: config.timeoutSec || 8,
+    insecureTls: resolveInsecureTls(config.panelUrl, config.insecureTls),
+  });
 }
 
 export async function executeRotation(customConfig?: Partial<RotationConfig>): Promise<RotationHistoryItem> {
@@ -796,65 +540,84 @@ export async function executeRotation(customConfig?: Partial<RotationConfig>): P
 }
 
 async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promise<RotationHistoryItem> {
-  let panel = customConfig?.panelUrl || process.env.XUI_PANEL_URL;
-  let xuiUser = customConfig?.adminUser || process.env.XUI_ADMIN_USER;
-  let xuiPass = customConfig?.adminPass || process.env.XUI_ADMIN_PASS;
-  const inboundTag = customConfig?.inboundTag || process.env.XUI_INBOUND_TAG;
-  const inboundRemark = customConfig?.inboundRemark || process.env.XUI_INBOUND_REMARK || "squid-in";
-  let targetTag = inboundTag || inboundRemark;
+  const requestedPanelUrl = String(
+    customConfig?.panelUrl || process.env.REMNAWAVE_PANEL_URL || process.env.XUI_PANEL_URL || ""
+  ).trim();
+  if (
+    getRemnawavePanel() ||
+    (requestedPanelUrl.startsWith("http") &&
+      !requestedPanelUrl.includes("remnawave-host") &&
+      !requestedPanelUrl.includes("3xui-host"))
+  ) {
+    throw new Error("Remnawave credential rotation is disabled; user subscriptions are read-only.");
+  }
+
+  // REMNAWAVE_* is canonical; the legacy XUI_* names keep working so an
+  // existing deployment's environment does not silently drop into
+  // standalone mode on upgrade.
+  let panel = customConfig?.panelUrl || process.env.REMNAWAVE_PANEL_URL || process.env.XUI_PANEL_URL;
+  let panelApiToken = "";
+  let panelUser = customConfig?.adminUser || process.env.REMNAWAVE_ADMIN_USER || process.env.XUI_ADMIN_USER;
+  let panelPass = customConfig?.adminPass || process.env.REMNAWAVE_ADMIN_PASS || process.env.XUI_ADMIN_PASS;
+  let targetUsername =
+    customConfig?.targetUsername || process.env.REMNAWAVE_TARGET_USERNAME || process.env.XUI_INBOUND_REMARK || "pec-user";
   let targetProxyId: string | undefined = undefined;
   let activeProxy: any = undefined;
 
   try {
     const { getActiveProxy } = await import("./proxies.js");
     activeProxy = getActiveProxy();
-    if (activeProxy && activeProxy.type === "3x-ui") {
+    if (activeProxy && activeProxy.type === "remnawave") {
       targetProxyId = activeProxy.id;
-      if (activeProxy.tag) targetTag = activeProxy.tag;
-      if (activeProxy.panelId && (!panel || panel.includes("3xui-host"))) {
-        const p = get3xuiPanelById(activeProxy.panelId);
-        if (p) {
+      if (activeProxy.remnawaveUsername) targetUsername = activeProxy.remnawaveUsername;
+      if (activeProxy.panelId) {
+        const p = getRemnawavePanelById(activeProxy.panelId);
+        if (p && (!panel || panel.includes("remnawave-host") || p.apiToken)) {
           panel = p.panelUrl;
-          xuiUser = p.adminUser;
-          xuiPass = p.adminPass;
+          panelApiToken = p.apiToken || "";
+          panelUser = p.adminUser;
+          panelPass = p.adminPass;
         }
       }
     }
   } catch {}
 
+  if (activeProxy?.type === "remnawave") {
+    throw new Error("Remnawave credential rotation is disabled; credentials can only be read from the configured panel.");
+  }
+
   const timeoutMs = 10000;
   const credsStorePath = getCredsStorePath();
 
-  // Multi-server 3x-ui rotation: rotate only panels where rotationEnabled === true
-  const enabledPanels = getAll3xuiPanels(false).filter((p) => p.rotationEnabled);
+  // Multi-panel rotation: rotate only panels where rotationEnabled === true.
+  const enabledPanels = getAllRemnawavePanels(false).filter((p) => p.rotationEnabled);
   if (enabledPanels.length > 0) {
     let primaryUser = "corp-user";
     let primaryPass = "";
     for (const p of enabledPanels) {
-      const pTag = p.targetRemark || targetTag || "squid-in";
-      const syncResult = await sync3xuiInboundByTag({
+      const username = p.targetUsername || targetUsername || "pec-user";
+      const syncResult = await syncRemnawaveUser({
         panelUrl: p.panelUrl,
+        apiToken: p.apiToken,
         adminUser: p.adminUser,
         adminPass: p.adminPass,
-        tag: pTag,
-        targetUsername: activeProxy?.username,
-        rotatePassword: true,
+        username,
         timeoutSec: Math.floor(timeoutMs / 1000),
         insecureTls: p.insecureTls,
       });
 
       if (!syncResult.ok) {
-        recordRotation("3x-ui", "failure");
-        throw new Error(`3x-ui rotation failed on panel '${p.name || p.id}': ${syncResult.message}`);
+        recordRotation("remnawave", "failure");
+        throw new Error(`Remnawave rotation failed on panel '${p.name || p.id}': ${syncResult.message}`);
       }
 
-      primaryUser = syncResult.username || primaryUser;
+      primaryUser = syncResult.username || username || primaryUser;
       primaryPass = syncResult.password!;
 
       try {
         const { getAllProxies, updateProxy } = await import("./proxies.js");
         const matchingProxy = getAllProxies(false).find(
-          (px) => px.type === "3x-ui" && (px.panelId === p.id || px.host === new URL(p.panelUrl).hostname)
+          (px) => px.type === "remnawave" && (px.panelId === p.id || px.host === new URL(p.panelUrl).hostname)
         );
         if (matchingProxy) {
           updateProxy(matchingProxy.id, {
@@ -867,37 +630,41 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
     }
 
     atomicWriteCredsWithRetries(credsStorePath, { user: primaryUser, pass: primaryPass });
-    recordRotation("3x-ui", "success");
+    recordRotation("remnawave", "success");
     return {
       id: crypto.randomBytes(4).toString("hex"),
       timestamp: new Date().toISOString(),
-      source: "3x-ui",
+      source: "remnawave",
       user: primaryUser,
       success: true,
     };
   }
 
-  // 3x-ui mode: only when the panel is explicitly configured (non-placeholder).
+  // Single-panel mode: only when the panel is explicitly configured
+  // (non-placeholder).
   const panelConfigured = Boolean(
-    panel && xuiUser && xuiPass && !panel.includes("3xui-host") && panel.startsWith("http")
+    panel &&
+      (panelApiToken || (panelUser && panelPass)) &&
+      !panel.includes("remnawave-host") &&
+      !panel.includes("3xui-host") &&
+      panel.startsWith("http")
   );
 
   if (panelConfigured) {
     // SECURITY / OPERATIONS: no silent fallback. If the panel is configured,
     // a failed panel update must NOT write a new local password - that would
     // desynchronize every extension in the fleet (local store rotated, panel
-    // inbound still on the old password) while history reported success.
+    // user still on the old password) while history reported success.
     const panelUrl = panel as string;
     let failureReason = "";
 
     try {
-      const syncResult = await sync3xuiInboundByTag({
+      const syncResult = await syncRemnawaveUser({
         panelUrl,
-        adminUser: xuiUser as string,
-        adminPass: xuiPass as string,
-        tag: targetTag,
-        targetUsername: activeProxy?.username,
-        rotatePassword: true,
+        apiToken: panelApiToken,
+        adminUser: panelUser as string,
+        adminPass: panelPass as string,
+        username: targetUsername,
         timeoutSec: Math.floor(timeoutMs / 1000),
         insecureTls: customConfig?.insecureSkipVerify,
       });
@@ -906,13 +673,13 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
         throw new Error(syncResult.message);
       }
 
-      const username = syncResult.username || "corp-user";
+      const username = syncResult.username || targetUsername || "corp-user";
       const newPassword = syncResult.password!;
 
-      // AUDIT-SRV-3: the panel inbound has ALREADY accepted the new password
-      // at this point. Local failures below are a fleet DESYNC and must be
-      // reported honestly — not as "credentials were NOT changed" (they were)
-      // and not as a silent success either.
+      // AUDIT-SRV-3: the panel has ALREADY accepted the new password at this
+      // point. Local failures below are a fleet DESYNC and must be reported
+      // honestly вЂ” not as "credentials were NOT changed" (they were) and not
+      // as a silent success either.
       let localDesync: string | undefined;
       try {
         atomicWriteCredsWithRetries(credsStorePath, { user: username, pass: newPassword });
@@ -924,7 +691,8 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
         try {
           const { getActiveProxy, updateProxy } = await import("./proxies.js");
           const activeProxy = getActiveProxy();
-          const idToUpdate = targetProxyId || (activeProxy && activeProxy.type === "3x-ui" ? activeProxy.id : undefined);
+          const idToUpdate =
+            targetProxyId || (activeProxy && activeProxy.type === "remnawave" ? activeProxy.id : undefined);
           if (idToUpdate) {
             updateProxy(idToUpdate, {
               password: newPassword,
@@ -937,34 +705,34 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
       }
 
       if (localDesync) {
-        recordRotation("3x-ui", "failure");
+        recordRotation("remnawave", "failure");
         logger.error(
-          `[rotate] 3x-ui panel rotated the inbound password, but ${localDesync}. ` +
+          `[rotate] Remnawave rotated the user password, but ${localDesync}. ` +
             `FLEET DESYNC: extensions will fail auth against the panel user '${username}'. Re-run the rotation or reconcile manually.`
         );
         return {
           id: crypto.randomBytes(4).toString("hex"),
           timestamp: new Date().toISOString(),
-          source: "3x-ui",
+          source: "remnawave",
           user: username,
           success: false,
-          error: `3x-ui panel password was rotated, but ${localDesync}. Fleet credentials are DESYNCED - re-run the rotation or reconcile manually.`,
+          error: `Remnawave password was rotated, but ${localDesync}. Fleet credentials are DESYNCED - re-run the rotation or reconcile manually.`,
         };
       }
 
-      recordRotation("3x-ui", "success");
+      recordRotation("remnawave", "success");
       return {
         id: crypto.randomBytes(4).toString("hex"),
         timestamp: new Date().toISOString(),
-        source: "3x-ui",
+        source: "remnawave",
         user: username,
         success: true,
       };
     } catch (err: unknown) {
-      recordRotation("3x-ui", "failure");
+      recordRotation("remnawave", "failure");
       failureReason = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `3x-ui rotation failed; credentials were NOT changed to avoid desynchronizing the fleet. Fix the panel connection, then retry. Original error: ${failureReason}`
+        `Remnawave rotation failed; credentials were NOT changed to avoid desynchronizing the fleet. Fix the panel connection, then retry. Original error: ${failureReason}`
       );
     }
   }
@@ -992,95 +760,154 @@ async function doExecuteRotation(customConfig?: Partial<RotationConfig>): Promis
   };
 }
 
-// ==================== 3X-UI MULTI-PANEL REGISTRY ====================
+// ==================== REMNAWAVE MULTI-PANEL REGISTRY ====================
 
+/**
+ * One-time migration into data/panels_remnawave.json. Two legacy sources are
+ * considered, in order:
+ *  1. data/panels_3xui.json (multi-panel registry) - targetRemark becomes
+ *     targetUsername; legacy login credentials are retained as a fallback
+ *     until the operator replaces them with a Remnawave API token.
+ *  2. rotation_config.json (single-panel deployment).
+ * The legacy files are never deleted, so a rollback is still possible.
+ */
 function autoMigratePanelsIfNeeded(): void {
-  const panelsFile = get3xuiPanelsPath();
+  const panelsFile = getRemnawavePanelsPath();
   if (fs.existsSync(panelsFile)) return;
 
-  const panels: Panel3xuiConfig[] = [];
+  const panels: PanelRemnawaveConfig[] = [];
+  const now = new Date().toISOString();
+
   try {
-    const rotConfigFile = getRotationConfigPath();
-    if (fs.existsSync(rotConfigFile)) {
-      const rotData = JSON.parse(fs.readFileSync(rotConfigFile, "utf-8"));
-      if (
-        rotData &&
-        rotData.panelUrl &&
-        typeof rotData.panelUrl === "string" &&
-        rotData.panelUrl.startsWith("http") &&
-        !rotData.panelUrl.includes("3xui-host")
-      ) {
+    const legacyFile = getLegacy3xuiPanelsPath();
+    if (fs.existsSync(legacyFile)) {
+      const legacy = readJsonStore<any[]>(legacyFile) || [];
+      for (const p of legacy) {
+        if (!p || typeof p.panelUrl !== "string" || !p.panelUrl.startsWith("http")) continue;
         panels.push({
-          id: "panel_default",
-          name: "Primary 3x-ui Panel",
-          panelUrl: rotData.panelUrl.replace(/\/+$/, ""),
-          adminUser: rotData.adminUser || "admin",
-          adminPass: rotData.adminPass || "",
-          insecureTls: Boolean(rotData.insecureSkipVerify),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          id: typeof p.id === "string" && p.id ? p.id : `panel_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          name: typeof p.name === "string" && p.name.trim() ? p.name.trim() : "Imported panel",
+          panelUrl: p.panelUrl.replace(/\/+$/, ""),
+          apiToken: typeof p.apiToken === "string" ? p.apiToken : undefined,
+          adminUser: typeof p.adminUser === "string" ? p.adminUser : "admin",
+          adminPass: typeof p.adminPass === "string" ? p.adminPass : "",
+          insecureTls: Boolean(p.insecureTls),
+          rotationEnabled: Boolean(p.rotationEnabled),
+          targetUsername: typeof p.targetRemark === "string" && p.targetRemark.trim()
+            ? p.targetRemark.trim()
+            : typeof p.targetUsername === "string"
+              ? p.targetUsername.trim()
+              : "",
+          rotationIntervalMinutes:
+            typeof p.rotationIntervalMinutes === "number" ? p.rotationIntervalMinutes : undefined,
+          createdAt: typeof p.createdAt === "string" ? p.createdAt : now,
+          updatedAt: now,
         });
       }
     }
   } catch (err) {
-    logger.warn("[rotate] Auto-migration of legacy 3x-ui panel failed:", err);
+    logger.warn("[rotate] Auto-migration of legacy 3x-ui panel registry failed:", err);
+  }
+
+  if (panels.length === 0) {
+    try {
+      const rotConfigFile = getRotationConfigPath();
+      if (fs.existsSync(rotConfigFile)) {
+        const rotData = JSON.parse(fs.readFileSync(rotConfigFile, "utf-8"));
+        if (
+          rotData &&
+          rotData.panelUrl &&
+          typeof rotData.panelUrl === "string" &&
+          rotData.panelUrl.startsWith("http") &&
+          !rotData.panelUrl.includes("3xui-host") &&
+          !rotData.panelUrl.includes("remnawave-host")
+        ) {
+          panels.push({
+            id: "panel_default",
+            name: "Primary Remnawave Panel",
+            panelUrl: rotData.panelUrl.replace(/\/+$/, ""),
+            apiToken: typeof rotData.apiToken === "string" ? rotData.apiToken : undefined,
+            adminUser: rotData.adminUser || "admin",
+            adminPass: rotData.adminPass || "",
+            insecureTls: Boolean(rotData.insecureSkipVerify),
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+    } catch (err) {
+      logger.warn("[rotate] Auto-migration of legacy rotation config failed:", err);
+    }
   }
 
   writeJsonAtomic(panelsFile, panels);
 }
 
-export function getAll3xuiPanels(maskPasswords = false): Panel3xuiConfig[] {
-  autoMigratePanelsIfNeeded();
-  const list = readJsonStore<Panel3xuiConfig[]>(get3xuiPanelsPath()) || [];
+export function getAllRemnawavePanels(maskSecrets = false): PanelRemnawaveConfig[] {
+  const list = getConfiguredRemnawavePanels();
   return list.map((panel) => ({
     ...panel,
-    adminPass: maskPasswords ? (panel.adminPass ? "••••••••" : "") : panel.adminPass,
+    apiToken: maskSecrets ? (panel.apiToken ? "••••••••" : "") : panel.apiToken,
+    adminPass: maskSecrets ? (panel.adminPass ? "••••••••" : "") : panel.adminPass,
   }));
 }
 
-export function get3xuiPanelById(id: string): Panel3xuiConfig | undefined {
-  autoMigratePanelsIfNeeded();
-  const list = readJsonStore<Panel3xuiConfig[]>(get3xuiPanelsPath()) || [];
-  const found = list.find((p) => p.id === id);
-  return found ? { ...found } : undefined;
+export function getRemnawavePanelById(id: string): PanelRemnawaveConfig | undefined {
+  const panel = getConfiguredRemnawavePanels()[0];
+  return panel?.id === id ? { ...panel } : undefined;
 }
 
-export function save3xuiPanel(
-  panelData: Partial<Panel3xuiConfig> & { name: string; panelUrl: string; adminUser: string }
-): Panel3xuiConfig {
+export function getRemnawavePanel(): PanelRemnawaveConfig | undefined {
+  const panel = getConfiguredRemnawavePanels()[0];
+  return panel ? { ...panel } : undefined;
+}
+
+function getConfiguredRemnawavePanels(): PanelRemnawaveConfig[] {
+  autoMigratePanelsIfNeeded();
+  const panels = readJsonStore<PanelRemnawaveConfig[]>(getRemnawavePanelsPath()) || [];
+  const proxies = readJsonStore<Array<{ type?: string; isActive?: boolean; panelId?: string }>>(getProxiesStorePath()) || [];
+  const activePanelId = proxies.find((proxy) => proxy.type === "remnawave" && proxy.isActive)?.panelId;
+  const primary = (activePanelId && panels.find((panel) => panel.id === activePanelId)) || panels[0];
+  return primary ? [primary] : [];
+}
+
+export function saveRemnawavePanel(
+  panelData: Partial<PanelRemnawaveConfig> & { name: string; panelUrl: string }
+): PanelRemnawaveConfig {
   const urlCheck = validateSafeEndpointUrl(panelData.panelUrl);
   if (!urlCheck.valid) {
     throw new Error(`SSRF Security Check Failed: ${urlCheck.error}`);
   }
 
   autoMigratePanelsIfNeeded();
-  const panelsFile = get3xuiPanelsPath();
-  const list = readJsonStore<Panel3xuiConfig[]>(panelsFile) || [];
+  const panelsFile = getRemnawavePanelsPath();
+  const list = getConfiguredRemnawavePanels();
   const cleanUrl = panelData.panelUrl.trim().replace(/\/+$/, "");
+  const isMaskedSecret = (value: string | undefined) =>
+    value === "••••••••" || value === "вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў" || value === "********";
 
-  let savedPanel: Panel3xuiConfig;
+  let savedPanel: PanelRemnawaveConfig;
   const now = new Date().toISOString();
 
   if (panelData.id) {
     const existingIndex = list.findIndex((p) => p.id === panelData.id);
     if (existingIndex !== -1) {
       const existing = list[existingIndex];
-      const shouldKeepPass =
-        panelData.adminPass === undefined ||
-        panelData.adminPass === "" ||
-        panelData.adminPass === "••••••••" ||
-        panelData.adminPass === "********";
+      const submittedToken = panelData.apiToken?.trim();
+      const submittedPass = panelData.adminPass?.trim();
 
       savedPanel = {
         ...existing,
         name: panelData.name.trim(),
         panelUrl: cleanUrl,
-        adminUser: panelData.adminUser.trim(),
-        adminPass: shouldKeepPass ? existing.adminPass : (panelData.adminPass?.trim() || existing.adminPass),
+        apiToken:
+          submittedToken && !isMaskedSecret(submittedToken) ? submittedToken : existing.apiToken || "",
+        adminUser: panelData.adminUser !== undefined ? panelData.adminUser.trim() : existing.adminUser,
+        adminPass:
+          submittedPass && !isMaskedSecret(submittedPass) ? submittedPass : existing.adminPass,
         insecureTls: panelData.insecureTls !== undefined ? panelData.insecureTls : existing.insecureTls,
-        rotationEnabled: panelData.rotationEnabled !== undefined ? Boolean(panelData.rotationEnabled) : Boolean(existing.rotationEnabled),
-        targetRemark: panelData.targetRemark !== undefined ? String(panelData.targetRemark).trim() : (existing.targetRemark || ""),
-        rotationIntervalMinutes: typeof panelData.rotationIntervalMinutes === "number" ? panelData.rotationIntervalMinutes : existing.rotationIntervalMinutes,
+        targetUsername:
+          panelData.targetUsername !== undefined ? panelData.targetUsername.trim() : existing.targetUsername,
         updatedAt: now,
       };
       list[existingIndex] = savedPanel;
@@ -1089,12 +916,11 @@ export function save3xuiPanel(
         id: panelData.id,
         name: panelData.name.trim(),
         panelUrl: cleanUrl,
-        adminUser: panelData.adminUser.trim(),
-        adminPass: panelData.adminPass || "",
+        apiToken: panelData.apiToken && !isMaskedSecret(panelData.apiToken) ? panelData.apiToken.trim() : "",
+        adminUser: panelData.adminUser?.trim() || "",
+        adminPass: panelData.adminPass && !isMaskedSecret(panelData.adminPass) ? panelData.adminPass : "",
         insecureTls: Boolean(panelData.insecureTls),
-        rotationEnabled: Boolean(panelData.rotationEnabled),
-        targetRemark: panelData.targetRemark ? String(panelData.targetRemark).trim() : "",
-        rotationIntervalMinutes: typeof panelData.rotationIntervalMinutes === "number" ? panelData.rotationIntervalMinutes : undefined,
+        targetUsername: panelData.targetUsername?.trim() || undefined,
         createdAt: now,
         updatedAt: now,
       };
@@ -1106,82 +932,49 @@ export function save3xuiPanel(
       id: newId,
       name: panelData.name.trim(),
       panelUrl: cleanUrl,
-      adminUser: panelData.adminUser.trim(),
-      adminPass: panelData.adminPass || "",
+      apiToken: panelData.apiToken && !isMaskedSecret(panelData.apiToken) ? panelData.apiToken.trim() : "",
+      adminUser: panelData.adminUser?.trim() || "",
+      adminPass: panelData.adminPass && !isMaskedSecret(panelData.adminPass) ? panelData.adminPass : "",
       insecureTls: Boolean(panelData.insecureTls),
-      rotationEnabled: Boolean(panelData.rotationEnabled),
-      targetRemark: panelData.targetRemark ? String(panelData.targetRemark).trim() : "",
-      rotationIntervalMinutes: typeof panelData.rotationIntervalMinutes === "number" ? panelData.rotationIntervalMinutes : undefined,
+      targetUsername: panelData.targetUsername?.trim() || undefined,
       createdAt: now,
       updatedAt: now,
     };
     list.push(savedPanel);
   }
 
-  writeJsonAtomic(panelsFile, list);
-  // AUDIT-SRV-P3: panel admin credentials live here - strip Windows ACE
-  // inheritance so the store is not readable through inherited grants.
+  writeJsonAtomic(panelsFile, [savedPanel]);
+  // AUDIT-SRV-P3: panel secrets live here - strip Windows ACE inheritance
+  // so the store is not readable through inherited grants.
   restrictSecretFilePermissions(panelsFile);
   return savedPanel;
 }
 
-export function delete3xuiPanel(id: string): boolean {
-  autoMigratePanelsIfNeeded();
-  const panelsFile = get3xuiPanelsPath();
-  const list = readJsonStore<Panel3xuiConfig[]>(panelsFile) || [];
-  const initialLength = list.length;
-  const filtered = list.filter((p) => p.id !== id);
-  if (filtered.length !== initialLength) {
-    writeJsonAtomic(panelsFile, filtered);
+export function deleteRemnawavePanel(id: string): boolean {
+  const list = getConfiguredRemnawavePanels();
+  const panelsFile = getRemnawavePanelsPath();
+  if (list[0]?.id === id) {
+    writeJsonAtomic(panelsFile, []);
     restrictSecretFilePermissions(panelsFile);
     return true;
   }
   return false;
 }
 
-export async function fetch3xuiInbounds(
-  configOrId: { panelUrl: string; adminUser: string; adminPass: string; timeoutSec?: number; insecureTls?: boolean } | string
-): Promise<Array<any>> {
-  let targetConfig: { panelUrl: string; adminUser: string; adminPass: string; timeoutSec?: number; insecureTls?: boolean };
-
-  if (typeof configOrId === "string") {
-    const p = get3xuiPanelById(configOrId);
-    if (!p) throw new Error(`3x-ui panel with ID '${configOrId}' not found`);
-    targetConfig = {
+/** User list for the dashboard picker (accepts a stored panel id or raw config). */
+export async function fetchRemnawaveUsers(
+  configOrId: RemnawaveConnection | string
+): Promise<RemnawaveUser[]> {
+  const { fetchRemnawaveUsers: listUsers } = await loadRemnawaveClient();
+  return listUsers(configOrId as RemnawaveConnection, (id) => {
+    const p = getRemnawavePanelById(id);
+    if (!p) return undefined;
+    return {
       panelUrl: p.panelUrl,
+      apiToken: p.apiToken,
       adminUser: p.adminUser,
       adminPass: p.adminPass,
-      timeoutSec: 10,
       insecureTls: p.insecureTls,
     };
-  } else {
-    targetConfig = configOrId;
-  }
-
-  const ssrf = await createSsrfPinnedFetch(targetConfig.panelUrl, { insecureTls: targetConfig.insecureTls });
-  if (!ssrf.valid) {
-    throw new Error(`SSRF Security Check Failed: ${ssrf.error}`);
-  }
-
-  const panel = targetConfig.panelUrl.replace(/\/+$/, "");
-  const timeoutMs = (targetConfig.timeoutSec || 10) * 1000;
-
-  try {
-    const auth = await panelLogin(panel, targetConfig.adminUser, targetConfig.adminPass, timeoutMs, ssrf.fetch);
-    const inboundsRes = await ssrf.fetch(`${panel}/panel/api/inbounds/list`, {
-      headers: panelApiHeaders(auth),
-      redirect: "manual",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    assertNoRedirect(inboundsRes, "inbounds list");
-    if (!inboundsRes.ok) {
-      throw new Error(`Failed to list inbounds: HTTP ${inboundsRes.status}`);
-    }
-
-    const inboundsData = await inboundsRes.json();
-    return inboundsData.obj || [];
-  } finally {
-    ssrf.close();
-  }
+  });
 }
-

@@ -190,7 +190,8 @@ export function switchTab(name: string, skipHashUpdate: boolean = false) {
     telemetry.loadInstances();
   } else if (name === 'proxy-settings' || name === 'rotation') {
     proxies.fetchProxies();
-    if (typeof telemetry.load3xuiPanels === 'function') telemetry.load3xuiPanels();
+    if (typeof telemetry.loadRemnawavePanels === 'function') telemetry.loadRemnawavePanels();
+    if (typeof telemetry.loadXrayRuntimeSettings === 'function') telemetry.loadXrayRuntimeSettings();
   } else if (name === 'app-studio') {
     if (!studio.currentAppConfig || !studio.isAppStudioDirty) studio.loadAppStudioConfig();
   } else if (name === 'releases') {
@@ -257,10 +258,10 @@ export async function refreshAll(isInitialBoot: boolean = false) {
   studio.loadExtensionFiles();
   telemetry.fetchFleet();
   telemetry.fetchExtensionInfo();
-  telemetry.fetchRotationConfig();
   proxies.fetchProxies();
   proxies.fetchProxyConfig();
-  telemetry.load3xuiPanels();
+  telemetry.loadRemnawavePanels();
+  if (typeof telemetry.loadXrayRuntimeSettings === 'function') telemetry.loadXrayRuntimeSettings();
   telemetry.loadReleases();
   gpo.loadAdStatus();
 }
@@ -384,33 +385,39 @@ if (typeof window !== 'undefined') {
     notify.registerModalCloser('credsModal', api.closeCredsModal);
     if (credPass) credPass.addEventListener('keydown', function (e: any) { if (e.key === 'Enter') api.submitCredsChange(); });
 
-    // 3x-ui Panels registry modal buttons
-    const btnOpenPanel = document.getElementById('btnOpenAdd3xuiPanel');
-    if (btnOpenPanel) btnOpenPanel.addEventListener('click', () => telemetry.openAdd3xuiPanelModal());
-    const btnSavePanel = document.getElementById('btnSave3xuiPanel');
-    if (btnSavePanel) btnSavePanel.addEventListener('click', telemetry.save3xuiPanelAction);
-    const btnCancelPanel = document.getElementById('btnCancel3xuiPanel');
-    if (btnCancelPanel) btnCancelPanel.addEventListener('click', telemetry.close3xuiPanelModal);
+    // Remnawave Panels registry modal buttons
+    const btnOpenPanel = document.getElementById('btnOpenAddRemnawavePanel');
+    if (btnOpenPanel) btnOpenPanel.addEventListener('click', () => telemetry.openAddRemnawavePanelModal());
+    const btnSavePanel = document.getElementById('btnSaveRemnawavePanel');
+    if (btnSavePanel) btnSavePanel.addEventListener('click', telemetry.saveRemnawavePanelAction);
+    const btnCancelPanel = document.getElementById('btnCancelRemnawavePanel');
+    if (btnCancelPanel) btnCancelPanel.addEventListener('click', telemetry.closeRemnawavePanelModal);
 
-    // 3x-ui Panels table actions delegation
+    // REMNA-PERUSER-XRAY-1: Xray runtime settings card
+    const btnSaveXrayRuntime = document.getElementById('btnSaveXrayRuntime');
+    if (btnSaveXrayRuntime) btnSaveXrayRuntime.addEventListener('click', telemetry.saveXrayRuntimeSettingsAction);
+    const btnFetchXrayBinary = document.getElementById('btnFetchXrayBinary');
+    if (btnFetchXrayBinary) btnFetchXrayBinary.addEventListener('click', telemetry.fetchXrayBinaryAction);
+
+    // Remnawave Panels table actions delegation
     document.addEventListener('click', function(e: any) {
       const testBtn = e.target.closest('.btn-test-panel');
       if (testBtn) {
         const id = testBtn.getAttribute('data-id');
-        if (id) telemetry.test3xuiPanelAction(id);
+        if (id) telemetry.testRemnawavePanelAction(id);
         return;
       }
       const editBtn = e.target.closest('.btn-edit-panel');
       if (editBtn) {
         const id = editBtn.getAttribute('data-id');
         const panel = telemetry.currentPanelsList?.find((p: any) => p.id === id);
-        if (panel) telemetry.openAdd3xuiPanelModal(panel);
+        if (panel) telemetry.openAddRemnawavePanelModal(panel);
         return;
       }
       const delBtn = e.target.closest('.btn-delete-panel');
       if (delBtn) {
         const id = delBtn.getAttribute('data-id');
-        if (id) telemetry.delete3xuiPanelAction(id);
+        if (id) telemetry.deleteRemnawavePanelAction(id);
         return;
       }
     });

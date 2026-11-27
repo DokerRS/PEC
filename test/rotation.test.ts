@@ -2,7 +2,21 @@ import "./helpers/setup.js";
 import test from "node:test";
 import assert from "node:assert";
 import fs from "node:fs";
-import { executeRotation, atomicWriteCreds, getCredsStorePath, sync3xuiInboundByTag, test3xuiConnection } from "../src/rotate.js";
+import { executeRotation, atomicWriteCreds, getCredsStorePath } from "../src/rotate.js";
+import { getRemnawavePanelsPath } from "../src/storage.js";
+
+/**
+ * Standalone mode = no panel configured. The panel registry is created by
+ * auto-migration as soon as a real panelUrl is saved anywhere, so tests that
+ * exercise the local atomic rotation path must reset it explicitly.
+ */
+function resetToStandaloneMode(): void {
+  updateRotationConfig({
+    panelUrl: "https://remnawave-host:3000/basepath", // placeholder = not configured
+    enabled: false,
+  });
+  fs.rmSync(getRemnawavePanelsPath(), { force: true });
+}
 
 /**
  * The rotation history file must be seeded BEFORE the scheduler module loads
@@ -39,15 +53,15 @@ test("rotation config: interval validation rejects NaN, zero, negatives and garb
 });
 
 test("rotation config: admin pass is masked in the public view and preserved on empty save", () => {
-  updateRotationConfig({ adminPass: "super-secret-3xui-pass", enabled: false });
+  updateRotationConfig({ adminPass: "super-secret-remnawave-pass", enabled: false });
 
   const pub = getRotationConfigPublic();
   assert.strictEqual(pub.adminPass, "********");
-  assert.ok(!JSON.stringify(pub).includes("super-secret-3xui-pass"), "public config must not leak the password");
+  assert.ok(!JSON.stringify(pub).includes("super-secret-remnawave-pass"), "public config must not leak the password");
 
   // saving with an empty password keeps the stored one
   updateRotationConfig({ adminPass: "", enabled: false });
-  assert.strictEqual(getRotationConfig().adminPass, "super-secret-3xui-pass");
+  assert.strictEqual(getRotationConfig().adminPass, "super-secret-remnawave-pass");
 
   // saving the mask itself is rejected (would corrupt the credential)
   assert.throws(() => updateRotationConfig({ adminPass: "********" }), /masked/i);
@@ -60,41 +74,29 @@ test("rotation config: panelUrl is SSRF-validated on save", () => {
   assert.strictEqual(getRotationConfig().panelUrl, "https://panel.corp.example:2053/xui");
 });
 
-test("executeRotation: configured-but-unreachable panel FAILS LOUDLY and does not touch local creds", async () => {
-  // seed a known local password
+test("executeRotation: rotation is refused once a Remnawave panel is configured", async () => {
+  // REMNA migration: credential rotation was removed. With a panel configured
+  // (registry or a non-placeholder panelUrl), executeRotation must refuse
+  // instead of touching the panel or the local creds store.
   atomicWriteCreds(getCredsStorePath(), { user: "corp-user", pass: "known-password-before-rotation" });
   const before = JSON.parse(fs.readFileSync(getCredsStorePath(), "utf-8"));
 
   updateRotationConfig({
-    panelUrl: "http://127.0.0.1:9/", // port 9 (discard) - nothing listens, fails fast
+    panelUrl: "http://127.0.0.1:9/", // port 9 (discard) - nothing listens
     adminUser: "admin",
     adminPass: "panel-pass",
-    inboundRemark: "squid-in",
+    targetUsername: "corp-user",
     enabled: false,
   });
 
   await assert.rejects(
     () => executeRotation(getRotationConfig()),
-    /NOT changed|failed/i,
-    "a failing 3x-ui panel must throw instead of silently rotating the local store"
+    /rotation is disabled/i,
+    "rotation must be refused while a Remnawave panel is configured"
   );
 
   const after = JSON.parse(fs.readFileSync(getCredsStorePath(), "utf-8"));
-  assert.strictEqual(after.pass, before.pass, "local credentials must remain untouched on panel failure");
-});
-
-test("executeRotation: standalone mode (no panel configured) still rotates atomically", async () => {
-  updateRotationConfig({
-    panelUrl: "https://3xui-host:2053/basepath", // placeholder = not configured
-    enabled: false,
-  });
-  const result = await executeRotation(getRotationConfig());
-  assert.strictEqual(result.success, true);
-  assert.strictEqual(result.source, "standalone-atomic");
-  const creds = JSON.parse(fs.readFileSync(getCredsStorePath(), "utf-8"));
-  assert.strictEqual(creds.user, result.user);
-  assert.strictEqual(typeof creds.pass, "string");
-  assert.notStrictEqual(creds.pass, "");
+  assert.strictEqual(after.pass, before.pass, "local credentials must remain untouched");
 });
 
 test("rotation history: capped at 50, newest first, both in memory and on disk", async () => {
@@ -104,7 +106,9 @@ test("rotation history: capped at 50, newest first, both in memory and on disk",
   assert.strictEqual(loaded[0].id, "hist_seed_54", "newest seeded entry must come first");
   assert.strictEqual(loaded[49].id, "hist_seed_5", "the 6 oldest seeded entries must be evicted on load");
 
-  // One more rotation keeps the cap and lands on top
+  // One more rotation keeps the cap and lands on top (standalone mode:
+  // placeholder panel = no panel configured, local atomic rotation runs).
+  resetToStandaloneMode();
   await runManualRotation();
 
   const history = getRotationHistory();
@@ -126,43 +130,25 @@ test("rotation history: capped at 50, newest first, both in memory and on disk",
 });
 
 test("runManualRotation: concurrent calls are serialized by the in-flight lock", async () => {
-  // Stub the panel HTTP layer: a slow failing endpoint lets the two callers
-  // overlap deterministically, and the call counter proves how many rotation
-  // attempts actually ran (the history file is capped, so its length cannot
-  // discriminate 1 vs 2 attempts).
-  updateRotationConfig({
-    panelUrl: "http://127.0.0.1:59999/xui",
-    adminUser: "admin",
-    adminPass: "panel-pass",
-    inboundRemark: "squid-in",
-    enabled: false,
-  });
+  // Standalone mode (placeholder panel): rotation succeeds locally, so the
+  // two concurrent callers must resolve with the SAME coalesced promise and
+  // the history must grow by exactly one entry.
+  resetToStandaloneMode();
 
-  let panelFetches = 0;
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = (async () => {
-    panelFetches++;
-    await new Promise((r) => setTimeout(r, 50));
-    throw new Error("connection refused (test stub)");
-  }) as typeof fetch;
+  const historyBefore = getRotationHistory();
+  const [a, b] = await Promise.all([runManualRotation(), runManualRotation()]);
 
-  try {
-    const [a, b] = await Promise.allSettled([runManualRotation(), runManualRotation()]);
+  assert.strictEqual(a.success, true);
+  assert.strictEqual(b.success, true);
+  assert.strictEqual(a.id, b.id, "concurrent rotations must be collapsed into a single attempt");
+  const historyAfter = getRotationHistory();
+  assert.strictEqual(historyAfter.length, historyBefore.length, "history stays capped at 50 entries");
+  assert.strictEqual(historyAfter[0].id, a.id, "the coalesced run must land on top of the history exactly once");
+  assert.strictEqual(historyAfter.filter((h) => h.id === a.id).length, 1, "no duplicate entries for one run");
 
-    // Both callers observe the same failure (panel unreachable)
-    assert.strictEqual(a.status, "rejected");
-    assert.strictEqual(b.status, "rejected");
-
-    // Exactly ONE panel attempt: the second caller joined the in-flight
-    // promise instead of starting its own rotation.
-    assert.strictEqual(panelFetches, 1, "concurrent rotations must be collapsed into a single panel attempt");
-
-    // The in-flight slot is freed afterwards: a fresh call starts a new one
-    await runManualRotation().catch(() => {});
-    assert.strictEqual(panelFetches, 2, "the lock must release after completion");
-  } finally {
-    globalThis.fetch = realFetch;
-  }
+  // The in-flight slot is freed afterwards: a fresh call starts a new run.
+  const c = await runManualRotation();
+  assert.notStrictEqual(c.id, a.id, "the lock must release after completion");
 });
 
 test("SSRF: validateSafeEndpointUrl rejects IPv6 metadata and link-local targets", async () => {
@@ -177,21 +163,20 @@ test("SSRF: validateSafeEndpointUrl rejects IPv6 metadata and link-local targets
   assert.strictEqual(validateSafeEndpointUrl("http://10.0.0.5:2053/xui").valid, true);
 });
 
-test("SSRF: a panel answering 302 is refused, not followed", async () => {
-  const { test3xuiConnection } = await import("../src/rotate.js");
+test("SSRF: a Remnawave panel redirect is refused, not followed", async () => {
+  const { testRemnawaveConnection } = await import("../src/rotate.js");
   const { withHttpServer } = await import("./helpers/http-server.js");
 
-  const { url, close } = await withHttpServer((req, res) => {
+  const { url, close } = await withHttpServer((_req, res) => {
     res.writeHead(302, { Location: "http://169.254.169.254/latest/meta-data/" });
     res.end();
   });
 
   try {
-    const result = await test3xuiConnection({
+    const result = await testRemnawaveConnection({
       panelUrl: url,
       adminUser: "admin",
       adminPass: "pass",
-      inboundRemark: "squid-in",
       timeoutSec: 3,
     });
     assert.strictEqual(result.ok, false, "a redirecting panel must not be treated as connected");
@@ -200,509 +185,3 @@ test("SSRF: a panel answering 302 is refused, not followed", async () => {
     await close();
   }
 });
-
-test("test3xuiConnection: modern 3x-ui with CSRF token handshake and session cookie", async () => {
-  const { test3xuiConnection } = await import("../src/rotate.js");
-  const { withHttpServer } = await import("./helpers/http-server.js");
-
-  let csrfRequested = false;
-  let loginReceivedCsrf = "";
-  let loginReceivedCookie = "";
-  let inboundsReceivedCookie = "";
-  let inboundsReceivedCsrf = "";
-
-  const { url, close } = await withHttpServer((req, res) => {
-    if (req.method === "GET" && req.url === "/csrf-token") {
-      csrfRequested = true;
-      res.setHeader("Set-Cookie", "3x-ui=csrf-session-123; Path=/; HttpOnly");
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, obj: "token-abc-999" }));
-      return;
-    }
-    if (req.method === "POST" && req.url === "/login") {
-      loginReceivedCsrf = (req.headers["x-csrf-token"] as string) || "";
-      loginReceivedCookie = req.headers["cookie"] || "";
-      if (loginReceivedCsrf !== "token-abc-999" || !loginReceivedCookie.includes("3x-ui=csrf-session-123")) {
-        res.writeHead(403);
-        res.end();
-        return;
-      }
-      res.setHeader("Set-Cookie", "fresh_login=val456; Path=/");
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true }));
-      return;
-    }
-    if (req.method === "GET" && req.url === "/panel/api/inbounds/list") {
-      inboundsReceivedCookie = req.headers["cookie"] || "";
-      inboundsReceivedCsrf = (req.headers["x-csrf-token"] as string) || "";
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, obj: [{ id: 42, remark: "squid-in", protocol: "http" }] }));
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
-
-  try {
-    const result = await test3xuiConnection({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      inboundRemark: "squid-in",
-      timeoutSec: 3,
-    });
-    assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.inboundFound, true);
-    assert.strictEqual(result.inboundId, 42);
-    assert.strictEqual(csrfRequested, true);
-    assert.strictEqual(loginReceivedCsrf, "token-abc-999");
-    assert.ok(loginReceivedCookie.includes("3x-ui=csrf-session-123"));
-    assert.ok(inboundsReceivedCookie.includes("3x-ui=csrf-session-123"));
-    assert.strictEqual(inboundsReceivedCsrf, "token-abc-999");
-  } finally {
-    await close();
-  }
-});
-
-test("test3xuiConnection: legacy 3x-ui panel without CSRF (404 fallback)", async () => {
-  const { test3xuiConnection } = await import("../src/rotate.js");
-  const { withHttpServer } = await import("./helpers/http-server.js");
-
-  let csrfRequested = false;
-  let loginRequested = false;
-
-  const { url, close } = await withHttpServer((req, res) => {
-    if (req.method === "GET" && req.url === "/csrf-token") {
-      csrfRequested = true;
-      res.writeHead(404);
-      res.end();
-      return;
-    }
-    if (req.method === "POST" && req.url === "/login") {
-      loginRequested = true;
-      res.setHeader("Set-Cookie", "3x-ui=legacy-session; Path=/");
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true }));
-      return;
-    }
-    if (req.method === "GET" && req.url === "/panel/api/inbounds/list") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, obj: [{ id: 10, remark: "squid-in", protocol: "http" }] }));
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
-
-  try {
-    const result = await test3xuiConnection({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      inboundRemark: "squid-in",
-      timeoutSec: 3,
-    });
-    assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.inboundFound, true);
-    assert.strictEqual(result.inboundId, 10);
-    assert.strictEqual(csrfRequested, true);
-    assert.strictEqual(loginRequested, true);
-  } finally {
-    await close();
-  }
-});
-
-test("sync3xuiInboundByTag: read-only lookup by tag and protocol mapping", async () => {
-  const { withHttpServer } = await import("./helpers/http-server.js");
-
-  const inbounds = [
-    {
-      id: 101,
-      tag: "socks-inbound",
-      remark: "primary-socks",
-      protocol: "socks",
-      port: 1080,
-      settings: JSON.stringify({
-        accounts: [{ user: "user-socks", pass: "pass-socks" }],
-      }),
-    },
-    {
-      id: 102,
-      tag: "tls-inbound",
-      remark: "secure-http",
-      protocol: "http",
-      port: 8443,
-      streamSettings: JSON.stringify({ security: "tls" }),
-      settings: JSON.stringify({
-        accounts: [{ user: "user-tls", pass: "pass-tls" }],
-      }),
-    },
-    {
-      id: 103,
-      tag: "plain-http",
-      remark: "http-inbound",
-      protocol: "http",
-      port: 8080,
-      settings: JSON.stringify({
-        accounts: [{ user: "user-http", pass: "pass-http" }],
-      }),
-    },
-  ];
-
-  const { url, close } = await withHttpServer((req, res) => {
-    if (req.method === "POST" && req.url === "/login") {
-      res.setHeader("Set-Cookie", "3x-ui=test-session; Path=/");
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true }));
-      return;
-    }
-    if (req.method === "GET" && req.url === "/panel/api/inbounds/list") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, obj: inbounds }));
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
-
-  try {
-    // 1. Lookup by tag (socks -> socks5)
-    const socksRes = await sync3xuiInboundByTag({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      tag: "socks-inbound",
-      rotatePassword: false,
-    });
-    assert.strictEqual(socksRes.ok, true);
-    assert.strictEqual(socksRes.inboundId, 101);
-    assert.strictEqual(socksRes.tag, "socks-inbound");
-    assert.strictEqual(socksRes.protocol, "socks5");
-    assert.strictEqual(socksRes.port, 1080);
-    assert.strictEqual(socksRes.username, "user-socks");
-    assert.strictEqual(socksRes.password, "pass-socks");
-    assert.strictEqual(socksRes.message, "Inbound fetched successfully");
-
-    // 2. TLS mapping (security: tls -> https)
-    const tlsRes = await sync3xuiInboundByTag({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      tag: "tls-inbound",
-      rotatePassword: false,
-    });
-    assert.strictEqual(tlsRes.ok, true);
-    assert.strictEqual(tlsRes.protocol, "https");
-    assert.strictEqual(tlsRes.port, 8443);
-    assert.strictEqual(tlsRes.username, "user-tls");
-
-    // 3. Plain HTTP mapping
-    const httpRes = await sync3xuiInboundByTag({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      tag: "plain-http",
-      rotatePassword: false,
-    });
-    assert.strictEqual(httpRes.ok, true);
-    assert.strictEqual(httpRes.protocol, "http");
-    assert.strictEqual(httpRes.port, 8080);
-
-    // 4. Fallback lookup by remark if tag does not match
-    const remarkRes = await sync3xuiInboundByTag({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      tag: "primary-socks",
-      rotatePassword: false,
-    });
-    assert.strictEqual(remarkRes.ok, true);
-    assert.strictEqual(remarkRes.inboundId, 101);
-  } finally {
-    await close();
-  }
-});
-
-test("sync3xuiInboundByTag: rotates password in 3x-ui panel", async () => {
-  const { withHttpServer } = await import("./helpers/http-server.js");
-
-  let updatedPayload: any = null;
-
-  const { url, close } = await withHttpServer(async (req, res) => {
-    if (req.method === "POST" && req.url === "/login") {
-      res.setHeader("Set-Cookie", "3x-ui=test-session; Path=/");
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true }));
-      return;
-    }
-    if (req.method === "GET" && req.url === "/panel/api/inbounds/list") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          success: true,
-          obj: [
-            {
-              id: 201,
-              tag: "rotate-me",
-              protocol: "socks",
-              port: 10808,
-              settings: JSON.stringify({
-                accounts: [{ user: "rotate-user", pass: "old-pass-123" }],
-              }),
-            },
-          ],
-        })
-      );
-      return;
-    }
-    if (req.method === "POST" && req.url === "/panel/api/inbounds/update/201") {
-      let body = "";
-      for await (const chunk of req) {
-        body += chunk;
-      }
-      updatedPayload = JSON.parse(body);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true }));
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
-
-  try {
-    const rotateRes = await sync3xuiInboundByTag({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      tag: "rotate-me",
-      rotatePassword: true,
-    });
-
-    assert.strictEqual(rotateRes.ok, true);
-    assert.strictEqual(rotateRes.inboundId, 201);
-    assert.strictEqual(rotateRes.username, "rotate-user");
-    assert.strictEqual(rotateRes.message, "Rotated successfully");
-    assert.notStrictEqual(rotateRes.password, "old-pass-123");
-    assert.ok(rotateRes.password && rotateRes.password.length >= 20);
-
-    // Verify the panel received the updated settings with the new password
-    assert.ok(updatedPayload);
-    const parsedSettings =
-      typeof updatedPayload.settings === "string" ? JSON.parse(updatedPayload.settings) : updatedPayload.settings;
-    assert.strictEqual(parsedSettings.accounts[0].pass, rotateRes.password);
-  } finally {
-    await close();
-  }
-});
-
-test("sync3xuiInboundByTag: error handling for missing inbound, empty accounts, SSRF", async () => {
-  const { withHttpServer } = await import("./helpers/http-server.js");
-
-  // SSRF check
-  const ssrfRes = await sync3xuiInboundByTag({
-    panelUrl: "http://169.254.169.254",
-    adminUser: "admin",
-    adminPass: "pass",
-    tag: "any",
-  });
-  assert.strictEqual(ssrfRes.ok, false);
-  assert.match(ssrfRes.message, /SSRF|prohibited/i);
-
-  const { url, close } = await withHttpServer((req, res) => {
-    if (req.method === "POST" && req.url === "/login") {
-      res.setHeader("Set-Cookie", "3x-ui=test-session; Path=/");
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true }));
-      return;
-    }
-    if (req.method === "GET" && req.url === "/panel/api/inbounds/list") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          success: true,
-          obj: [
-            {
-              id: 301,
-              tag: "no-accounts",
-              protocol: "socks",
-              port: 10808,
-              settings: JSON.stringify({ accounts: [] }),
-            },
-          ],
-        })
-      );
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
-
-  try {
-    // Missing tag
-    const notFoundRes = await sync3xuiInboundByTag({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      tag: "does-not-exist",
-    });
-    assert.strictEqual(notFoundRes.ok, false);
-    assert.strictEqual(notFoundRes.message, "Inbound with tag 'does-not-exist' not found");
-
-    // Inbound without accounts attempting rotation
-    const noAccRes = await sync3xuiInboundByTag({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      tag: "no-accounts",
-      rotatePassword: true,
-    });
-    assert.strictEqual(noAccRes.ok, false);
-    assert.strictEqual(noAccRes.message, "Inbound has no accounts");
-  } finally {
-    await close();
-  }
-});
-
-test("test3xuiConnection: supports inboundTag looking up tag first then remark", async () => {
-  const { test3xuiConnection } = await import("../src/rotate.js");
-  const { withHttpServer } = await import("./helpers/http-server.js");
-
-  const { url, close } = await withHttpServer((req, res) => {
-    if (req.method === "POST" && req.url === "/login") {
-      res.setHeader("Set-Cookie", "3x-ui=test-session; Path=/");
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true }));
-      return;
-    }
-    if (req.method === "GET" && req.url === "/panel/api/inbounds/list") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          success: true,
-          obj: [
-            { id: 501, tag: "tagged-inbound", remark: "other-remark", protocol: "socks" },
-            { id: 502, tag: "remark-match", remark: "only-remark", protocol: "http" },
-          ],
-        })
-      );
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
-
-  try {
-    // Look up by inboundTag
-    const res1 = await test3xuiConnection({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      inboundTag: "tagged-inbound",
-      timeoutSec: 3,
-    });
-    assert.strictEqual(res1.ok, true);
-    assert.strictEqual(res1.inboundFound, true);
-    assert.strictEqual(res1.inboundId, 501);
-
-    // Look up by inboundTag matching remark as fallback
-    const res2 = await test3xuiConnection({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      inboundTag: "only-remark",
-      timeoutSec: 3,
-    });
-    assert.strictEqual(res2.ok, true);
-    assert.strictEqual(res2.inboundFound, true);
-    assert.strictEqual(res2.inboundId, 502);
-  } finally {
-    await close();
-  }
-});
-
-test("executeRotation: rotates by inboundTag and updates active 3x-ui proxy in proxies store", async () => {
-  const { createProxy, getActiveProxy } = await import("../src/proxies.js");
-  const { withHttpServer } = await import("./helpers/http-server.js");
-
-  // Create an active 3x-ui proxy node in the proxies repository
-  const proxy = createProxy({
-    tag: "prod-tag",
-    name: "Production Inbound",
-    type: "3x-ui",
-    protocol: "socks5",
-    host: "127.0.0.1",
-    port: 10808,
-    username: "initial-user",
-    password: "initial-password",
-    isActive: true,
-  });
-
-  let rotationPayload: any = null;
-
-  const { url, close } = await withHttpServer(async (req, res) => {
-    if (req.method === "POST" && req.url === "/login") {
-      res.setHeader("Set-Cookie", "3x-ui=test-session; Path=/");
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true }));
-      return;
-    }
-    if (req.method === "GET" && req.url === "/panel/api/inbounds/list") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          success: true,
-          obj: [
-            {
-              id: 999,
-              tag: "prod-tag",
-              remark: "prod-remark",
-              protocol: "socks",
-              port: 10808,
-              settings: JSON.stringify({
-                accounts: [{ user: "prod-user", pass: "initial-password" }],
-              }),
-            },
-          ],
-        })
-      );
-      return;
-    }
-    if (req.method === "POST" && req.url === "/panel/api/inbounds/update/999") {
-      let body = "";
-      for await (const chunk of req) {
-        body += chunk;
-      }
-      rotationPayload = JSON.parse(body);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true }));
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
-
-  try {
-    const result = await executeRotation({
-      panelUrl: url,
-      adminUser: "admin",
-      adminPass: "pass",
-      inboundTag: "prod-tag",
-      enabled: false,
-    });
-
-    assert.strictEqual(result.success, true);
-    assert.strictEqual(result.source, "3x-ui");
-    assert.strictEqual(result.user, "prod-user");
-
-    // Check that active proxy in proxies store was updated with new password and lastSync
-    const active = getActiveProxy();
-    assert.ok(active);
-    assert.strictEqual(active.id, proxy.id);
-    assert.notStrictEqual(active.password, "initial-password");
-    assert.ok(active.password && active.password.length >= 20);
-    assert.ok(active.lastSync);
-  } finally {
-    await close();
-  }
-});
-

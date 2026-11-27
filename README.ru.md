@@ -45,14 +45,14 @@ PEC — **self-hosted платформа для управления корпо�
 3. Разверните через **GPO/GPP** на все рабочие станции (Allowlist + Sources, политика ExtensionSettings)
 4. Настройте **PAC-профили маршрутизации** — какие сайты через прокси, какие напрямую
 5. Ограничьте доступ через членство в **доменных группах Active Directory / LDAP** с Kill-Switch для мгновенного отключения всего флота
-6. Включите **автоматическую ротацию паролей** на панелях 3x-ui / Xray по расписанию
+6. Включите **автоматическую ротацию паролей** на панелях Remnawave по расписанию
 
 ### Статус
 
 Официальный релиз. Развитие завершено; поддержка — только исправления по обратной связи.
 
 
-**PEC - Proxy Extension Corp** — открытая платформа для централизованного управления парком прокси, сборки и кастомизации браузерных расширений (Chrome Manifest V3), распространения через Active Directory GPO и автоматической ротации учетных данных в панелях Xray / 3x-ui.
+**PEC - Proxy Extension Corp** — открытая платформа для централизованного управления парком прокси, сборки и кастомизации браузерных расширений (Chrome Manifest V3), распространения через Active Directory GPO и автоматической ротации учетных данных в панелях Remnawave.
 
 ---
 
@@ -88,8 +88,8 @@ PEC — **self-hosted платформа для управления корпо�
    - Контроль целостности модулей ядра (Core Modules Integrity): отслеживание наличия, размеров и SHA-256 хешей ключевых библиотек и драйверов (`PECAppCore.dll`, `WinDivert.dll`, `WinDivert64.sys`) со статусами верификации в интерфейсе.
    - Менеджер версий с проверкой контрольных сумм SHA-256 и безопасным откатом релиза в один клик.
 
-6. **Автоматическая ротация учетных данных 3x-ui / Xray**:
-   - Автоматическая смена паролей в инбаунде 3x-ui по расписанию (15 мин, 1 час, 6 часов, 24 часа).
+6. **Автоматическая ротация учетных данных Remnawave**:
+   - Автоматическая смена паролей целевого пользователя Remnawave по расписанию (15 мин, 1 час, 6 часов, 24 часа).
    - Атомарная запись учетных данных на диск с защитой от повреждения хранилища.
    - Встроенная SSRF-защита: блокировка обращений к метаданным облаков (`169.254.169.254`) и невалидным протоколам.
 
@@ -102,7 +102,7 @@ PEC — **self-hosted платформа для управления корпо�
 
 8. **Безопасность и отказоустойчивость**:
    - Сегментированная политика CORS (доступ к API только для Chrome-расширений и локального хоста).
-   - Встроенный rate-limiting для чувствительных эндпоинтов (`/creds`, `/api/sync`, `/api/3xui/test`).
+   - Встроенный rate-limiting для чувствительных эндпоинтов (`/creds`, `/api/sync`, `/api/remnawave/test`).
    - Набор стандартных защитных HTTP-заголовков (`nosniff`, `SAMEORIGIN`, `strict-origin-when-cross-origin`).
    - Предупреждающий баннер в панели и консоли при работе с дефолтным токеном.
 
@@ -135,7 +135,7 @@ PEC — **self-hosted платформа для управления корпо�
 │   │   ├── routingRoutes.ts   # /api/routing/* (профили и гео-категории)
 │   │   ├── instancesRoutes.ts # /api/instances/*, /api/config
 │   │   ├── builderRoutes.ts   # /api/builder/*, /api/extension/*
-│   │   ├── rotationRoutes.ts  # /api/rotation/*, /api/3xui/test (SSRF-защита)
+│   │   ├── rotationRoutes.ts  # /api/rotation/*, /api/remnawave/test (SSRF-защита)
 │   │   ├── metricsRoutes.ts   # /metrics, /api/metrics (Prometheus-экспозиция метрик)
 │   │   └── systemRoutes.ts    # /healthz, /api/status, /api/github/releases
 │   ├── views/
@@ -144,9 +144,9 @@ PEC — **self-hosted платформа для управления корпо�
 │   ├── releases.ts            # Менеджер релизов, механизм откатов и проверка SHA-256
 │   ├── instances.ts           # Реестр активных устройств с защитой LRU
 │   ├── logger.ts              # Структурированный логгер с маскированием секретов
-│   ├── metrics.ts             # Prometheus-метрики (синхронизация флота, 3x-ui, rate limits)
+│   ├── metrics.ts             # Prometheus-метрики (синхронизация флота, Remnawave, rate limits)
 │   ├── packager.ts            # Сборщик Chrome CRX, RSA-подпись, генератор GPO
-│   ├── rotate.ts              # Хранилище учетных данных, интеграция 3x-ui, SSRF-валидатор
+│   ├── rotate.ts              # Хранилище учетных данных, интеграция Remnawave, SSRF-валидатор
 │   ├── routing.ts             # Smart PAC генератор, пресеты, парсер geodata
 │   └── scheduler.ts           # Планировщик периодической ротации
 ├── extension/                 # Исходный шаблон расширения Chrome Manifest V3
@@ -181,7 +181,7 @@ cp .env.example .env
 | `ADMIN_PASSWORD` | *(fallback на `ADMIN_TOKEN`)* | Начальный пароль веб-панели; сохраняется в виде scrypt-хеша в `DASHBOARD_AUTH_PATH` |
 | `PAC_REQUIRE_SIGNATURE` | `false` | Требовать проверку криптографической HMAC-SHA256 подписи для запросов `/proxy.pac` |
 | `PAC_SIGNING_SECRET` | *(fallback на `EXT_SHARED_TOKEN`)* | Секретный HMAC-ключ для генерации и валидации подписей запросов `/proxy.pac` |
-| `ALLOW_INTERNAL_PANEL` | `false` | Разрешить обращение к 3x-ui панелям в частных сетях RFC 1918 без блокировки SSRF-фильтром |
+| `ALLOW_INTERNAL_PANEL` | `false` | Разрешить обращение к панелям Remnawave в частных сетях RFC 1918 без блокировки SSRF-фильтром |
 | `PEC_PRIVATE_KEY_PATH` | *(пусто)* | Путь к файлу закрытого ключа RSA (.pem) для подписи CRX-пакетов расширения (по умолчанию генерируется `extension/key.pem`) |
 | `PEC_PRIVATE_KEY_PEM` | *(пусто)* | Содержимое RSA закрытого ключа в формате PEM одной строкой (для сред контейнеризации) |
 | `DATA_DIR` | `./data` | Базовый каталог для постоянных файлов состояния и настроек |
@@ -197,7 +197,7 @@ cp .env.example .env
 | `BUILDER_CONFIG` | `./data/extension_build_config.json` | Путь к файлу конфигурации сборки браузерного расширения |
 | `APP_BUILD_CONFIG` | `./data/app_build_config.json` | Путь к файлу конфигурации десктопного клиента PEC-App |
 | `APP_BUILD_INFO` | `./data/app_build_info.json` | Путь к метаданным последней сборки десктопного клиента |
-| `PANELS_3XUI_PATH` | `./data/panels_3xui.json` | Путь к хранилищу параметров подключения к панелям 3x-ui |
+| `PANELS_REMNAWAVE_PATH` | `./data/panels_remnawave.json` | Путь к реестру панелей Remnawave (`PANELS_3XUI_PATH` = `./data/panels_3xui.json` остался только как источник одноразовой миграции) |
 | `RELEASES_META_PATH` | `./data/releases_meta.json` | Путь к метаданным релизов и журналам версий |
 | `PEC_RELEASES_DIR` | *(пусто)* | Каталог публикаций релизов десктопного клиента и расширения (по умолчанию `./dist/releases`) |
 | `PEC_UPDATES_DIR` | *(пусто)* | Каталог отдачи CRX/updates.xml для автообновления Chrome по GPO (по умолчанию `./dist/updates`) |
@@ -207,12 +207,11 @@ cp .env.example .env
 | `PROXY_ECHO_URL` | *(пусто)* | URL echo-эндпоинта для проверки egress-IP прокси-узлов (по умолчанию `http://api.ipify.org?format=json`) |
 | `PEC_SYNC_INTERVAL_MIN` | `15` | Интервал фоновой периодической синхронизации расширения и десктопного приложения в минутах (алиас: `PEC_SYNC_INTERVAL_MINUTES`) |
 | `ROTATION_INTERVAL_MIN` | `1440` | Интервал автоматической ротации учетных данных прокси в минутах (24 часа) |
-| `XUI_PANEL_URL` | `https://3xui-host:2053/basepath` | URL панели управления 3x-ui |
-| `XUI_ADMIN_USER` | `admin` | Логин администратора 3x-ui |
-| `XUI_ADMIN_PASS` | `change-me` | Пароль администратора 3x-ui |
-| `XUI_INBOUND_REMARK` | `squid-in` | Примечание (Remark) целевого инбаунда для ротации |
-| `XUI_INBOUND_TAG` | *(пусто)* | Тег конкретного инбаунда Xray для ротации; пусто = автопоиск по `XUI_INBOUND_REMARK` |
-| `XUI_INSECURE_SKIP_VERIFY` | `false` | Отключить проверку TLS-сертификата панели 3x-ui. ⚠️ Риск MITM: только для self-signed сертификатов в изолированном сетевом контуре |
+| `REMNAWAVE_PANEL_URL` | `https://remnawave-host:3000` | URL панели Remnawave (`XUI_PANEL_URL` поддерживается как устаревший fallback) |
+| `REMNAWAVE_ADMIN_USER` | `admin` | Устаревший fallback для API-login; новые панели настраиваются API-токеном в дашборде |
+| `REMNAWAVE_ADMIN_PASS` | `change-me` | Устаревший fallback для API-login; новые панели настраиваются API-токеном в дашборде |
+| `REMNAWAVE_TARGET_USERNAME` | `pec-user` | Username пользователя Remnawave, чьи данные ротируются (`XUI_INBOUND_REMARK` поддерживается как устаревший fallback) |
+| `REMNAWAVE_INSECURE_SKIP_VERIFY` | `false` | Отключить проверку TLS-сертификата панели Remnawave. ⚠️ Риск MITM: только для self-signed сертификатов в изолированном сетевом контуре |
 | `UPDATE_CHECK_REPO` | `vlv-code/PEC` | Репозиторий GitHub для проверки обновлений версий |
 | `CODE_SIGN_DIR` | `./certs` | Каталог для хранения сертификатов и ключей подписи кода |
 | `CODE_SIGN_PFX_PATH` | *(пусто)* | Путь к PFX/P12 сертификату Authenticode для подписи Windows EXE/MSI |
@@ -336,9 +335,9 @@ sudo nginx -t && sudo systemctl reload nginx
 ## 🔒 Механизмы безопасности
 
 - **Защита от атак по времени**: Значение токена `X-Ext-Token` проверяется через `crypto.timingSafeEqual`.
-- **Защита от SSRF**: Проверка подключения к 3x-ui запрещает обращения к адресам облачных метаданных (`169.254.169.254`, `metadata.google.internal`) и небезопасным схемам (`file://`, `ftp://`).
+- **Защита от SSRF**: Проверка подключения к Remnawave запрещает обращения к адресам облачных метаданных (`169.254.169.254`, `metadata.google.internal`) и небезопасным схемам (`file://`, `ftp://`).
 - **Санитайзинг PAC-скрипта**: Все имена узлов, порты и доменные маски очищаются от кавычек, спецсимволов и переводов строк.
-- **Ограничение частоты запросов**: Встроенные rate-limiter'ы защищают `/creds` (60 запр/мин), `/api/sync` (120 запр/мин) и `/api/3xui/test` (15 запр/мин).
+- **Ограничение частоты запросов**: Встроенные rate-limiter'ы защищают `/creds` (60 запр/мин), `/api/sync` (120 запр/мин) и `/api/remnawave/test` (15 запр/мин).
 - **Защита памяти реестра инстансов**: Автоматическое LRU-вытеснение устаревших записей при достижении лимита в 2000 устройств.
 - **Active Directory Zero-Trust и защита от спуфинга**: Серверная интеграция с корпоративным каталогом по протоколу LDAPS (`AD_ENABLED=true`). При первичной синхронизации `instanceId` жестко связывается с переданным `domainUser`; попытки подмены доменной учетной записи блокируются с кодом 403. При включенном `AD_REJECT_UNKNOWN_USERS=true` любые клиенты без подтвержденной доменной идентичности переводятся в DIRECT режим.
 - **Непривилегированный пользователь**: Контейнеры Docker и сервис systemd запускаются от пользователя `pecuser`.

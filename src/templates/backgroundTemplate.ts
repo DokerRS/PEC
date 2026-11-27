@@ -48,6 +48,9 @@ const FETCH_TIMEOUT_MS = 6000;
 
 // Ephemeral in-memory state
 let memoryCredsCache = null; // { user, pass, fetchedAt }
+// REMNA-PERUSER-XRAY-1: per-user localhost Xray listener credentials, kept
+// strictly separate from the legacy fleet creds (different auth realm).
+let memoryXrayCreds = null; // { user, pass, fetchedAt }
 let syncPromise = null;
 let syncExecutionQueue = Promise.resolve();
 const seenRequests = new Map();
@@ -71,6 +74,9 @@ let currentProxyState = {
   availableProxies: [],
   allowUserProxySwitch: typeof ALLOW_USER_PROXY_SWITCH === "boolean" ? ALLOW_USER_PROXY_SWITCH : true,
   serverTheme: null,
+  xrayLocalActive: false,
+  xrayLocalPort: 0,
+  xrayVersion: "",
 };
 
 // Diagnostics ring-buffer log (last 100 events) persisted to local storage
@@ -169,6 +175,9 @@ function restoreStartupState() {
         if (res && res.pecCredsCache && res.pecCredsCache.user && res.pecCredsCache.pass) {
           memoryCredsCache = res.pecCredsCache;
         }
+        if (res && res.pecXrayCreds && res.pecXrayCreds.user && res.pecXrayCreds.pass) {
+          memoryXrayCreds = res.pecXrayCreds;
+        }
       } finally {
         finishOne();
       }
@@ -177,7 +186,7 @@ function restoreStartupState() {
     try {
       const sessionStore = (typeof chrome !== "undefined" && chrome.storage && chrome.storage.session) ? chrome.storage.session : null;
       if (sessionStore && sessionStore.get) {
-        const ret = sessionStore.get(["pecCredsCache"], (res) => {
+        const ret = sessionStore.get(["pecCredsCache", "pecXrayCreds"], (res) => {
           handleSessionResult(res);
         });
         if (ret && typeof ret.then === "function") {
@@ -1121,6 +1130,68 @@ if (chrome.proxy && chrome.proxy.onProxyError && chrome.proxy.onProxyError.addLi
   });
 }
 
+// REMNA-PERUSER-XRAY-1: local per-user Xray listener mode.
+// The server delivers an \`xrayRuntime\` block (coords + per-user credentials)
+// when the Remnawave runtime is enabled for this AD user. The PEC desktop app
+// runs the actual xray core bound to 127.0.0.1:<derived port>. If (and only
+// if) that listener answers, the extension routes all traffic through it and
+// answers its 407 challenge with the per-user credentials. Otherwise the
+// extension silently keeps the legacy PAC/fleet path (fail-closed fallback).
+function storeXrayCreds(creds) {
+  memoryXrayCreds = creds;
+  try {
+    const sessionStore = (typeof chrome !== "undefined" && chrome.storage && chrome.storage.session) ? chrome.storage.session : null;
+    if (sessionStore && sessionStore.set) {
+      sessionStore.set({ pecXrayCreds: creds });
+    }
+  } catch (e) {}
+}
+
+async function isLocalXrayListenerAlive(port) {
+  // A GET to an HTTP proxy listener returns an error status, but the TCP+HTTP
+  // handshake itself succeeds; any fetch-level failure means "no listener".
+  try {
+    await fetch("http://127.0.0.1:" + port + "/http-probe", {
+      method: "HEAD",
+      cache: "no-store",
+      signal: AbortSignal.timeout(1200),
+    });
+    return true;
+  } catch (err) {
+    // Timeout/aborted means something answered slowly; connection refused means nothing listens.
+    return !!(err && err.name === "TimeoutError");
+  }
+}
+
+async function applyXrayLocalProxy(block) {
+  const port = parseInt(block.listenPort, 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+  const alive = await isLocalXrayListenerAlive(port);
+  if (!alive) {
+    logEvent("warn", "Xray runtime enabled but local listener 127.0.0.1:" + port + " is not answering - keeping legacy proxy");
+    return false;
+  }
+  await chrome.proxy.settings.set({
+    value: {
+      mode: "fixed_servers",
+      rules: {
+        singleProxy: { scheme: "http", host: "127.0.0.1", port: port },
+        bypassList: ["<local>", "127.0.0.1", "localhost"],
+      },
+    },
+    scope: "regular",
+  });
+  currentProxyState = {
+    ...currentProxyState,
+    xrayLocalActive: true,
+    xrayLocalPort: port,
+    xrayVersion: typeof block.version === "string" ? block.version : "",
+  };
+  updateBadge("X", "#8b5cf6"); // Violet badge: routed through local Xray core
+  await verifyAppliedProxySettings("fixed_servers");
+  return true;
+}
+
 // Re-enable proxy after the temporary bypass window elapsed
 async function expireBypass() {
   console.log("[PEC] Bypass window elapsed - re-enabling proxy.");
@@ -1403,6 +1474,40 @@ async function executeSync(forceRefresh = false, applyConfig = true, selectedPro
               await applyProxyConfig(payload.config, true);
             }
           }
+
+          // REMNA-PERUSER-XRAY-1: per-user local Xray routing takes priority
+          // over the legacy PAC path, but only when the local listener (run
+          // by the PEC desktop app) is actually answering.
+          if (payload.xrayRuntime && payload.xrayRuntime.enabled && payload.xrayRuntime.proxyUser && payload.xrayRuntime.proxyPass) {
+            storeXrayCreds({
+              user: payload.xrayRuntime.proxyUser,
+              pass: payload.xrayRuntime.proxyPass,
+              fetchedAt: Date.now(),
+            });
+            if (autoConfigureProxy && applyConfig && !currentProxyState.bypassActive && !currentProxyState.serverDisabled) {
+              const applied = await applyXrayLocalProxy(payload.xrayRuntime);
+              if (applied) {
+                logEvent("info", "Routed through local Xray core 127.0.0.1:" + currentProxyState.xrayLocalPort + " (v" + currentProxyState.xrayVersion + ")");
+              } else {
+                // Fail closed to the legacy path: never leave the browser
+                // pointed at a dead localhost listener.
+                const wasActive = currentProxyState.xrayLocalActive;
+                currentProxyState.xrayLocalActive = false;
+                if (wasActive && lastConfig) {
+                  await applyProxyConfig(lastConfig, true);
+                }
+              }
+              persistProxyState();
+            }
+          } else if (currentProxyState.xrayLocalActive) {
+            logEvent("info", "Xray runtime no longer enabled - reverting to legacy proxy config");
+            currentProxyState.xrayLocalActive = false;
+            memoryXrayCreds = null;
+            persistProxyState();
+            if (autoConfigureProxy && applyConfig && lastConfig) {
+              await applyProxyConfig(lastConfig, true);
+            }
+          }
         } else {
           try {
             const errData = await res.clone().json();
@@ -1529,6 +1634,49 @@ chrome.webRequest.onAuthRequired.addListener(
 
     const isCredValid = (creds) =>
       Boolean(creds && creds.user && creds.pass && (typeof creds.fetchedAt !== "number" || now - creds.fetchedAt < TTL_MS));
+
+    // REMNA-PERUSER-XRAY-1: when routing through the local Xray listener, the
+    // 407 comes from 127.0.0.1 and must be answered with the per-user Xray
+    // credentials, never the legacy fleet creds.
+    const pi = details.proxyInfo;
+    const isLocalXrayChallenge = currentProxyState.xrayLocalActive && pi &&
+      (pi.host === "127.0.0.1" || pi.host === "localhost") &&
+      Number(pi.port) === Number(currentProxyState.xrayLocalPort);
+    if (isLocalXrayChallenge) {
+      if (isCredValid(memoryXrayCreds)) {
+        provideCreds(memoryXrayCreds.user, memoryXrayCreds.pass, "xray-local");
+        return;
+      }
+      const xraySession = (typeof chrome !== "undefined" && chrome.storage && chrome.storage.session) ? chrome.storage.session : null;
+      if (xraySession && xraySession.get) {
+        xraySession.get(["pecXrayCreds"], (stored) => {
+          if (stored && isCredValid(stored.pecXrayCreds)) {
+            memoryXrayCreds = stored.pecXrayCreds;
+            provideCreds(memoryXrayCreds.user, memoryXrayCreds.pass, "xray-session");
+            return;
+          }
+          // Credentials expired or missing: re-sync (does not touch proxy config)
+          // and retry once. Fail closed: no legacy creds leak into this realm.
+          syncWithServer(true, false)
+            .then(() => {
+              if (isCredValid(memoryXrayCreds)) {
+                provideCreds(memoryXrayCreds.user, memoryXrayCreds.pass, "xray-resync");
+              } else {
+                seenRequests.delete(details.requestId);
+                asyncCallback({});
+              }
+            })
+            .catch((err) => {
+              console.error("[PEC] onAuthRequired xray resync error:", err);
+              seenRequests.delete(details.requestId);
+              asyncCallback({});
+            });
+        });
+        return;
+      }
+      asyncCallback({});
+      return;
+    }
 
     // Fast path 1: if credentials already in memory and not expired, supply immediately
     if (attempts === 1 && isCredValid(memoryCredsCache)) {
@@ -1933,6 +2081,7 @@ async function initStartup() {
 }
 
 initStartup();
+
 `;
 
 export function renderBackgroundJs(cfg: {

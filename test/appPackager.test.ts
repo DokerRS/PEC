@@ -24,6 +24,7 @@ import {
   buildAppBinaries,
   assembleAppPackage,
   compileBinariesWithMinGW,
+  buildInstallerPayloadZip,
   cleanAppBinaries,
   parseAppVersion,
   writeVersionGenHeaders,
@@ -383,6 +384,38 @@ test("compileBinariesWithMinGW function executes cleanly or reports toolchain st
   }
 });
 
+test("buildInstallerPayloadZip embeds present binaries and fails cleanly when none exist", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pec-payload-"));
+  try {
+    // No binaries -> ok:false and no zip left behind
+    const empty = buildInstallerPayloadZip(tmp, [path.join(tmp, "PEC-App.exe"), path.join(tmp, "PECAppSvc.exe")]);
+    assert.strictEqual(empty.ok, false);
+    assert.strictEqual(empty.fileCount, 0);
+    assert.strictEqual(fs.existsSync(empty.zipPath), false);
+
+    // Create fake PE-prefixed binaries (payload zip only checks size, not signature for user-mode files)
+    const fake = Buffer.alloc(2048, 0x41);
+    fake[0] = 0x4d; fake[1] = 0x5a;
+    fs.writeFileSync(path.join(tmp, "PEC-App.exe"), fake);
+    fs.writeFileSync(path.join(tmp, "PECAppSvc.exe"), fake);
+    fs.writeFileSync(path.join(tmp, "tiny.exe"), Buffer.alloc(10, 0x41)); // below size threshold
+
+    const res = buildInstallerPayloadZip(tmp, [
+      path.join(tmp, "PEC-App.exe"),
+      path.join(tmp, "PECAppSvc.exe"),
+      path.join(tmp, "tiny.exe"),
+      path.join(tmp, "missing.dll"),
+    ]);
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.fileCount, 2);
+    const zip = new AdmZip(res.zipPath);
+    const names = zip.getEntries().map((e) => e.entryName).sort();
+    assert.deepStrictEqual(names, ["PEC-App.exe", "PECAppSvc.exe"]);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("parseAppVersion parses major, minor, patch, quad accurately", () => {
   const v1 = parseAppVersion("1.0.3");
   assert.strictEqual(v1.version, "1.0.3");
@@ -691,8 +724,14 @@ test("packageApp inspects embeddedVersion, sets binariesStale when mismatched, a
   assert.strictEqual(info.coreModulesIntegrity.length, 3);
 
   assert.ok(info.embeddedVersion !== undefined, "embeddedVersion should be detected from PEC-App.exe");
-  // Embedded binary in templates is 1.0.3, while target package is 2.3.0 -> stale!
-  assert.strictEqual(info.binariesStale, true, "binariesStale must be true when embedded version != configured version");
+  // Templates ship binaries built for 2.3.0; package version 2.3.0 matches -> not stale.
+  assert.strictEqual(info.embeddedVersion, "2.3.0", "embedded version should be 2.3.0");
+  assert.strictEqual(info.binariesStale, false, "binariesStale must be false when embedded version == configured version");
+
+  saveAppBuildConfig({ version: "9.9.9" });
+  const stale = packageApp("https://pec.example.com");
+  assert.strictEqual(stale.embeddedVersion, "2.3.0");
+  assert.strictEqual(stale.binariesStale, true, "binariesStale must be true when embedded version != configured version");
 
   // Restore back to default
   saveAppBuildConfig({ version: DEFAULT_APP_VERSION });

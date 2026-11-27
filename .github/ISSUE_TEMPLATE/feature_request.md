@@ -12,7 +12,7 @@ A clear description of the problem, e.g. "I'm always frustrated when [...]".
 
 **Proposed solution**
 
-What you want to happen. Mention which part it affects: server (`server.ts`, `src/`), dashboard (`public/`), extension (`extension/`), deployment (`deploy/`, Docker), GPO / 3x-ui integration.
+What you want to happen. Mention which part it affects: server (`server.ts`, `src/`), dashboard (`public/`), extension (`extension/`), deployment (`deploy/`, Docker), GPO / Remnawave integration.
 
 **Alternatives considered**
 

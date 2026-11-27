@@ -24,6 +24,12 @@ import { getBuildConfig as getExtensionBuildConfig } from "../packager.js";
 import { sanitizeSingleLine, logger } from "../logger.js";
 import { DEFAULT_APP_VERSION, getAppBuildConfig, isDarkHexColor, isLightHexColor } from "../appPackager.js";
 import { resolveFleetTheme, resolveThemeSyncEnabled } from "../serverTheme.js";
+import {
+  buildXraySyncBlock,
+  loadXrayRuntimeSettings,
+  normalizeRemnawaveUsername,
+  type XraySyncBlock,
+} from "../xrayRuntime.js";
 import { isNewerVersion } from "../utils/semver.js";
 import { getAppBuildInfoPath } from "../storage.js";
 
@@ -49,6 +55,14 @@ export function createAppSyncRouter(
     const rawAppInstanceId = (req.body?.appInstanceId || getHeaderString(req.headers["x-instance-id"]) || "") as string;
     const cleanAppId = typeof rawAppInstanceId === "string" ? rawAppInstanceId.trim() : "";
 
+    // XRAY-TESTMODE-1: admin test switch. While enabled (together with the
+    // Xray runtime master switch), the AD kill-switch and the Xray
+    // authorization gate are skipped so pilots can validate the per-user
+    // Xray runtime without AD membership. Manual admin locks and the username
+    // anti-spoofing binding stay enforced.
+    const xrayRuntimeCfg = loadXrayRuntimeSettings();
+    const xrayTestMode = xrayRuntimeCfg.enabled === true && xrayRuntimeCfg.bypassAd === true;
+
     const releaseLock = cleanAppId ? await acquireInstanceMutex(cleanAppId) : () => {};
     try {
       const rawInstanceToken = getHeaderString(req.headers["x-instance-token"]);
@@ -60,6 +74,8 @@ export function createAppSyncRouter(
 
       let authenticated = false;
       let shouldEnroll = false;
+      // SYNC-REENROLL-1: true when re-enrolling over an existing (stale) token hash
+      let shouldRotateToken = false;
 
       if (rawAdminToken && adminExpected && timingSafeEqualString(rawAdminToken, adminExpected)) {
         authenticated = true;
@@ -72,8 +88,7 @@ export function createAppSyncRouter(
             meta.revokedReason !== "manual" &&
             rawFleetToken && fleetExpected && timingSafeEqualString(rawFleetToken, fleetExpected) &&
             boundUser && presentedUser && boundUser.toLowerCase() === presentedUser.toLowerCase() &&
-            adSyncService.getConfig().enabled &&
-            isDomainUserAllowed(boundUser)
+            (xrayTestMode || (adSyncService.getConfig().enabled && isDomainUserAllowed(boundUser)))
           );
 
           if (canAutoRecover) {
@@ -92,6 +107,14 @@ export function createAppSyncRouter(
           const incomingHash = crypto.createHash("sha256").update(rawInstanceToken).digest("hex");
           if (timingSafeEqualString(incomingHash, meta.tokenHash)) {
             authenticated = true;
+          } else if (rawFleetToken && fleetExpected && timingSafeEqualString(rawFleetToken, fleetExpected)) {
+            // SYNC-REENROLL-1: instance token is stale/corrupt (e.g. client lost its
+            // token file or profile DPAPI blob) but the caller still presents a valid
+            // fleet token. Re-enroll instead of hard-failing, mirroring the no-meta
+            // path so a client can never be locked out by a desynced token.
+            authenticated = true;
+            shouldEnroll = true;
+            shouldRotateToken = true;
           } else {
             return res.status(401).json({ ok: false, error: "Unauthorized: Invalid instance token" });
           }
@@ -119,6 +142,7 @@ export function createAppSyncRouter(
         os,
         clientType,
         pairedExtension,
+        xrayStatus,
       } = req.body || {};
 
       const effectiveAppId = appInstanceId || cleanAppId;
@@ -150,8 +174,10 @@ export function createAppSyncRouter(
       }
 
       // Active Directory membership check for desktop app (Kill-Switch)
+      // XRAY-TESTMODE-1: skipped while the admin test switch is on (manual
+      // revocations are still honored at the auth stage above).
       const adConfig = adSyncService.getConfig();
-      if (adConfig.enabled) {
+      if (adConfig.enabled && !xrayTestMode) {
         const effectiveUser = cleanUsername || boundUser;
         if (!effectiveUser) {
           if (adConfig.rejectUnknownUsers) {
@@ -187,6 +213,15 @@ export function createAppSyncRouter(
             });
           }
         }
+      } else if (adConfig.enabled && xrayTestMode) {
+        // XRAY-TESTMODE-1: keep a trace of every AD-bypassed sync.
+        recordAudit({
+          ip: clientIp,
+          endpoint: "/api/app/sync",
+          status: 200,
+          result: "CONFIG_UPDATED",
+          details: `XRAY-TESTMODE: AD kill-switch bypassed for instance '${cleanAppId || "anon"}' user '${cleanUsername || boundUser || "unknown"}'`,
+        });
       }
 
       if (pairedExtension !== undefined && pairedExtension !== null) {
@@ -209,13 +244,14 @@ export function createAppSyncRouter(
         clientType,
         ip: clientIp,
         pairedExtension,
+        xrayStatus,
       });
 
       let issuedInstanceToken: string | undefined;
       if (shouldEnroll && cleanAppId) {
         issuedInstanceToken = crypto.randomBytes(24).toString("hex");
         const tokenHash = crypto.createHash("sha256").update(issuedInstanceToken).digest("hex");
-        const enrolled = enrollInstanceToken(cleanAppId, tokenHash);
+        const enrolled = enrollInstanceToken(cleanAppId, tokenHash, shouldRotateToken);
         if (!enrolled) {
           return res.status(409).json({ ok: false, error: "Conflict: Instance already enrolled" });
         }
@@ -458,6 +494,35 @@ export function createAppSyncRouter(
         }
       }
 
+      // REMNA-PERUSER-XRAY-1: per-user local Xray runtime block. The config
+      // payload is delivered only when the admin enabled it AND the user
+      // passed AD authorization (fail-closed: the legacy remote-proxy flow
+      // stays active otherwise). The subscription is fetched live from
+      // Remnawave and never persisted.
+      // XRAY-VIS-1: even when the runtime is off/unauthorized the client now
+      // receives a disabled status block with a reason, so the GUI can always
+      // show the real Xray state instead of silently hiding it.
+      let xrayBlock: XraySyncBlock | undefined;
+      const xrayUser = normalizeRemnawaveUsername(cleanUsername || boundUser || "");
+      if (!loadXrayRuntimeSettings().enabled) {
+        xrayBlock = { enabled: false, reason: "server_disabled" };
+      } else if (!xrayUser) {
+        xrayBlock = { enabled: false, reason: "user_not_found" };
+      } else if (!xrayTestMode && (!adConfig.enabled || !isDomainUserAllowed(xrayUser))) {
+        xrayBlock = { enabled: false, reason: "not_authorized" };
+      } else {
+        const block = await buildXraySyncBlock({ username: xrayUser, includeConfig: true });
+        if (block.enabled) {
+          xrayBlock = block;
+          // XRAY-TESTMODE-1: mark test deliveries so the client/UI can show it.
+          if (xrayTestMode) xrayBlock.testMode = true;
+        } else if (block.reason) {
+          // Runtime enabled but delivery failed: surface the reason so the
+          // client can show why the local tunnel is unavailable.
+          xrayBlock = { enabled: false, reason: block.reason };
+        }
+      }
+
       const theme = {
         preset: effectivePreset,
         layout: assignedProfile?.uiLayout || appBldCfg.uiLayout || "console",
@@ -483,6 +548,7 @@ export function createAppSyncRouter(
         activeProxy: proxyPayload,
         availableProxies,
         serverRules,
+        ...(xrayBlock ? { xrayRuntime: xrayBlock } : {}),
         ...(themeBlock ? { theme: themeBlock } : {}),
         update: {
           hasUpdate,

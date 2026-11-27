@@ -1,4 +1,4 @@
-// Telemetry, Fleet, GPO, 3x-ui & Releases Tab Module for PEC Dashboard
+// Telemetry, Fleet, GPO, Remnawave & Releases Tab Module for PEC Dashboard
 import { state } from '../core/state.js';
 import { adminFetch, esc, escapeHtml, extractError } from '../core/api.js';
 import { toast, pecConfirm, pecPrompt, registerModalCloser } from '../core/notify.js';
@@ -109,7 +109,7 @@ export function filterFleetTable() {
       if (!instances || !instances.length) {
         selectedFleetInstances.clear();
         updateFleetBulkBar();
-        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Пока нет подключенных устройств. Расширения опрашивают сервер по расписанию (по умолчанию каждые 5 мин), а также немедленно при старте браузера и ротации учетных данных.' : 'No instances connected yet. Extensions poll the server on schedule (default: every 5 min), as well as immediately upon browser launch and credential rotation.') + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Пока нет подключенных устройств. Расширения опрашивают сервер по расписанию и при старте браузера.' : 'No instances connected yet. Extensions poll the server on schedule and when the browser starts.') + '</td></tr>';
         tbody.removeAttribute('data-rendered-sig');
         return;
       }
@@ -496,10 +496,11 @@ export let lastLoadedDesktopInstances = [];
       }
 
       if (!instances || !instances.length) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">' +
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted);">' +
           (isRu ? 'Десктопные клиенты еще не подключались. Запустите PEC-App.exe на рабочей станции.' : 'No desktop clients connected yet. Launch PEC-App.exe on a workstation.') +
           '</td></tr>';
         tbody.removeAttribute('data-rendered-sig');
+        renderXrayFleetSummary(instances);
         return;
       }
 
@@ -508,7 +509,7 @@ export let lastLoadedDesktopInstances = [];
       const sel = window.getSelection ? window.getSelection() : null;
       if (sel && sel.toString() && tbody.contains(sel.anchorNode)) return;
 
-      const sig = instances.map(i => `${i.appInstanceId}:${i.status}:${i.assignedProxyId || ''}:${i.lastSync || ''}`).join('|');
+      const sig = instances.map(i => `${i.appInstanceId}:${i.status}:${i.assignedProxyId || ''}:${i.lastSync || ''}:${i.xrayStatus ? `${i.xrayStatus.enabled ? 1 : 0}${i.xrayStatus.running ? 1 : 0}${i.xrayStatus.reason || ''}${i.xrayStatus.serverCount ?? ''}` : 'none'}`).join('|');
       if (tbody.getAttribute('data-rendered-sig') === sig) return;
 
       const proxies = currentProxiesList || [];
@@ -531,6 +532,28 @@ export let lastLoadedDesktopInstances = [];
 
         const syncTime = inst.lastSync ? (typeof formatRelativeTime === 'function' ? formatRelativeTime(inst.lastSync) : new Date(inst.lastSync).toLocaleTimeString()) : '-';
 
+        const xs = inst.xrayStatus;
+        let xrayBadge;
+        if (!xs) {
+          xrayBadge = `<span style="color: var(--text-muted); font-size: 11px;" title="${isRu ? 'Клиент не сообщает статус Xray (старая версия PEC-App)' : 'Client does not report Xray status (old PEC-App version)'}">${isRu ? 'Нет данных' : 'No data'}</span>`;
+        } else if (xs.running) {
+          const srv = xs.serverCount != null ? (isRu ? ` · серверов: ${xs.serverCount}` : ` · servers: ${xs.serverCount}`) : '';
+          xrayBadge = `<span class="badge badge-success" title="Xray ${esc(xs.version || '')} · SOCKS :${esc(String(xs.socksPort || ''))}${srv}">⚡ ${isRu ? 'Ядро работает' : 'Core running'}${esc(srv)}</span>`;
+        } else if (xs.enabled) {
+          xrayBadge = `<span class="badge badge-warning" title="${isRu ? 'Ядро назначено, но не запущено на машине' : 'Core assigned but not running on machine'}">⏸ ${isRu ? 'Не запущено' : 'Not running'}</span>`;
+        } else if (xs.reason) {
+          const reasonText = {
+            user_not_found: isRu ? 'нет в Remnawave' : 'not in Remnawave',
+            no_active_subscription: isRu ? 'нет активной подписки' : 'no active subscription',
+            panel_error: isRu ? 'ошибка панели' : 'panel error',
+            ad_disabled: isRu ? 'AD выключен' : 'AD disabled',
+            user_not_allowed: isRu ? 'нет доступа по AD' : 'not allowed by AD',
+          }[xs.reason] || xs.reason;
+          xrayBadge = `<span class="badge badge-subtle" title="${esc(xs.reason)}">🚫 ${esc(reasonText)}</span>`;
+        } else {
+          xrayBadge = `<span class="badge badge-subtle">${isRu ? 'Выключено' : 'Disabled'}</span>`;
+        }
+
         return `<tr>
           <td><span class="badge ${badgeClass}">${esc(inst.status || 'ONLINE')}</span></td>
           <td><strong>${esc(inst.hostname || '-')}</strong></td>
@@ -538,6 +561,7 @@ export let lastLoadedDesktopInstances = [];
           <td><code>${esc(inst.ip || '-')}</code></td>
           <td><span class="badge badge-version">v${esc(inst.version || '2.2.0')}</span></td>
           <td>${pairedBadge}</td>
+          <td>${xrayBadge}</td>
           <td>
             <select class="form-select form-select-sm desktop-proxy-select" data-app-id="${esc(inst.appInstanceId)}" data-prev-value="${esc(inst.assignedProxyId || 'default')}" style="font-size: 12px; max-width: 170px; margin-bottom: 0;">
               ${proxyOptions}
@@ -550,6 +574,26 @@ export let lastLoadedDesktopInstances = [];
         </tr>`;
       }).join('');
       tbody.setAttribute('data-rendered-sig', sig);
+      renderXrayFleetSummary(instances);
+    }
+
+    export function renderXrayFleetSummary(instances) {
+      const isRu = currentLang === 'ru';
+      const el = document.getElementById('xrayFleetSummary');
+      if (!el) return;
+      const list = instances || lastLoadedDesktopInstances || [];
+      const running = list.filter(i => i.xrayStatus?.running).length;
+      const assigned = list.filter(i => i.xrayStatus?.enabled).length;
+      const noSub = list.filter(i => i.xrayStatus && !i.xrayStatus.enabled && i.xrayStatus.reason === 'no_active_subscription').length;
+      const noData = list.filter(i => !i.xrayStatus).length;
+      if (!list.length) { el.innerHTML = ''; return; }
+      const parts = [
+        `<span class="badge badge-success">⚡ ${running} ${isRu ? 'работает' : 'running'}</span>`,
+        `<span class="badge badge-subtle">${assigned} ${isRu ? 'назначено' : 'assigned'}</span>`,
+      ];
+      if (noSub > 0) parts.push(`<span class="badge badge-warning">🚫 ${noSub} ${isRu ? 'без подписки' : 'no subscription'}</span>`);
+      if (noData > 0) parts.push(`<span class="badge badge-subtle">❔ ${noData} ${isRu ? 'без данных' : 'no data'}</span>`);
+      el.innerHTML = `<span style="color: var(--text-muted);">${isRu ? 'Парк:' : 'Fleet:'}</span> ` + parts.join(' ');
     }
 
     export function initFleetListeners() {
@@ -1169,13 +1213,6 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
         document.getElementById('hdrUser').textContent = data.currentUser || (isRu ? 'нет' : 'none');
         document.getElementById('hdrFleetCount').textContent = data.activeInstancesCount + (isRu ? ' активных (' : ' active (') + data.totalInstancesCount + (isRu ? ' всего)' : ' total)');
         
-        if (data.nextRotationAt) {
-          const diffMin = Math.round((new Date(data.nextRotationAt).getTime() - Date.now()) / 60000);
-          document.getElementById('hdrNextRot').textContent = (diffMin > 0 ? (isRu ? 'через ' + diffMin + ' мин' : 'in ' + diffMin + 'm') : (isRu ? 'сейчас' : 'imminent')) + ' (' + new Date(data.nextRotationAt).toLocaleTimeString() + ')';
-        } else {
-          document.getElementById('hdrNextRot').textContent = isRu ? 'Отключено' : 'Disabled';
-        }
-
         // Kill-switch state is the SERVER's truth, never a local guess:
         // a stale local flag previously let a second tab (or a reopened
         // dashboard) accidentally flip the emergency state.
@@ -1251,212 +1288,33 @@ export let currentGpoBrowser = 'chrome'; // 'chrome', 'edge', 'yandex', 'opera'
       }
     }
 
-    // ----------------- 3x-ui Rotation -----------------
-    export async function fetchRotationConfig() {
-      try {
-        const res = await adminFetch('/api/rotation/config');
-        const data = await res.json();
-        const cfg = data.config;
-        
-        const rotPanelUrl = document.getElementById('rotPanelUrl') as HTMLInputElement | null;
-        if (rotPanelUrl) rotPanelUrl.value = cfg.panelUrl || '';
-        const rotAdminUser = document.getElementById('rotAdminUser') as HTMLInputElement | null;
-        if (rotAdminUser) rotAdminUser.value = cfg.adminUser || '';
-        const rotRemark = document.getElementById('rotRemark') as HTMLInputElement | null;
-        if (rotRemark) rotRemark.value = cfg.inboundRemark || '';
-        const rotInterval = document.getElementById('rotInterval') as HTMLSelectElement | null;
-        if (rotInterval) rotInterval.value = String(cfg.intervalMinutes || 1440);
-        const rotEnabled = document.getElementById('rotEnabled') as HTMLSelectElement | null;
-        if (rotEnabled) rotEnabled.value = String(cfg.enabled);
-        const rotInsecure = document.getElementById('rotInsecureTls') as HTMLInputElement | null;
-        if (rotInsecure) rotInsecure.checked = Boolean(cfg.insecureSkipVerify);
-        
-        const rotStatusText = document.getElementById('rotStatusText');
-        if (rotStatusText) rotStatusText.textContent = cfg.lastStatus || 'Idle';
-        const rotNextRun = document.getElementById('rotNextRun');
-        if (rotNextRun) rotNextRun.textContent = cfg.nextRotationAt ? new Date(cfg.nextRotationAt).toLocaleString() : 'Disabled';
-        const rotLastRun = document.getElementById('rotLastRun');
-        if (rotLastRun) rotLastRun.textContent = cfg.lastRotatedAt ? new Date(cfg.lastRotatedAt).toLocaleString() : 'None';
-
-        const passBadge = document.getElementById('passwordSavedBadge');
-        if (passBadge) {
-          if ((cfg.rotAdminPass && cfg.rotAdminPass !== '') || (cfg.adminPass && cfg.adminPass !== '')) {
-            passBadge.style.display = 'inline-block';
-          } else {
-            passBadge.style.display = 'none';
-          }
-        }
-
-        renderRotationHistory(data.history || []);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    export async function saveRotationConfig() {
-      const intervalEl = document.getElementById('rotInterval') as HTMLSelectElement | null;
-      const intervalRaw = intervalEl ? intervalEl.value.trim() : '1440';
-      const intervalNum = parseInt(intervalRaw, 10);
-      if (!intervalRaw || !Number.isFinite(intervalNum) || intervalNum < 1 || String(intervalNum) !== intervalRaw) {
-        toast('Rotation interval must be a whole number of minutes (>= 1).', 'error');
-        return;
-      }
-      const rotEnabled = document.getElementById('rotEnabled') as HTMLSelectElement | null;
-      const rotInsecure = document.getElementById('rotInsecureTls') as HTMLInputElement | null;
-      const rotPanelUrl = document.getElementById('rotPanelUrl') as HTMLInputElement | null;
-      const rotAdminUser = document.getElementById('rotAdminUser') as HTMLInputElement | null;
-      const rotRemark = document.getElementById('rotRemark') as HTMLInputElement | null;
-      const rotAdminPass = document.getElementById('rotAdminPass') as HTMLInputElement | null;
-
-      const payload: any = {
-        intervalMinutes: intervalNum,
-        enabled: rotEnabled ? rotEnabled.value === 'true' : true,
-      };
-      if (rotPanelUrl) payload.panelUrl = rotPanelUrl.value.trim();
-      if (rotAdminUser) payload.adminUser = rotAdminUser.value.trim();
-      if (rotRemark) payload.inboundRemark = rotRemark.value.trim();
-      if (rotInsecure) payload.insecureSkipVerify = rotInsecure.checked;
-      if (rotAdminPass && rotAdminPass.value) payload.adminPass = rotAdminPass.value;
-
-      const btn = document.querySelector('button[onclick*="saveRotationConfig"]') || document.querySelector('[data-i18n="btnSaveScheduler"]');
-      let origHtml = '';
-      if (btn) {
-        origHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="loading-spinner"></span> ' + (btn.textContent || '').trim();
-      }
-
-      try {
-        const res = await adminFetch('/api/rotation/config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-          toast(currentLang === 'ru' ? 'Расписание ротации обновлено!' : 'Rotation schedule updated!', 'success');
-          fetchRotationConfig();
-          fetchStatus();
-        } else {
-          const data = await res.json().catch(() => ({}));
-          toast((currentLang === 'ru' ? 'Ошибка сохранения настроек ротации: ' : 'Failed to save rotation settings: ') + (data.error || ('HTTP ' + res.status)), 'error');
-        }
-      } catch (e) {
-        toast((currentLang === 'ru' ? 'Ошибка сохранения настроек ротации: ' : 'Error saving rotation settings: ') + e, 'error');
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          if (origHtml) btn.innerHTML = origHtml;
-        }
-      }
-    }
-
-    export async function test3xui() {
-      const out = document.getElementById('test3xuiResult');
-      out.textContent = 'Testing connection to 3x-ui API...';
-      const enteredPass = document.getElementById('rotAdminPass').value;
-      const payload: any = {
-        panelUrl: document.getElementById('rotPanelUrl').value.trim(),
-        adminUser: document.getElementById('rotAdminUser').value.trim(),
-        inboundRemark: document.getElementById('rotRemark').value.trim()
-      };
-      if (enteredPass && enteredPass.trim()) {
-        payload.adminPass = enteredPass.trim();
-      }
-
-      try {
-        const res = await adminFetch('/api/3xui/test', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        out.innerHTML = (data.ok ? '<img src="/icons/check.png" class="icon-inline-sm" alt="ok"> ' : '<img src="/icons/cross.png" class="icon-inline-sm" alt="err"> ') + esc(data.message);
-        out.style.color = data.ok ? 'var(--success)' : 'var(--danger)';
-      } catch (e) {
-        out.textContent = 'Connection test failed: ' + e;
-        out.style.color = 'var(--danger)';
-      }
-    }
-
-    export async function manualRotate() {
-      const isRu = currentLang === 'ru';
-      if (!await pecConfirm({
-        title: isRu ? 'Ротация учетных данных' : 'Rotate Credentials',
-        message: isRu ? 'Выполнить немедленную ротацию учетных данных прокси?' : 'Rotate proxy credentials immediately?',
-        isDanger: true
-      })) return;
-      const btn = document.getElementById('btnRotateNow');
-      let origHtml = '';
-      if (btn) {
-        origHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="loading-spinner"></span> ' + (btn.textContent || '').trim();
-      }
-      try {
-        const res = await adminFetch('/api/rotation/rotate-now', { method: 'POST' });
-        const data = await res.json();
-        if (data.ok) {
-          toast(isRu ? ('Успешно! Новый пользователь: ' + data.result.user) : ('Rotated! New user: ' + data.result.user + ' (source: ' + data.result.source + ')'), 'success');
-          if (typeof (window as any).refreshAll === 'function') (window as any).refreshAll();
-        } else {
-          toast((isRu ? 'Ошибка ротации: ' : 'Rotation error: ') + data.error, 'error');
-        }
-      } catch (e) {
-        toast((isRu ? 'Сетевая ошибка: ' : 'Failed: ') + e, 'error');
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          if (origHtml) btn.innerHTML = origHtml;
-        }
-      }
-    }
-
-    export function renderRotationHistory(history) {
-      const tbody = document.getElementById('rotHistoryTable');
-      if (!history.length) {
-        tbody.innerHTML = '<tr><td colspan="4" style="color: var(--text-muted); text-align: center;">No rotation events yet</td></tr>';
-        return;
-      }
-      tbody.innerHTML = history.map(item => `<tr>
-        <td style="font-family: var(--mono); font-size: 12px;">${new Date(item.timestamp).toLocaleTimeString()}</td>
-        <td><code>${esc(item.source)}</code></td>
-        <td>${esc(item.user)}</td>
-        <td><span class="badge ${item.success ? 'badge-online' : 'badge-offline'}">${item.success ? 'SUCCESS' : 'FAILED'}</span></td>
-      </tr>`).join('');
-    }
-
-    // ----------------- 3x-ui Panels Registry -----------------
+    // ----------------- Remnawave Panels Registry -----------------
 export let currentPanelsList = [];
 
-    export async function load3xuiPanels() {
+    export async function loadRemnawavePanels() {
       try {
-        const res = await adminFetch('/api/3xui/panels');
+        const res = await adminFetch('/api/remnawave/panels');
         if (!res.ok) return;
         const data = await res.json();
         currentPanelsList = Array.isArray(data) ? data : (data && data.panels ? data.panels : []);
-        render3xuiPanelsTable(currentPanelsList);
+        renderRemnawavePanelsTable(currentPanelsList);
       } catch (e) {
-        console.warn('Failed to load 3x-ui panels:', e);
+        console.warn('Failed to load Remnawave panels:', e);
       }
     }
 
-    export function render3xuiPanelsTable(panels) {
+    export function renderRemnawavePanelsTable(panels) {
       const isRu = currentLang === 'ru';
-      const tbody = document.getElementById('panels3xuiBody');
+      const tbody = document.getElementById('panelsRemnawaveBody');
       if (tbody) {
         if (!panels || !panels.length) {
-          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Панели 3x-ui не настроены' : 'No 3x-ui panels configured') + '</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">' + (isRu ? 'Панель Remnawave не настроена' : 'No Remnawave panel configured') + '</td></tr>';
         } else {
           tbody.innerHTML = panels.map(p => {
-            const rotBadge = p.rotationEnabled
-              ? `<span class="badge badge-success" title="${isRu ? 'Авторотация включена' : 'Auto-rotation active'}">⚡ ${isRu ? 'ВКЛ' : 'ON'}</span>${p.targetRemark ? `<div style="font-size:10px; color:var(--text-muted);">${esc(p.targetRemark)}</div>` : ''}`
-              : `<span class="badge badge-secondary">${isRu ? 'ВЫКЛ' : 'OFF'}</span>`;
-
             return `<tr>
               <td><strong>${esc(p.name)}</strong></td>
               <td style="font-family: var(--mono);">${esc(p.panelUrl)}</td>
-              <td><code>${esc(p.adminUser)}</code></td>
-              <td>${rotBadge}</td>
+              <td><code>${p.apiToken ? (isRu ? 'API-токен настроен' : 'API token configured') : p.adminPass ? (isRu ? 'Вход по legacy-паролю' : 'Legacy login') : (isRu ? 'Нет токена' : 'No token')}</code></td>
               <td><span class="badge ${p.insecureTls ? 'badge-warning' : 'badge-success'}">${p.insecureTls ? (isRu ? 'Self-signed TLS' : 'Insecure TLS') : (isRu ? 'Строгий TLS' : 'Valid TLS')}</span></td>
               <td style="text-align: right;">
                 <div style="display: inline-flex; gap: 6px;">
@@ -1470,63 +1328,64 @@ export let currentPanelsList = [];
         }
       }
 
-      // Populate select in Add from 3x-ui modal
-      const sel = document.getElementById('add3xuiPanelSelect');
+      // Populate select in Add from Remnawave modal
+      const sel = document.getElementById('addRemnawavePanelSelect');
       if (sel) {
-        sel.innerHTML = '<option value="">' + (isRu ? 'По умолчанию (Настройки ротации)' : 'Default (Rotation Settings)') + '</option>' +
+        sel.innerHTML = '<option value="">' + (isRu ? 'Единственная панель Remnawave' : 'Single Remnawave panel') + '</option>' +
           (panels || []).map(p => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.panelUrl)})</option>`).join('');
       }
     }
 
-    export function openAdd3xuiPanelModal(panel?: any) {
+    export function openAddRemnawavePanelModal(panel?: any) {
+      panel = panel || currentPanelsList[0];
       const idInp = document.getElementById('panelIdInput') as HTMLInputElement | null;
       const nameInp = document.getElementById('panelName') as HTMLInputElement | null;
       const urlInp = document.getElementById('panelUrl') as HTMLInputElement | null;
-      const userInp = document.getElementById('panelUser') as HTMLInputElement | null;
-      const passInp = document.getElementById('panelPass') as HTMLInputElement | null;
+      const tokenInp = document.getElementById('panelApiToken') as HTMLInputElement | null;
       const tlsInp = document.getElementById('panelInsecureTls') as HTMLInputElement | null;
-      const rotInp = document.getElementById('panelRotationEnabled') as HTMLInputElement | null;
-      const remarkInp = document.getElementById('panelTargetRemark') as HTMLInputElement | null;
       const errEl = document.getElementById('panelModalError');
 
       if (idInp) idInp.value = panel ? panel.id : '';
       if (nameInp) nameInp.value = panel ? panel.name : '';
       if (urlInp) urlInp.value = panel ? panel.panelUrl : '';
-      if (userInp) userInp.value = panel ? panel.adminUser : '';
-      if (passInp) passInp.value = '';
+      if (tokenInp) {
+        tokenInp.value = '';
+        tokenInp.placeholder = panel
+          ? panel.apiToken
+            ? (currentLang === 'ru' ? 'Оставьте пустым, чтобы сохранить текущий токен' : 'Leave empty to keep current token')
+            : panel.adminPass
+              ? (currentLang === 'ru' ? 'Вставьте API-токен вместо legacy login' : 'Paste an API token to replace legacy login')
+              : 'Paste API token'
+          : 'Paste API token';
+      }
       if (tlsInp) tlsInp.checked = panel ? Boolean(panel.insecureTls) : false;
-      if (rotInp) rotInp.checked = panel ? Boolean(panel.rotationEnabled) : false;
-      if (remarkInp) remarkInp.value = panel ? (panel.targetRemark || '') : '';
       if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
 
-      const modal = document.getElementById('modal3xuiPanel');
+      const modal = document.getElementById('modalRemnawavePanel');
       if (modal) modal.style.display = 'flex';
       if (nameInp) nameInp.focus();
     }
 
-    export function close3xuiPanelModal() {
-      const modal = document.getElementById('modal3xuiPanel');
+    export function closeRemnawavePanelModal() {
+      const modal = document.getElementById('modalRemnawavePanel');
       if (modal) modal.style.display = 'none';
     }
 
-    export async function save3xuiPanelAction() {
+    export async function saveRemnawavePanelAction() {
       const isRu = currentLang === 'ru';
       const id = (document.getElementById('panelIdInput') as HTMLInputElement | null)?.value;
       const name = (document.getElementById('panelName') as HTMLInputElement | null)?.value?.trim();
       const panelUrl = (document.getElementById('panelUrl') as HTMLInputElement | null)?.value?.trim();
-      const adminUser = (document.getElementById('panelUser') as HTMLInputElement | null)?.value?.trim();
-      const adminPass = (document.getElementById('panelPass') as HTMLInputElement | null)?.value;
+      const apiToken = (document.getElementById('panelApiToken') as HTMLInputElement | null)?.value?.trim();
       const insecureTls = (document.getElementById('panelInsecureTls') as HTMLInputElement | null)?.checked;
-      const rotationEnabled = Boolean((document.getElementById('panelRotationEnabled') as HTMLInputElement | null)?.checked);
-      const targetRemark = ((document.getElementById('panelTargetRemark') as HTMLInputElement | null)?.value || '').trim();
       const errEl = document.getElementById('panelModalError');
 
-      if (!name || !panelUrl || !adminUser) {
-        if (errEl) { errEl.textContent = isRu ? 'Заполните обязательные поля: Название, URL и Пользователь' : 'Please fill all required fields'; errEl.style.display = 'block'; }
+      if (!name || !panelUrl || (!id && !apiToken)) {
+        if (errEl) { errEl.textContent = isRu ? 'Заполните обязательные поля: Название, URL и API-токен' : 'Please fill in the name, panel URL, and API token'; errEl.style.display = 'block'; }
         return;
       }
 
-      const btn = document.getElementById('btnSave3xuiPanel');
+      const btn = document.getElementById('btnSaveRemnawavePanel');
       let origHtml = '';
       if (btn) {
         origHtml = btn.innerHTML;
@@ -1535,18 +1394,20 @@ export let currentPanelsList = [];
       }
 
       try {
-        const url = id ? `/api/3xui/panels/${encodeURIComponent(id)}` : '/api/3xui/panels';
+        const url = id ? `/api/remnawave/panels/${encodeURIComponent(id)}` : '/api/remnawave/panels';
         const method = id ? 'PUT' : 'POST';
+        const payload: Record<string, unknown> = { name, panelUrl, insecureTls };
+        if (apiToken) payload.apiToken = apiToken;
         const res = await adminFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, panelUrl, adminUser, adminPass, insecureTls, rotationEnabled, targetRemark })
+          body: JSON.stringify(payload)
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
-          close3xuiPanelModal();
-          toast(isRu ? 'Панель 3x-ui сохранена' : '3x-ui panel saved', 'success');
-          load3xuiPanels();
+          closeRemnawavePanelModal();
+          toast(isRu ? 'Панель Remnawave сохранена' : 'Remnawave panel saved', 'success');
+          loadRemnawavePanels();
         } else {
           if (errEl) { errEl.textContent = data.error || 'Failed to save panel'; errEl.style.display = 'block'; }
         }
@@ -1560,14 +1421,14 @@ export let currentPanelsList = [];
       }
     }
 
-    export async function delete3xuiPanelAction(id) {
+    export async function deleteRemnawavePanelAction(id) {
       const isRu = currentLang === 'ru';
-      if (!await pecConfirm(isRu ? 'Удалить эту панель 3x-ui?' : 'Delete this 3x-ui panel?', { isDanger: true })) return;
+      if (!await pecConfirm(isRu ? 'Удалить эту панель Remnawave?' : 'Delete this Remnawave panel?', { isDanger: true })) return;
       try {
-        const res = await adminFetch(`/api/3xui/panels/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const res = await adminFetch(`/api/remnawave/panels/${encodeURIComponent(id)}`, { method: 'DELETE' });
         if (res.ok) {
           toast(isRu ? 'Панель удалена' : 'Panel deleted', 'success');
-          load3xuiPanels();
+          loadRemnawavePanels();
         } else {
           toast('Delete failed', 'error');
         }
@@ -1576,11 +1437,11 @@ export let currentPanelsList = [];
       }
     }
 
-    export async function test3xuiPanelAction(id) {
+    export async function testRemnawavePanelAction(id) {
       const isRu = currentLang === 'ru';
       toast(isRu ? 'Проверка соединения с панелью...' : 'Testing panel connection...', 'info');
       try {
-        const res = await adminFetch(`/api/3xui/panels/${encodeURIComponent(id)}/test`, { method: 'POST' });
+        const res = await adminFetch(`/api/remnawave/panels/${encodeURIComponent(id)}/test`, { method: 'POST' });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
           toast(isRu ? 'Соединение успешно! ' + (data.message || '') : 'Connected! ' + (data.message || ''), 'success');
@@ -1592,71 +1453,214 @@ export let currentPanelsList = [];
       }
     }
 
-    export function openAdd3xuiModal() {
-      const tagEl = document.getElementById('add3xuiTag');
-      const nameEl = document.getElementById('add3xuiName');
-      const hostEl = document.getElementById('add3xuiHost');
-      const activeEl = document.getElementById('add3xuiIsActive');
-      const previewEl = document.getElementById('add3xuiPreview');
-      const errEl = document.getElementById('add3xuiError');
+    // ----------------- REMNA-PERUSER-XRAY-1: Xray runtime settings -----------------
+
+    let xrayVersionsLoaded = false;
+
+    function setXrayVersionOptions(versions: string[], current: string) {
+      const verEl = document.getElementById('xrayRuntimeVersion') as HTMLSelectElement | null;
+      if (!verEl || verEl.tagName !== 'SELECT') return;
+      const list = versions.slice();
+      if (current && !list.includes(current)) list.unshift(current);
+      verEl.innerHTML = '';
+      for (const v of list) {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        verEl.appendChild(opt);
+      }
+      if (current) verEl.value = current;
+      else if (list.length) verEl.value = list[0];
+    }
+
+    export async function loadXrayCoreVersions(force = false) {
+      try {
+        const res = await adminFetch('/api/xray-runtime/versions' + (force ? '?refresh=1' : ''));
+        if (!res.ok) return;
+        const data = await res.json();
+        const versions = (Array.isArray(data.versions) ? data.versions : [])
+          .map((v: any) => (typeof v === 'string' ? v : v && v.version))
+          .filter(Boolean);
+        if (versions.length) {
+          xrayVersionsLoaded = true;
+          const verEl = document.getElementById('xrayRuntimeVersion') as HTMLSelectElement | null;
+          setXrayVersionOptions(versions, verEl ? verEl.value : '');
+        }
+      } catch (e) {
+        console.warn('Failed to load Xray core versions:', e);
+      }
+    }
+
+    export async function loadXrayRuntimeSettings() {
+      try {
+        const res = await adminFetch('/api/xray-runtime');
+        if (!res.ok) return;
+        const data = await res.json();
+        const enEl = document.getElementById('xrayRuntimeEnabled') as HTMLInputElement | null;
+        const verEl = document.getElementById('xrayRuntimeVersion') as HTMLSelectElement | null;
+        const portEl = document.getElementById('xrayRuntimePort') as HTMLInputElement | null;
+        const baEl = document.getElementById('xrayRuntimeBypassAd') as HTMLInputElement | null;
+        if (enEl) enEl.checked = Boolean(data.enabled);
+        if (baEl) baEl.checked = Boolean(data.bypassAd);
+        if (verEl) {
+          if (verEl.tagName === 'SELECT' && !xrayVersionsLoaded) {
+            verEl.innerHTML = '';
+            const opt = document.createElement('option');
+            opt.value = data.version || '';
+            opt.textContent = data.version || '24.11.11';
+            verEl.appendChild(opt);
+            if (data.version) verEl.value = data.version;
+            loadXrayCoreVersions();
+          } else if (xrayVersionsLoaded) {
+            loadXrayCoreVersions();
+          }
+          if (data.version && verEl.value !== data.version) verEl.value = data.version;
+        }
+        if (portEl) portEl.value = String(data.listenPort || 12080);
+        const listEl = document.getElementById('xrayBinaryList');
+        if (listEl) {
+          const bins = Array.isArray(data.binaries) ? data.binaries : [];
+          listEl.textContent = bins.length
+            ? (currentLang === 'ru' ? 'Ядра на сервере: ' : 'Cached cores: ') + bins.map((b: any) => `${b.version} (${Math.round((b.sizeBytes || 0) / 1048576)} MB)`).join(', ')
+            : (currentLang === 'ru' ? 'Ядра ещё не загружены на сервер' : 'No core binaries cached on server');
+        }
+      } catch (e) {
+        console.warn('Failed to load Xray runtime settings:', e);
+      }
+    }
+
+    export async function fetchXrayBinaryAction() {
+      const isRu = currentLang === 'ru';
+      const verEl = document.getElementById('xrayRuntimeVersion') as HTMLInputElement | null;
+      const errEl = document.getElementById('xrayRuntimeError');
+      const btn = document.getElementById('btnFetchXrayBinary') as HTMLButtonElement | null;
+      const version = ((verEl && verEl.value) || '').trim().replace(/^v+/, '');
+      if (!/^\d+\.\d+\.\d+$/.test(version)) {
+        if (errEl) { errEl.textContent = isRu ? 'Укажите версию ядра вида 24.11.11' : 'Enter a core version like 24.11.11'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (btn) { btn.disabled = true; btn.textContent = isRu ? 'Загрузка...' : 'Fetching...'; }
+      try {
+        const res = await adminFetch('/api/xray-runtime/binaries/fetch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ version }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          if (errEl) errEl.style.display = 'none';
+          toast(isRu ? `Ядро Xray ${version} загружено на сервер` : `Xray core ${version} cached on server`, 'success');
+          loadXrayRuntimeSettings();
+        } else {
+          if (errEl) { errEl.textContent = data.error || 'Fetch failed'; errEl.style.display = 'block'; }
+        }
+      } catch (e) {
+        if (errEl) { errEl.textContent = String(e); errEl.style.display = 'block'; }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = isRu ? 'Загрузить ядро с GitHub' : 'Fetch core binary'; }
+      }
+    }
+
+    export async function saveXrayRuntimeSettingsAction() {
+      const isRu = currentLang === 'ru';
+      const enEl = document.getElementById('xrayRuntimeEnabled') as HTMLInputElement | null;
+      const verEl = document.getElementById('xrayRuntimeVersion') as HTMLInputElement | null;
+      const portEl = document.getElementById('xrayRuntimePort') as HTMLInputElement | null;
+      const baEl = document.getElementById('xrayRuntimeBypassAd') as HTMLInputElement | null;
+      const errEl = document.getElementById('xrayRuntimeError');
+      const payload = {
+        enabled: Boolean(enEl && enEl.checked),
+        version: ((verEl && verEl.value) || '').trim(),
+        listenPort: Number(((portEl && portEl.value) || '').trim()) || 0,
+        bypassAd: Boolean(baEl && baEl.checked),
+      };
+      if (!Number.isInteger(payload.listenPort) || payload.listenPort < 1 || payload.listenPort > 65534) {
+        if (errEl) { errEl.textContent = isRu ? 'Порт должен быть числом 1–65534' : 'Port must be an integer 1-65534'; errEl.style.display = 'block'; }
+        return;
+      }
+      try {
+        const res = await adminFetch('/api/xray-runtime', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          if (errEl) errEl.style.display = 'none';
+          toast(isRu ? 'Настройки Xray сохранены' : 'Xray runtime settings saved', 'success');
+        } else {
+          if (errEl) { errEl.textContent = data.error || 'Failed to save'; errEl.style.display = 'block'; }
+        }
+      } catch (e) {
+        if (errEl) { errEl.textContent = String(e); errEl.style.display = 'block'; }
+      }
+    }
+
+    export function openAddRemnawaveModal() {
+      const tagEl = document.getElementById('addRemnawaveUsername');
+      const nameEl = document.getElementById('addRemnawaveName');
+      const hostEl = document.getElementById('addRemnawaveHost');
+      const activeEl = document.getElementById('addRemnawaveIsActive');
+      const previewEl = document.getElementById('addRemnawavePreview');
+      const errEl = document.getElementById('addRemnawaveError');
       if (tagEl) tagEl.value = '';
       if (nameEl) nameEl.value = '';
       if (hostEl) hostEl.value = '';
       if (activeEl) activeEl.checked = true;
-      if (previewEl) previewEl.innerHTML = '<span data-i18n="txtInboundPreviewPlaceholder">' + esc(t('txtInboundPreviewPlaceholder', 'Click "Fetch Info" to preview inbound parameters before adding.')) + '</span>';
+      if (previewEl) previewEl.innerHTML = '<span data-i18n="txtUserPreviewPlaceholder">' + esc(t('txtUserPreviewPlaceholder', 'Click "Fetch Info" to preview inbound parameters before adding.')) + '</span>';
       if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
-      const modal = document.getElementById('modalAdd3xui');
+      const modal = document.getElementById('modalAddRemnawave');
       if (modal) modal.style.display = 'flex';
       if (tagEl) tagEl.focus();
     }
 
-    export function closeAdd3xuiModal() {
-      const modal = document.getElementById('modalAdd3xui');
+    export function closeAddRemnawaveModal() {
+      const modal = document.getElementById('modalAddRemnawave');
       if (modal) modal.style.display = 'none';
     }
 
-    export async function lookup3xuiInbound() {
-      const tagEl = document.getElementById('add3xuiTag');
+    export async function lookupRemnawaveUser() {
+      const tagEl = document.getElementById('addRemnawaveUsername');
       const tag = tagEl ? tagEl.value.trim() : '';
-      const panelSelect = document.getElementById('add3xuiPanelSelect');
+      const panelSelect = document.getElementById('addRemnawavePanelSelect');
       const panelId = panelSelect ? panelSelect.value : '';
-      const errEl = document.getElementById('add3xuiError');
-      const previewEl = document.getElementById('add3xuiPreview');
+      const errEl = document.getElementById('addRemnawaveError');
+      const previewEl = document.getElementById('addRemnawavePreview');
       if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
       if (!tag) {
-        if (errEl) { errEl.textContent = 'Please enter an inbound tag'; errEl.style.display = 'block'; }
+        if (errEl) { errEl.textContent = 'Please enter a Remnawave username'; errEl.style.display = 'block'; }
         return;
       }
-      if (previewEl) previewEl.textContent = 'Querying 3x-ui panel...';
+      if (previewEl) previewEl.textContent = 'Querying Remnawave panel...';
 
       try {
-        const res = await adminFetch('/api/3xui/inbound-lookup', {
+        const res = await adminFetch('/api/remnawave/user-lookup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tag: tag, panelId: panelId || undefined })
+          body: JSON.stringify({ username: tag, panelId: panelId || undefined })
         });
         const data = await res.json().catch(() => ({}));
-        if (res.ok && data.ok && data.inbound) {
-          const ib = data.inbound;
+        if (res.ok && data.ok && data.user) {
+          const u = data.user;
           let warnHtml = '';
-          if ((ib.protocol === 'socks' || ib.protocol === 'socks5') && (ib.username || ib.hasPassword)) {
+          if (u.status && u.status !== 'ACTIVE') {
             warnHtml = '<div style="margin-top: 8px; padding: 6px 10px; background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; border-radius: 4px; color: #fbbf24; font-size: 11px; display: flex; align-items: center; gap: 6px;">' +
               '<img src="/icons/warning.png" class="icon-inline" alt="warn"> ' +
-              '<span>' + t('warnChromiumSocks5Auth', 'Chromium (Chrome, Edge, Brave, Yandex) does not support SOCKS5 authentication. If credentials are set, Chrome will reject the connection or bypass the proxy. Use HTTP protocol for authenticated corporate proxies or use SOCKS5 without username/password (e.g. IP whitelist).') + '</span>' +
+              '<span>' + esc('Remnawave user status is ' + u.status + ' - credentials may not work until the user is activated.') + '</span>' +
               '</div>';
           }
           if (previewEl) {
-            previewEl.innerHTML = '<div style="color: var(--success); font-weight: 600; margin-bottom: 4px;">Inbound Found:</div>' +
-              '<div><strong>Protocol:</strong> ' + esc(ib.protocol) + ' &bull; <strong>Port:</strong> ' + esc(ib.port) + '</div>' +
-              '<div><strong>Username:</strong> ' + esc(ib.username || 'none') + ' &bull; <strong>Password:</strong> ' + (ib.hasPassword ? 'Present' : 'None') + '</div>' +
+            previewEl.innerHTML = '<div style="color: var(--success); font-weight: 600; margin-bottom: 4px;">User Found:</div>' +
+              '<div><strong>Username:</strong> ' + esc(u.username) + ' &bull; <strong>Status:</strong> ' + esc(u.status || 'unknown') + '</div>' +
+              '<div><strong>Short UUID:</strong> ' + esc(u.shortUuid || 'none') + ' &bull; <strong>Password:</strong> ' + (u.hasPassword ? 'Present' : 'None') + '</div>' +
               warnHtml;
           }
-          const nameEl = document.getElementById('add3xuiName');
+          const nameEl = document.getElementById('addRemnawaveName');
           if (nameEl && !nameEl.value.trim()) {
-            nameEl.value = ib.tag || tag;
+            nameEl.value = u.username || tag;
           }
         } else {
-          const msg = data.error || 'Failed to lookup inbound from 3x-ui';
+          const msg = data.error || 'Failed to lookup user from Remnawave';
           if (previewEl) previewEl.textContent = 'Lookup failed: ' + msg;
           if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
         }
@@ -1666,23 +1670,23 @@ export let currentPanelsList = [];
       }
     }
 
-    export async function submitAdd3xuiProxy() {
-      const tagEl = document.getElementById('add3xuiTag');
-      const nameEl = document.getElementById('add3xuiName');
-      const hostEl = document.getElementById('add3xuiHost');
-      const activeEl = document.getElementById('add3xuiIsActive');
-      const panelSelect = document.getElementById('add3xuiPanelSelect');
+    export async function submitAddRemnawaveProxy() {
+      const tagEl = document.getElementById('addRemnawaveUsername');
+      const nameEl = document.getElementById('addRemnawaveName');
+      const hostEl = document.getElementById('addRemnawaveHost');
+      const activeEl = document.getElementById('addRemnawaveIsActive');
+      const panelSelect = document.getElementById('addRemnawavePanelSelect');
       const panelId = panelSelect ? panelSelect.value : '';
-      const errEl = document.getElementById('add3xuiError');
+      const errEl = document.getElementById('addRemnawaveError');
       if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
 
       const tag = tagEl ? tagEl.value.trim() : '';
       if (!tag) {
-        if (errEl) { errEl.textContent = 'Tag is required'; errEl.style.display = 'block'; }
+        if (errEl) { errEl.textContent = 'Username is required'; errEl.style.display = 'block'; }
         return;
       }
       const payload = {
-        type: '3x-ui',
+        type: 'remnawave',
         tag: tag,
         name: nameEl && nameEl.value.trim() ? nameEl.value.trim() : undefined,
         host: hostEl && hostEl.value.trim() ? hostEl.value.trim() : undefined,
@@ -1690,7 +1694,7 @@ export let currentPanelsList = [];
         panelId: panelId || undefined
       };
 
-      const btn = document.getElementById('btnAdd3xuiSubmit');
+      const btn = document.getElementById('btnAddRemnawaveSubmit');
       let origHtml = '';
       if (btn) {
         origHtml = btn.innerHTML;
@@ -1706,7 +1710,7 @@ export let currentPanelsList = [];
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.id) {
-          closeAdd3xuiModal();
+          closeAddRemnawaveModal();
           toast(t('toastProxySaved', 'Proxy saved!'), 'success');
           await fetchProxies();
           fetchStatus();
@@ -2132,5 +2136,5 @@ export let currentActiveAppVer = '';
 
 
 // Register modal closers
-registerModalCloser('modal3xuiPanel', close3xuiPanelModal);
-registerModalCloser('modalAdd3xui', closeAdd3xuiModal);
+registerModalCloser('modalRemnawavePanel', closeRemnawavePanelModal);
+registerModalCloser('modalAddRemnawave', closeAddRemnawaveModal);

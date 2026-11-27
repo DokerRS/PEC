@@ -7,7 +7,7 @@ import fs from "node:fs";
 import { createProxiesRouter } from "../src/routes/proxiesRoutes.js";
 import { getProxiesStorePath } from "../src/storage.js";
 import { createProxy, getAllProxies } from "../src/proxies.js";
-import { updateRotationConfig } from "../src/scheduler.js";
+import { saveRemnawavePanel, deleteRemnawavePanel, getRemnawavePanel } from "../src/rotate.js";
 import { getAuditLogs } from "../src/audit.js";
 import { withHttpServer } from "./helpers/http-server.js";
 
@@ -270,277 +270,174 @@ test("DELETE /api/proxies/:id: deletes proxy", async () => {
   });
 });
 
-test("POST /api/proxies (3x-ui): creation via inbound sync and error cases", async () => {
+test("POST /api/proxies (Remnawave): user creation and validation", async () => {
   resetProxiesStore();
-
   await withServer(async (base) => {
-    // Missing tag
-    const resNoTag = await fetch(`${base}/api/proxies`, {
+    const noUsername = await fetch(`${base}/api/proxies`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "3x-ui" }),
+      body: JSON.stringify({ type: "remnawave" }),
     });
-    assert.strictEqual(resNoTag.status, 400);
+    assert.strictEqual(noUsername.status, 400);
 
-    // Panel URL not configured
-    updateRotationConfig({ panelUrl: "", adminUser: "admin", adminPass: "admin" });
-    const resNoPanel = await fetch(`${base}/api/proxies`, {
+    // No panel configured: creation must be refused.
+    for (let p = getRemnawavePanel(); p; p = getRemnawavePanel()) deleteRemnawavePanel(p.id);
+    const noPanel = await fetch(`${base}/api/proxies`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "3x-ui", tag: "inbound-socks" }),
+      body: JSON.stringify({ type: "remnawave", username: "pec-user" }),
     });
-    assert.strictEqual(resNoPanel.status, 400);
+    assert.strictEqual(noPanel.status, 400);
 
-    // Mock 3x-ui panel
     const mockPanel = await withHttpServer((req, res) => {
-      if (req.method === "GET" && req.url === "/csrf-token") {
-        res.writeHead(404);
-        res.end();
+      const json = (status: number, body: unknown) => {
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (req.method === "POST" && req.url === "/api/auth/login") {
+        req.resume();
+        req.on("end", () => json(201, { response: { accessToken: "test-token" } }));
         return;
       }
-      if (req.method === "POST" && req.url === "/login") {
-        res.setHeader("Set-Cookie", "3x-ui=test-session; Path=/");
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: true }));
+      if (req.method === "GET" && req.url === "/api/users/by-username/pec-user") {
+        json(200, { response: { id: 21, username: "pec-user", trojanPassword: "user-pass" } });
         return;
       }
-      if (req.method === "GET" && req.url === "/panel/api/inbounds/list") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            success: true,
-            obj: [
-              {
-                id: 10,
-                tag: "inbound-tag-test",
-                remark: "Test 3XUI Remark",
-                protocol: "socks",
-                port: 10999,
-                settings: JSON.stringify({
-                  accounts: [{ user: "paneluser", pass: "panelpass" }],
-                }),
-              },
-            ],
-          })
-        );
-        return;
-      }
-      res.writeHead(404);
-      res.end();
+      json(404, { statusCode: 404, message: "Not found" });
     });
 
+    let registeredPanel: { id: string } | null = null;
     try {
-      updateRotationConfig({
-        enabled: false,
-        panelUrl: mockPanel.url,
-        adminUser: "admin",
-        adminPass: "admin",
-      });
-
-      const resCreate = await fetch(`${base}/api/proxies`, {
+      registeredPanel = saveRemnawavePanel({ name: "mock-panel", panelUrl: mockPanel.url, adminUser: "admin", adminPass: "admin" });
+      const createdRes = await fetch(`${base}/api/proxies`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "3x-ui",
-          tag: "inbound-tag-test",
-        }),
+        body: JSON.stringify({ type: "remnawave", username: "pec-user" }),
       });
-      assert.strictEqual(resCreate.status, 201);
-      const created = await resCreate.json();
-      assert.strictEqual(created.type, "3x-ui");
-      assert.strictEqual(created.tag, "inbound-tag-test");
-      assert.strictEqual(created.protocol, "socks5");
-      assert.strictEqual(created.port, 10999);
-      assert.strictEqual(created.username, "paneluser");
+      assert.strictEqual(createdRes.status, 201);
+      const created = await createdRes.json();
+      assert.strictEqual(created.type, "remnawave");
+      assert.strictEqual(created.remnawaveUsername, "pec-user");
       assert.strictEqual(created.password, "********");
       assert.strictEqual(created.host, "127.0.0.1");
     } finally {
       await mockPanel.close();
-      updateRotationConfig({ enabled: false, panelUrl: "", adminUser: "admin", adminPass: "" });
+      if (registeredPanel) deleteRemnawavePanel(registeredPanel.id);
     }
   });
 });
 
-test("POST /api/proxies/:id/sync: sync 3x-ui inbound and rotate password", async () => {
+test("POST /api/proxies/:id/sync: syncs Remnawave user credentials", async () => {
   resetProxiesStore();
-  const manualNode = createProxy({
-    tag: "manual-node",
-    protocol: "socks5",
-    host: "1.1.1.1",
-    port: 1080,
-  });
+  const manualProxy = createProxy({ tag: "manual-node", protocol: "socks5", host: "1.1.1.1", port: 1080 });
 
   await withServer(async (base) => {
-    // 404 for unknown id
-    const res404 = await fetch(`${base}/api/proxies/unknown-id/sync`, {
-      method: "POST",
-    });
-    assert.strictEqual(res404.status, 404);
+    const missing = await fetch(`${base}/api/proxies/unknown-id/sync`, { method: "POST" });
+    assert.strictEqual(missing.status, 404);
+    const manual = await fetch(`${base}/api/proxies/${manualProxy.id}/sync`, { method: "POST" });
+    assert.strictEqual(manual.status, 400);
 
-    // 400 for non-3x-ui proxy
-    const resManual = await fetch(`${base}/api/proxies/${manualNode.id}/sync`, {
-      method: "POST",
-    });
-    assert.strictEqual(resManual.status, 400);
-
-    // Create 3x-ui node directly
-    const node3x = createProxy({
-      tag: "sync-tag-test",
-      type: "3x-ui",
-      protocol: "socks5",
-      host: "127.0.0.1",
-      port: 10999,
-      username: "user1",
-      password: "pass1",
-    });
-
-    let updatedPass = "";
+    let password = "old-pass";
     const mockPanel = await withHttpServer((req, res) => {
-      if (req.method === "GET" && req.url === "/csrf-token") {
-        res.writeHead(404);
-        res.end();
+      const json = (status: number, body: unknown) => {
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (req.method === "POST" && req.url === "/api/auth/login") {
+        req.resume();
+        req.on("end", () => json(201, { response: { accessToken: "test-token" } }));
         return;
       }
-      if (req.method === "POST" && req.url === "/login") {
-        res.setHeader("Set-Cookie", "3x-ui=test-session; Path=/");
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: true }));
+      if (req.method === "GET" && req.url === "/api/users/by-username/pec-user") {
+        json(200, { response: { id: 22, username: "pec-user", trojanPassword: password } });
         return;
       }
-      if (req.method === "GET" && req.url === "/panel/api/inbounds/list") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            success: true,
-            obj: [
-              {
-                id: 15,
-                tag: "sync-tag-test",
-                protocol: "socks",
-                port: 10999,
-                settings: JSON.stringify({
-                  accounts: [{ user: "user1", pass: "pass1" }],
-                }),
-              },
-            ],
-          })
-        );
-        return;
-      }
-      if (req.method === "POST" && req.url === "/panel/api/inbounds/update/15") {
-        let raw = "";
-        req.on("data", (c) => (raw += c));
+      if (req.method === "POST" && req.url === "/api/users/22/actions/revoke") {
+        req.resume();
         req.on("end", () => {
-          const body = JSON.parse(raw);
-          const st = JSON.parse(body.settings);
-          updatedPass = st.accounts[0].pass;
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ success: true, msg: "Updated" }));
+          password = "new-pass";
+          json(200, { response: { id: 22, username: "pec-user", trojanPassword: password } });
         });
         return;
       }
-      res.writeHead(404);
-      res.end();
+      json(404, { statusCode: 404, message: "Not found" });
     });
 
-    try {
-      updateRotationConfig({
-        enabled: false,
-        panelUrl: mockPanel.url,
-        adminUser: "admin",
-        adminPass: "admin",
-      });
+    const remnawaveProxy = createProxy({
+      tag: "pec-user",
+      type: "remnawave",
+      remnawaveUsername: "pec-user",
+      protocol: "socks5",
+      host: "127.0.0.1",
+      port: 443,
+    });
 
-      const resSync = await fetch(`${base}/api/proxies/${node3x.id}/sync`, {
+    let registeredPanel: { id: string } | null = null;
+    try {
+      registeredPanel = saveRemnawavePanel({ name: "mock-panel", panelUrl: mockPanel.url, adminUser: "admin", adminPass: "admin" });
+      const response = await fetch(`${base}/api/proxies/${remnawaveProxy.id}/sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rotatePassword: true }),
       });
-      assert.strictEqual(resSync.status, 200);
-      const data = await resSync.json();
+      assert.strictEqual(response.status, 200);
+      const data = await response.json();
       assert.strictEqual(data.ok, true);
       assert.strictEqual(data.proxy.password, "********");
       assert.ok(data.proxy.lastSync);
-      assert.ok(updatedPass);
+      assert.strictEqual(password, "old-pass", "sync is read-only and must never rotate the panel credential");
     } finally {
       await mockPanel.close();
-      updateRotationConfig({ enabled: false, panelUrl: "", adminUser: "admin", adminPass: "" });
+      if (registeredPanel) deleteRemnawavePanel(registeredPanel.id);
     }
   });
 });
 
-test("POST /api/3xui/inbound-lookup: lookup inbound by tag", async () => {
+test("POST /api/remnawave/user-lookup: reads credentials without rotating them", async () => {
   await withServer(async (base) => {
-    // Missing tag
-    const resNoTag = await fetch(`${base}/api/3xui/inbound-lookup`, {
+    const missingUsername = await fetch(`${base}/api/remnawave/user-lookup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
-    assert.strictEqual(resNoTag.status, 400);
+    assert.strictEqual(missingUsername.status, 400);
 
+    let revokes = 0;
     const mockPanel = await withHttpServer((req, res) => {
-      if (req.method === "GET" && req.url === "/csrf-token") {
-        res.writeHead(404);
-        res.end();
+      const json = (status: number, body: unknown) => {
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (req.method === "POST" && req.url === "/api/auth/login") {
+        req.resume();
+        req.on("end", () => json(201, { response: { accessToken: "test-token" } }));
         return;
       }
-      if (req.method === "POST" && req.url === "/login") {
-        res.setHeader("Set-Cookie", "3x-ui=test-session; Path=/");
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: true }));
+      if (req.method === "GET" && req.url === "/api/users/by-username/lookup-user") {
+        json(200, { response: { id: 23, username: "lookup-user", ssPassword: "ss-secret" } });
         return;
       }
-      if (req.method === "GET" && req.url === "/panel/api/inbounds/list") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            success: true,
-            obj: [
-              {
-                id: 20,
-                tag: "lookup-tag",
-                protocol: "http",
-                port: 8888,
-                settings: JSON.stringify({
-                  accounts: [{ user: "lookupUser", pass: "lookupPass" }],
-                }),
-              },
-            ],
-          })
-        );
-        return;
-      }
-      res.writeHead(404);
-      res.end();
+      if (req.url?.includes("/actions/revoke")) revokes++;
+      json(404, { statusCode: 404, message: "Not found" });
     });
 
+    let registeredPanel: { id: string } | null = null;
     try {
-      updateRotationConfig({
-        enabled: false,
-        panelUrl: mockPanel.url,
-        adminUser: "admin",
-        adminPass: "admin",
-      });
-
-      const resLookup = await fetch(`${base}/api/3xui/inbound-lookup`, {
+      registeredPanel = saveRemnawavePanel({ name: "mock-panel", panelUrl: mockPanel.url, adminUser: "admin", adminPass: "admin" });
+      const response = await fetch(`${base}/api/remnawave/user-lookup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tag: "lookup-tag" }),
+        body: JSON.stringify({ username: "lookup-user" }),
       });
-      assert.strictEqual(resLookup.status, 200);
-      const data = await resLookup.json();
+      assert.strictEqual(response.status, 200);
+      const data = await response.json();
       assert.strictEqual(data.ok, true);
-      assert.deepStrictEqual(data.inbound, {
-        tag: "lookup-tag",
-        protocol: "http",
-        port: 8888,
-        username: "lookupUser",
-        hasPassword: true,
-      });
+      assert.strictEqual(data.user.username, "lookup-user");
+      assert.strictEqual(data.user.hasPassword, true);
+      assert.strictEqual(revokes, 0);
     } finally {
       await mockPanel.close();
-      updateRotationConfig({ enabled: false, panelUrl: "", adminUser: "admin", adminPass: "" });
+      if (registeredPanel) deleteRemnawavePanel(registeredPanel.id);
     }
   });
 });

@@ -172,47 +172,47 @@ test("P3/routing: preset entry cap is enforced (helper + POST /api/routing/prese
   }
 });
 
-test("P3/proxiesRoutes: concurrent syncs for the same node are coalesced, not 409-rejected", async () => {
+test("P3/proxiesRoutes: concurrent Remnawave user syncs are coalesced, not 409-rejected", async () => {
+  const { saveRemnawavePanel, deleteRemnawavePanel } = await import("../src/rotate.js");
+  const panel = saveRemnawavePanel({
+    name: "Coalesce Panel",
+    panelUrl: "http://remnawave.mock.test:3000",
+    adminUser: "admin",
+    adminPass: "pass",
+    targetUsername: "coalesce-user",
+  });
   const node = createProxy({
     name: "Coalesce Node",
-    type: "3x-ui",
+    type: "remnawave",
+    remnawaveUsername: "coalesce-user",
     protocol: "socks5",
     host: "10.70.0.1",
     port: 1080,
-    tag: "coalesce-in",
-  } as any);
+    tag: "coalesce-user",
+    panelId: panel.id,
+  });
 
   let panelHits = 0;
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: any, init?: any) => {
     const url = String(input);
     if (url.startsWith("http://127.0.0.1:") || url.includes("//localhost")) {
-      return realFetch(input, init); // test harness traffic to the local express server
+      return realFetch(input, init);
     }
     const jsonHeaders = { "content-type": "application/json" };
-    if (url.endsWith("/csrf-token")) return new Response("{}", { status: 404 });
-    if (url.endsWith("/login")) return new Response(JSON.stringify({ success: true }), { status: 200, headers: jsonHeaders });
-    if (url.includes("/panel/api/inbounds/list")) {
+    if (url.endsWith("/api/auth/login")) {
+      return new Response(JSON.stringify({ response: { accessToken: "test-token" } }), {
+        status: 201,
+        headers: jsonHeaders,
+      });
+    }
+    if (url.includes("/api/users/by-username/coalesce-user")) {
       panelHits++;
-      await new Promise((r) => setTimeout(r, 200)); // keep the first sync in flight
+      await new Promise((r) => setTimeout(r, 200));
       return new Response(
-        JSON.stringify({
-          success: true,
-          obj: [
-            {
-              id: 11,
-              tag: "coalesce-in",
-              protocol: "socks",
-              settings: JSON.stringify({ accounts: [{ user: "u1", pass: "p1" }] }),
-              streamSettings: "{}",
-            },
-          ],
-        }),
+        JSON.stringify({ response: { id: 11, username: "coalesce-user", trojanPassword: "p1" } }),
         { status: 200, headers: jsonHeaders }
       );
-    }
-    if (url.includes("/panel/api/inbounds/update/11")) {
-      return new Response(JSON.stringify({ success: true }), { status: 200, headers: jsonHeaders });
     }
     return new Response("{}", { status: 404 });
   }) as any;
@@ -248,6 +248,7 @@ test("P3/proxiesRoutes: concurrent syncs for the same node are coalesced, not 40
     if (typeof (server as any).closeAllConnections === "function") (server as any).closeAllConnections();
     await new Promise<void>((r) => server.close(() => r()));
     deleteProxy(node.id);
+    deleteRemnawavePanel(panel.id);
   }
 });
 

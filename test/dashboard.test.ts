@@ -23,6 +23,10 @@ const dashboardJs = readFileSync(
   fileURLToPath(new URL("../public/dashboard.js", import.meta.url)),
   "utf-8"
 );
+const dashboardTelemetrySource = readFileSync(
+  fileURLToPath(new URL("../src/client/dashboard/tabs/telemetry.ts", import.meta.url)),
+  "utf-8"
+);
 const dashboardCss = readFileSync(
   fileURLToPath(new URL("../public/dashboard.css", import.meta.url)),
   "utf-8"
@@ -223,17 +227,16 @@ test("dashboard render & assets: Proxy Settings tab, multi-proxy table, modals a
   assert.ok(html.includes('id="activePacDirectiveText"'), "must render active PAC directive indicator text");
   assert.ok(html.includes('id="activeProxyBadge"'), "must render active proxy badge");
 
-  // 3x-ui and Modals (updated by the multi-server rotation task: the legacy
-  // "3x-ui API Credentials & Timing Scheduler" card is gone — the insecure
+  // Remnawave and Modals (the legacy rotation card is gone — the insecure
   // TLS toggle now lives in the per-panel modal)
   assert.ok(html.includes('id="panelInsecureTls"'), "must render insecure TLS toggle in the per-panel modal");
   assert.ok(!html.includes('id="rotPanelUrl"'), "legacy rotation card must be removed");
   assert.ok(!html.includes('id="rotAdminPass"'), "legacy rotation card inputs must be removed");
-  assert.ok(html.includes('id="panelRotationEnabled"'), "per-panel auto-rotation checkbox must be present");
-  assert.ok(html.includes('id="panelTargetRemark"'), "per-panel target remark input must be present");
-  assert.ok(html.includes('id="modalAdd3xui"'), "must render modalAdd3xui");
-  assert.ok(html.includes('id="add3xuiTag"'), "must render add3xuiTag input");
-  assert.ok(html.includes('id="add3xuiPreview"'), "must render add3xuiPreview");
+  assert.ok(!html.includes('id="panelRotationEnabled"'), "per-panel auto-rotation checkbox must be removed with rotation");
+  assert.ok(!html.includes('id="panelTargetUsername"'), "per-panel rotation target input must be removed with rotation");
+  assert.ok(html.includes('id="modalAddRemnawave"'), "must render modalAddRemnawave");
+  assert.ok(html.includes('id="addRemnawaveUsername"'), "must render addRemnawaveUsername input");
+  assert.ok(html.includes('id="addRemnawavePreview"'), "must render addRemnawavePreview");
   assert.ok(html.includes('id="modalProxyForm"'), "must render modalProxyForm");
   assert.ok(html.includes('id="proxyFormTag"'), "must render proxyFormTag");
   assert.ok(html.includes('id="proxyFormProtocol"'), "must render proxyFormProtocol");
@@ -246,8 +249,8 @@ test("dashboard render & assets: Proxy Settings tab, multi-proxy table, modals a
   assert.ok(dashboardJs.includes("function activateProxy("), "must declare activateProxy");
   assert.ok(dashboardJs.includes("function syncProxy("), "must declare syncProxy");
   assert.ok(dashboardJs.includes("function deleteProxy("), "must declare deleteProxy");
-  assert.ok(dashboardJs.includes("function lookup3xuiInbound()"), "must declare lookup3xuiInbound");
-  assert.ok(dashboardJs.includes("function submitAdd3xuiProxy()"), "must declare submitAdd3xuiProxy");
+  assert.ok(dashboardTelemetrySource.includes("export async function lookupRemnawaveUser()"), "must declare lookupRemnawaveUser");
+  assert.ok(dashboardTelemetrySource.includes("export async function submitAddRemnawaveProxy()"), "must declare submitAddRemnawaveProxy");
   assert.ok(dashboardJs.includes("function submitProxyForm()"), "must declare submitProxyForm");
 
   // Translations

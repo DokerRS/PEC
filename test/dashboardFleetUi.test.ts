@@ -288,8 +288,8 @@ test("Fleet UI: empty fleet state renders placeholder cleanly without crashing",
     const desktopTbody = env.document.getElementById("desktopFleetTableBody");
     assert.ok(desktopTbody, "desktopFleetTableBody must exist");
     assert.ok(
-      desktopTbody.innerHTML.includes("colspan=\"9\""),
-      "empty desktopFleetTableBody must render placeholder spanning 9 columns"
+      desktopTbody.innerHTML.includes("colspan=\"10\""),
+      "empty desktopFleetTableBody must render placeholder spanning 10 columns"
     );
   } finally {
     env.teardown();

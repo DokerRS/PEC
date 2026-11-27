@@ -978,13 +978,18 @@ static void RenderPill(const char* text, ImVec4 bg, ImVec4 textCol = ImVec4(1.0f
 {
     ImVec2 p = ImGui::GetCursorScreenPos();
     ImVec2 textSize = ImGui::CalcTextSize(text);
-    float padX = 8.0f;
+    float padX = 10.0f;
     float padY = 3.0f;
     ImVec2 bbMin = p;
     ImVec2 bbMax = ImVec2(p.x + textSize.x + padX * 2, p.y + textSize.y + padY * 2);
 
+    // GUI-REDESIGN-1: capsule pill with hairline border
     ImDrawList* drawList = ImGui::GetWindowDrawList();
-    drawList->AddRectFilled(bbMin, bbMax, ImGui::GetColorU32(bg), 4.0f);
+    ImU32 bgU32 = ImGui::GetColorU32(bg);
+    drawList->AddRectFilled(bbMin, bbMax, bgU32, (bbMax.y - bbMin.y) * 0.5f);
+    ImVec4 borderCol = bg;
+    borderCol.w = 0.55f;
+    drawList->AddRect(bbMin, bbMax, ImGui::GetColorU32(borderCol), (bbMax.y - bbMin.y) * 0.5f, 0, 1.0f);
     drawList->AddText(ImVec2(p.x + padX, p.y + padY), ImGui::GetColorU32(textCol), text);
 
     ImGui::Dummy(ImVec2(textSize.x + padX * 2, textSize.y + padY * 2));
@@ -1294,6 +1299,10 @@ static void FlowCheckboxSameLine(const char* label, float spacing = -1.0f)
     FlowSameLine(w, spacing);
 }
 
+// XRAY-STATUS-UI-1: reason/note -> localized UTF-8 text (defined with Overview tab)
+static const char* XrayReasonText(const wchar_t* reason);
+static const char* XrayNoteText(const wchar_t* note);
+
 static void RenderHeader()
 {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 6.0f));
@@ -1357,6 +1366,38 @@ static void RenderHeader()
         RenderPill(T(S_STATUS_SYNC_WAIT), PecTheme::CardBg, PecTheme::TextMuted);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip(T(S_TOOLTIP_SYNC_WAIT), syncStatusSnapshot);
+        }
+    }
+
+    // XRAY-STATUS-UI-1: local core pill (visible on every tab)
+    {
+        PecXraySnapshot xrSnap;
+        PecXrayGetSnapshot(&xrSnap);
+        if (xrSnap.enabled || xrSnap.running || xrSnap.reason[0]) {
+            ImGui::SameLine(0, 10.0f);
+            if (xrSnap.running) {
+                RenderPill("⚡ Xray", ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Xray %ls · 127.0.0.1:%d · %d srv",
+                        xrSnap.version, xrSnap.socksPort, xrSnap.serverCount);
+                }
+            } else if (xrSnap.enabled) {
+                RenderPill("⏸ Xray", ImVec4(0.35f, 0.24f, 0.05f, 1.0f), PecTheme::WarningAlert);
+                if (ImGui::IsItemHovered()) {
+                    const char* note = XrayNoteText(xrSnap.note);
+                    ImGui::SetTooltip("%s", note ? note : T(S_XRAY_STOPPED));
+                }
+            } else {
+                RenderPill("🚫 Xray", PecTheme::CardBg, PecTheme::TextMuted);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", XrayReasonText(xrSnap.reason));
+                }
+            }
+            // GUI-REDESIGN-1: pill click opens the dedicated Xray page
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                if (ImGui::IsMouseClicked(0)) g_activeTab = 1;
+            }
         }
     }
 
@@ -2454,46 +2495,528 @@ static void RenderSettingsTab()
     }
 }
 
-// Main Tabs Dispatcher
+// -----------------------------------------------------------------------------
+// Tab 0: Overview (status dashboard)
+// -----------------------------------------------------------------------------
+static const char* XrayReasonText(const wchar_t* reason)
+{
+    if (!wcsicmp(reason, L"user_not_found")) return T(S_XRAY_RNF_USER);
+    if (!wcsicmp(reason, L"no_active_subscription")) return T(S_XRAY_RNF_NOSUB);
+    if (!wcsicmp(reason, L"panel_error")) return T(S_XRAY_RNF_PANEL);
+    // GUI-REDESIGN-1: server-side status-only reasons (always-delivered block)
+    if (!wcsicmp(reason, L"server_disabled")) return T(S_XRAY_RNF_SERVER_OFF);
+    if (!wcsicmp(reason, L"not_authorized")) return T(S_XRAY_RNF_NOAUTH);
+    return T(S_XRAY_RNF_GENERIC);
+}
+
+static const char* XrayNoteText(const wchar_t* note)
+{
+    if (!wcsicmp(note, L"binary_download_failed")) return T(S_XRAY_NOTE_DLFAIL);
+    if (!wcsicmp(note, L"config_write_failed")) return T(S_XRAY_NOTE_CFGFAIL);
+    return nullptr;
+}
+
+// Rounded card container: background is painted on the parent draw list, the
+// child window itself is transparent so the rounded corners stay visible.
+static void BeginStatusCard(const char* id, ImVec2 size)
+{
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImU32 bg = ImGui::ColorConvertFloat4ToU32(PecTheme::CardBg);
+    ImU32 border = ImGui::ColorConvertFloat4ToU32(PecTheme::BorderLight);
+    dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bg, 8.0f);
+    dl->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), border, 8.0f, 0, 1.0f);
+
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14, 12));
+    ImGui::BeginChild(id, size, ImGuiChildFlags_None,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+}
+
+static void EndStatusCard()
+{
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+}
+
+static void CardTitle(const char* title)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, PecTheme::TextMuted);
+    ImGui::SetWindowFontScale(0.85f);
+    ImGui::TextUnformatted(title);
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
+    ImGui::Spacing();
+}
+
+static void CardKV(const char* key, const char* value)
+{
+    ImGui::TextColored(PecTheme::TextMuted, "%s", key);
+    ImGui::SameLine(130.0f);
+    ImGui::TextColored(PecTheme::TextPrimary, "%s", value);
+}
+
+static void RenderOverviewTab()
+{
+    ProfileLock lock;
+
+    // ---- Gather state snapshots -------------------------------------------
+    PecXraySnapshot xr;
+    PecXrayGetSnapshot(&xr);
+
+    wchar_t syncStatus[128] = { 0 };
+    PecSyncGetStatusStr(syncStatus, 128);
+
+    char syncTimeStr[64] = "";
+    if (g_lastSyncTime.wYear > 0)
+        snprintf(syncTimeStr, sizeof(syncTimeStr), "%02d:%02d:%02d",
+            g_lastSyncTime.wHour, g_lastSyncTime.wMinute, g_lastSyncTime.wSecond);
+
+    wchar_t winUser[128] = { 0 };
+    DWORD uLen = 128;
+    GetUserNameW(winUser, &uLen);
+    wchar_t winHost[128] = { 0 };
+    DWORD hLen = 128;
+    GetComputerNameW(winHost, &hLen);
+
+    char activeProxyName[128] = "—";
+    if (g_profile.cfgCount > 0 && g_profile.cfg[0].name[0]) {
+        std::string tmp = WToUtf8(g_profile.cfg[0].name);
+        snprintf(activeProxyName, sizeof(activeProxyName), "%s", tmp.c_str());
+    }
+
+    // ---- Layout grid -------------------------------------------------------
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    float availW = ImGui::GetContentRegionAvail().x;
+    float cardW = (availW - spacing) * 0.5f;
+    if (cardW < 260.0f) { cardW = availW; }   // single column on narrow windows
+    const float cardH = 118.0f;
+    bool twoCols = (cardW < availW);
+
+    // ---- Card 1: interception engine ----------------------------------------
+    BeginStatusCard("ovEngineCard", ImVec2(cardW, cardH));
+    CardTitle(T(S_OV_ENGINE));
+    if (g_proxyEnabled) {
+        RenderPill(T(S_STATUS_ACTIVE), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+    } else {
+        RenderPill(T(S_STATUS_PAUSED), ImVec4(0.35f, 0.24f, 0.05f, 1.0f), PecTheme::WarningAlert);
+    }
+    ImGui::Spacing();
+    CardKV(T(S_OV_ACTIVE_PROXY), activeProxyName);
+    ImGui::TextColored(PecTheme::TextMuted, "%s", T(S_OV_ACCOUNT));
+    ImGui::SameLine(130.0f);
+    char acct[288];
+    snprintf(acct, sizeof(acct), "%s@%s", WToUtf8(winUser).c_str(), WToUtf8(winHost).c_str());
+    ImGui::TextColored(PecTheme::TextPrimary, "%s", acct);
+    EndStatusCard();
+
+    if (twoCols) ImGui::SameLine(0, spacing);
+
+    // ---- Card 2: server sync -------------------------------------------------
+    BeginStatusCard("ovSyncCard", ImVec2(cardW, cardH));
+    CardTitle(T(S_OV_SYNC));
+    if (g_isSyncing) {
+        RenderPill(T(S_STATUS_SYNCING), ImVec4(0.08f, 0.20f, 0.35f, 1.0f), PecTheme::HoverAccent);
+    } else if (g_syncEverSucceeded && g_lastSyncError == 0) {
+        RenderPill(T(S_STATUS_SYNC_OK), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+    } else if (g_lastSyncError != 0) {
+        RenderPill(T(S_STATUS_SYNC_ERR), ImVec4(0.35f, 0.10f, 0.10f, 1.0f), PecTheme::DangerRed);
+    } else {
+        RenderPill(T(S_STATUS_SYNC_WAIT), PecTheme::FrameBg, PecTheme::TextMuted);
+    }
+    ImGui::Spacing();
+    CardKV(T(S_OV_LAST_SYNC), g_lastSyncTime.wYear > 0 ? syncTimeStr : T(S_OV_NEVER));
+    {
+        char srvBuf[256] = "—";
+        if (g_profile.pecSync.serverUrl[0])
+            snprintf(srvBuf, sizeof(srvBuf), "%s", WToUtf8(g_profile.pecSync.serverUrl).c_str());
+        ImGui::TextColored(PecTheme::TextMuted, "URL");
+        ImGui::SameLine(130.0f);
+        ImGui::TextColored(PecTheme::TextSecondary, "%s", srvBuf);
+    }
+    EndStatusCard();
+
+    if (twoCols) ImGui::SameLine(0, spacing);
+
+    // ---- Card 3: Xray core ---------------------------------------------------
+    BeginStatusCard("ovXrayCard", ImVec2(cardW, cardH));
+    CardTitle(T(S_OV_XRAY));
+    {
+        if (xr.running) {
+            RenderPill(T(S_XRAY_RUNNING), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+        } else if (xr.enabled) {
+            RenderPill(T(S_XRAY_STOPPED),
+                ImVec4(0.35f, 0.24f, 0.05f, 1.0f), PecTheme::WarningAlert);
+        } else {
+            RenderPill(T(S_XRAY_OFF), PecTheme::FrameBg, PecTheme::TextMuted);
+        }
+        ImGui::Spacing();
+        const char* noteTxt = xr.note[0] ? XrayNoteText(xr.note) : nullptr;
+        if (xr.enabled || xr.running) {
+            char verBuf[48] = "—";
+            if (xr.version[0]) snprintf(verBuf, sizeof(verBuf), "%s", WToUtf8(xr.version).c_str());
+            CardKV(T(S_XRAY_VERSION), verBuf);
+            char portBuf[32];
+            snprintf(portBuf, sizeof(portBuf), "127.0.0.1:%d", xr.socksPort);
+            CardKV(T(S_XRAY_PORT), xr.socksPort > 0 ? portBuf : "—");
+        }
+        if (noteTxt) {
+            ImGui::TextColored(PecTheme::DangerRed, "%s", noteTxt);
+        } else if (xr.running) {
+            char pidBuf[48];
+            snprintf(pidBuf, sizeof(pidBuf), "PID %lu", xr.procId);
+            ImGui::TextColored(PecTheme::TextMuted, "%s", pidBuf);
+        }
+    }
+    EndStatusCard();
+
+    if (twoCols) { ImGui::SameLine(0, spacing); } else { ImGui::Spacing(); }
+
+    // ---- Card 4: personal subscription ---------------------------------------
+    BeginStatusCard("ovSubCard", ImVec2(cardW, cardH));
+    CardTitle(T(S_OV_SUB));
+    {
+        if (xr.enabled && xr.serverCount > 0) {
+            char cnt[32];
+            snprintf(cnt, sizeof(cnt), "%d", xr.serverCount);
+            RenderPill(T(S_STATUS_SYNC_OK), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+            ImGui::Spacing();
+            CardKV(T(S_XRAY_SERVERS), cnt);
+            char userBuf[160] = "—";
+            if (xr.proxyUser[0]) snprintf(userBuf, sizeof(userBuf), "%s", WToUtf8(xr.proxyUser).c_str());
+            CardKV(T(S_XRAY_USER), userBuf);
+        } else if (xr.reason[0]) {
+            RenderPill(XrayReasonText(xr.reason), ImVec4(0.35f, 0.10f, 0.10f, 1.0f), PecTheme::DangerRed);
+            ImGui::Spacing();
+            ImGui::TextColored(PecTheme::TextMuted, "%s", T(S_XRAY_RNF_GENERIC));
+        } else {
+            RenderPill(T(S_XRAY_OFF), PecTheme::FrameBg, PecTheme::TextMuted);
+            ImGui::Spacing();
+            ImGui::TextColored(PecTheme::TextMuted, "%s", T(S_OV_IDLE));
+        }
+    }
+    EndStatusCard();
+
+    // Card 5 wraps to the next row (no SameLine) to avoid a third half-width card
+    ImGui::Spacing();
+
+    // ---- Card 5: browser extension pairing ------------------------------------
+    BeginStatusCard("ovExtCard", ImVec2(cardW, cardH));
+    CardTitle(T(S_OV_EXT));
+    if (g_pairedExt.paired) {
+        RenderPill(T(S_STATUS_PAIRED), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), ImVec4(0.3f, 0.9f, 0.5f, 1.0f));
+        ImGui::Spacing();
+        char extBuf[256];
+        snprintf(extBuf, sizeof(extBuf), "%s (%s)",
+            WToUtf8(g_pairedExt.browser[0] ? g_pairedExt.browser : L"chromium").c_str(),
+            WToUtf8(g_pairedExt.version[0] ? g_pairedExt.version : L"1.0.0").c_str());
+        CardKV("ID", extBuf);
+    } else {
+        RenderPill(T(S_STATUS_WAIT_EXT), PecTheme::FrameBg, PecTheme::TextMuted);
+        ImGui::Spacing();
+        ImGui::TextColored(PecTheme::TextMuted, "%s", T(S_TOOLTIP_EXT_WAIT));
+    }
+    EndStatusCard();
+
+    ImGui::Spacing();
+    char syncLine[192];
+    snprintf(syncLine, sizeof(syncLine), "%s", WToUtf8(syncStatus).c_str());
+    ImGui::TextColored(PecTheme::TextMuted, "%s", syncLine);
+}
+
+// -----------------------------------------------------------------------------
+// GUI-REDESIGN-1: persistent sidebar navigation + page dispatcher
+// -----------------------------------------------------------------------------
+static void RenderHero()
+{
+    const float heroH = 74.0f;
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    float w = ImGui::GetContentRegionAvail().x;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // Accent -> canvas horizontal gradient with rounded bottom corners
+    ImU32 cL = ImGui::GetColorU32(PecTheme::HeroLeft);
+    ImU32 cR = ImGui::GetColorU32(PecTheme::HeroRight);
+    dl->AddRectFilledMultiColor(pos, ImVec2(pos.x + w, pos.y + heroH), cL, cR, cR, cL);
+    // Fade the rounded corners back into the canvas
+    float r = 10.0f;
+    ImU32 canvas = ImGui::GetColorU32(PecTheme::CanvasBg);
+    dl->AddRectFilled(ImVec2(pos.x, pos.y + heroH - r), ImVec2(pos.x + r, pos.y + heroH), canvas, r, ImDrawFlags_RoundCornersBottomLeft);
+    dl->AddRectFilled(ImVec2(pos.x + w - r, pos.y + heroH - r), ImVec2(pos.x + w, pos.y + heroH), canvas, r, ImDrawFlags_RoundCornersBottomRight);
+    // Accent hairline on top
+    dl->AddLine(ImVec2(pos.x, pos.y + 0.5f), ImVec2(pos.x + w, pos.y + 0.5f), ImGui::GetColorU32(PecTheme::AccentGlow), 1.5f);
+
+    PecXraySnapshot xr;
+    PecXrayGetSnapshot(&xr);
+
+    wchar_t winUser[128] = { 0 };
+    DWORD uLen = 128;
+    GetUserNameW(winUser, &uLen);
+
+    float groupTop = ImGui::GetCursorPosY();
+    ImGui::BeginGroup();
+    ImGui::Dummy(ImVec2(0, 8));
+    ImGui::Indent(18.0f);
+    if (g_proxyEnabled) {
+        ImGui::SetWindowFontScale(1.25f);
+        ImGui::TextColored(PecTheme::SuccessDirect, "● %s", T(S_HERO_ROUTING));
+        ImGui::SetWindowFontScale(1.0f);
+    } else {
+        ImGui::SetWindowFontScale(1.25f);
+        ImGui::TextColored(PecTheme::WarningAlert, "⏸ %s", T(S_HERO_PAUSED_SUB));
+        ImGui::SetWindowFontScale(1.0f);
+    }
+    char sub[256];
+    snprintf(sub, sizeof(sub), "%s · %s", WToUtf8(winUser).c_str(),
+        g_profile.pecSync.serverUrl[0] ? WToUtf8(g_profile.pecSync.serverUrl).c_str() : "—");
+    ImGui::TextColored(ImVec4(1, 1, 1, 0.65f), "%s", sub);
+    ImGui::Unindent(18.0f);
+    ImGui::EndGroup();
+
+    // Right side: Xray state chip inside the hero
+    {
+        const char* chipText;
+        ImVec4 chipCol;
+        if (xr.running) {
+            char buf[96];
+            snprintf(buf, sizeof(buf), "⚡ Xray %s", WToUtf8(xr.version).c_str());
+            static char chipRun[96];
+            snprintf(chipRun, sizeof(chipRun), "%s", buf);
+            chipText = chipRun; chipCol = PecTheme::SuccessDirect;
+        } else if (xr.enabled) {
+            chipText = "⏸ Xray"; chipCol = PecTheme::WarningAlert;
+        } else if (xr.reason[0]) {
+            chipText = "🚫 Xray"; chipCol = ImVec4(1, 1, 1, 0.75f);
+        } else {
+            chipText = "🚫 Xray"; chipCol = ImVec4(1, 1, 1, 0.5f);
+        }
+        ImVec2 ts = ImGui::CalcTextSize(chipText);
+        ImVec2 chipPos(pos.x + w - ts.x - 36.0f, pos.y + (heroH - ts.y) * 0.5f);
+        dl->AddRectFilled(ImVec2(chipPos.x - 12, chipPos.y - 7),
+            ImVec2(chipPos.x + ts.x + 12, chipPos.y + ts.y + 7),
+            ImGui::GetColorU32(ImVec4(0, 0, 0, 0.28f)), 12.0f);
+        dl->AddText(chipPos, ImGui::GetColorU32(chipCol), chipText);
+        if (ImGui::IsMouseHoveringRect(ImVec2(chipPos.x - 12, chipPos.y - 7),
+                ImVec2(chipPos.x + ts.x + 12, chipPos.y + ts.y + 7))) {
+            if (xr.running)
+                ImGui::SetTooltip("Xray %ls · 127.0.0.1:%d · %d srv", xr.version, xr.socksPort, xr.serverCount);
+            else if (xr.enabled)
+                ImGui::SetTooltip("%s", T(S_XRAY_STOPPED));
+            else if (xr.reason[0])
+                ImGui::SetTooltip("%s", XrayReasonText(xr.reason));
+        }
+    }
+    float used = ImGui::GetCursorPosY() - groupTop;
+    ImGui::Dummy(ImVec2(0, heroH > used ? heroH - used : 0.0f));
+}
+
+// -----------------------------------------------------------------------------
+// GUI-REDESIGN-1: dedicated Xray page
+// -----------------------------------------------------------------------------
+static void RenderXrayPage()
+{
+    PecXraySnapshot xr;
+    PecXrayGetSnapshot(&xr);
+
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    float availW = ImGui::GetContentRegionAvail().x;
+    float cardW = (availW - spacing) * 0.5f;
+    if (cardW < 280.0f) cardW = availW;
+    bool twoCols = (cardW < availW);
+
+    // ---- Status card ---------------------------------------------------------
+    BeginStatusCard("xrStatusCard", ImVec2(cardW, 150.0f));
+    CardTitle(T(S_XRAY_STATUS_CARD));
+    if (xr.running) {
+        RenderPill(T(S_XRAY_RUNNING), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+    } else if (xr.enabled) {
+        RenderPill(T(S_XRAY_STOPPED), ImVec4(0.35f, 0.24f, 0.05f, 1.0f), PecTheme::WarningAlert);
+    } else {
+        RenderPill(T(S_XRAY_OFF), PecTheme::FrameBg, PecTheme::TextMuted);
+    }
+    ImGui::Spacing();
+    if (xr.running) {
+        char pidBuf[48];
+        snprintf(pidBuf, sizeof(pidBuf), "%lu", xr.procId);
+        CardKV(T(S_XRAY_PID), pidBuf);
+    }
+    if (xr.enabled || xr.running) {
+        const char* noteTxt = xr.note[0] ? XrayNoteText(xr.note) : nullptr;
+        if (noteTxt) {
+            ImGui::Spacing();
+            ImGui::TextColored(PecTheme::DangerRed, "⚠ %s", noteTxt);
+        }
+    } else {
+        ImGui::Spacing();
+        ImGui::TextColored(PecTheme::TextSecondary, "%s", XrayReasonText(xr.reason));
+        ImGui::PushStyleColor(ImGuiCol_Text, PecTheme::TextMuted);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + cardW - 40.0f);
+        ImGui::SetWindowFontScale(0.85f);
+        ImGui::TextUnformatted(T(S_XRAY_IDLE_HINT));
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+    }
+    EndStatusCard();
+
+    if (twoCols) ImGui::SameLine(0, spacing);
+
+    // ---- Subscription card -----------------------------------------------------
+    BeginStatusCard("xrSubCard", ImVec2(cardW, 150.0f));
+    CardTitle(T(S_XRAY_SUB_CARD));
+    if (xr.enabled && xr.serverCount > 0) {
+        char cnt[32];
+        snprintf(cnt, sizeof(cnt), "%d", xr.serverCount);
+        CardKV(T(S_XRAY_SERVERS), cnt);
+        char userBuf[160] = "—";
+        if (xr.proxyUser[0]) snprintf(userBuf, sizeof(userBuf), "%s", WToUtf8(xr.proxyUser).c_str());
+        CardKV(T(S_XRAY_USER), userBuf);
+        ImGui::Spacing();
+        RenderPill(T(S_STATUS_SYNC_OK), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+    } else if (xr.reason[0]) {
+        RenderPill(XrayReasonText(xr.reason), ImVec4(0.35f, 0.10f, 0.10f, 1.0f), PecTheme::DangerRed);
+        ImGui::Spacing();
+        ImGui::TextColored(PecTheme::TextMuted, "%s", T(S_XRAY_RNF_GENERIC));
+    } else {
+        RenderPill(T(S_XRAY_OFF), PecTheme::FrameBg, PecTheme::TextMuted);
+        ImGui::Spacing();
+        ImGui::TextColored(PecTheme::TextMuted, "%s", T(S_OV_IDLE));
+    }
+    EndStatusCard();
+
+    ImGui::Spacing();
+
+    // ---- Tunnel parameters card -------------------------------------------------
+    BeginStatusCard("xrDetailCard", ImVec2(availW, 128.0f));
+    CardTitle(T(S_XRAY_DETAIL_CARD));
+    char verBuf[48] = "—";
+    if (xr.version[0]) snprintf(verBuf, sizeof(verBuf), "%s", WToUtf8(xr.version).c_str());
+    CardKV(T(S_XRAY_VERSION), (xr.enabled || xr.running) ? verBuf : "—");
+    char listenBuf[48];
+    snprintf(listenBuf, sizeof(listenBuf), "127.0.0.1:%d", xr.listenPort);
+    CardKV(T(S_XRAY_LISTEN), (xr.enabled || xr.running) ? listenBuf : "—");
+    char socksBuf[48];
+    snprintf(socksBuf, sizeof(socksBuf), "127.0.0.1:%d", xr.socksPort);
+    CardKV(T(S_XRAY_PORT), (xr.enabled || xr.running) ? socksBuf : "—");
+    EndStatusCard();
+}
+
+// -----------------------------------------------------------------------------
+// GUI-REDESIGN-1: persistent sidebar navigation + page dispatcher
+// -----------------------------------------------------------------------------
+static bool RenderNavItem(int idx, const char* icon, const char* label)
+{
+    const float rowH = 38.0f;
+    const float railW = ImGui::GetContentRegionAvail().x;
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    bool active = (g_activeTab == idx);
+
+    if (active) {
+        dl->AddRectFilled(ImVec2(p.x, p.y), ImVec2(p.x + railW, p.y + rowH),
+            ImGui::GetColorU32(PecTheme::SidebarActive), 8.0f);
+        dl->AddRectFilled(ImVec2(p.x, p.y + 8), ImVec2(p.x + 3.0f, p.y + rowH - 8),
+            ImGui::GetColorU32(PecTheme::PrimaryAccent), 1.5f);
+    } else if (ImGui::IsMouseHoveringRect(p, ImVec2(p.x + railW, p.y + rowH))) {
+        dl->AddRectFilled(ImVec2(p.x, p.y), ImVec2(p.x + railW, p.y + rowH),
+            ImGui::GetColorU32(ImVec4(PecTheme::PrimaryAccent.x, PecTheme::PrimaryAccent.y,
+                PecTheme::PrimaryAccent.z, 0.10f)), 8.0f);
+    }
+
+    char id[32];
+    snprintf(id, sizeof(id), "##nav%d", idx);
+    bool clicked = false;
+    if (ImGui::InvisibleButton(id, ImVec2(railW, rowH))) clicked = true;
+
+    ImVec2 iconPos(p.x + 14.0f, p.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f);
+    dl->AddText(iconPos, ImGui::GetColorU32(active ? PecTheme::PrimaryAccent : PecTheme::TextMuted), icon);
+    ImVec2 textPos(p.x + 40.0f, iconPos.y);
+    dl->AddText(textPos, ImGui::GetColorU32(active ? PecTheme::TextPrimary : PecTheme::TextSecondary), label);
+    return clicked;
+}
+
+static void RenderSidebar()
+{
+    const float railW = 200.0f;
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, PecTheme::SidebarBg);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 14));
+    ImGui::BeginChild("pecSidebar", ImVec2(railW, 0), ImGuiChildFlags_None,
+        ImGuiWindowFlags_NoScrollbar);
+
+    ImGui::SetWindowFontScale(0.75f);
+    ImGui::TextColored(PecTheme::TextDisabled, "  %s", T(S_NAV_SECTION));
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    struct NavDef { int idx; const char* icon; int strId; };
+    const NavDef navs[] = {
+        { 0, "●",  S_NAV_OVERVIEW },
+        { 1, "⚡", S_NAV_XRAY },
+        { 2, "🖥", S_NAV_SERVERS },
+        { 3, "📋", S_NAV_RULES },
+        { 4, "🔀", S_NAV_CONN },
+        { 5, "📄", S_NAV_LOGS },
+        { 6, "⚙", S_NAV_SETTINGS },
+    };
+    for (const NavDef& n : navs) {
+        if (RenderNavItem(n.idx, n.icon, T(n.strId))) g_activeTab = n.idx;
+        ImGui::Dummy(ImVec2(0, 2));
+    }
+
+    // Footer: sync state dot at the bottom of the rail
+    float footerY = ImGui::GetWindowHeight() - 30.0f;
+    if (footerY > 120.0f) {
+        ImGui::Dummy(ImVec2(0, footerY - ImGui::GetCursorPosY()));
+        ImVec4 dot = g_isSyncing ? PecTheme::HoverAccent
+                     : (g_lastSyncError != 0 ? PecTheme::DangerRed
+                     : (g_syncEverSucceeded ? PecTheme::SuccessDirect : PecTheme::TextDisabled));
+        char syncTimeStr[32] = "";
+        if (g_lastSyncTime.wYear > 0)
+            snprintf(syncTimeStr, sizeof(syncTimeStr), "%02d:%02d", g_lastSyncTime.wHour, g_lastSyncTime.wMinute);
+        ImGui::TextColored(dot, "● %s", syncTimeStr[0] ? syncTimeStr : T(S_OV_NEVER));
+    }
+
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+
+    // Rail separator
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x - 1, p.y - ImGui::GetCursorPosY()),
+        ImVec2(p.x - 1, ImGui::GetWindowPos().y + ImGui::GetWindowHeight()),
+        ImGui::GetColorU32(PecTheme::BorderColor), 1.0f);
+}
+
+// Main Shell Dispatcher (sidebar + page content)
 // -----------------------------------------------------------------------------
 static void RenderTabs()
 {
-    if (ImGui::BeginTabBar("PECTabBar", ImGuiTabBarFlags_None)) {
-        char tabServers[128], tabRules[128], tabConn[128], tabLogs[128], tabSettings[128];
-        snprintf(tabServers, sizeof(tabServers), "%s###tab_servers", T(S_TAB_SERVERS));
-        snprintf(tabRules,   sizeof(tabRules),   "%s###tab_rules",   T(S_TAB_RULES));
-        snprintf(tabConn,    sizeof(tabConn),    "%s###tab_conn",    T(S_TAB_CONN));
-        snprintf(tabLogs,    sizeof(tabLogs),    "%s###tab_logs",    T(S_TAB_ACT));
-        snprintf(tabSettings,sizeof(tabSettings),"%s###tab_settings",T(S_TAB_SETTINGS));
+    if (g_activeTab < 0 || g_activeTab > 6) g_activeTab = 0;
 
-        ImGuiTabItemFlags tabFlags[5] = {};
-        if (g_activeTab >= 0 && g_activeTab < 5) {
-            tabFlags[g_activeTab] = ImGuiTabItemFlags_SetSelected;
-            g_activeTab = -1;
-        }
+    const float railW = 200.0f;
+    const float gap = 14.0f;
 
-        if (ImGui::BeginTabItem(tabServers, nullptr, tabFlags[0])) {
-            RenderProxiesTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem(tabRules, nullptr, tabFlags[1])) {
-            RenderRulesTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem(tabConn, nullptr, tabFlags[2])) {
-            RenderConnectionsTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem(tabLogs, nullptr, tabFlags[3])) {
-            RenderEngineLogsTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem(tabSettings, nullptr, tabFlags[4])) {
-            RenderSettingsTab();
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
+    RenderSidebar();
+    ImGui::SameLine(0, gap);
+
+    ImGui::BeginChild("pecPageContent", ImVec2(ImGui::GetContentRegionAvail().x, 0),
+        ImGuiChildFlags_None, ImGuiWindowFlags_None);
+
+    switch (g_activeTab) {
+        case 0: RenderOverviewTab(); break;
+        case 1: RenderXrayPage(); break;
+        case 2: RenderProxiesTab(); break;
+        case 3: RenderRulesTab(); break;
+        case 4: RenderConnectionsTab(); break;
+        case 5: RenderEngineLogsTab(); break;
+        case 6: RenderSettingsTab(); break;
+        default: RenderOverviewTab(); break;
     }
+
+    ImGui::EndChild();
+    (void)railW;
 }
 
 // -----------------------------------------------------------------------------
@@ -3317,7 +3840,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     builder.AddRanges(io.Fonts->GetGlyphRangesCyrillic());
     builder.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
     builder.AddRanges(extraGlyphs);
-    builder.AddText(u8"●⏸▲▼🔀📡📋🛡📂⚙✓✗✏✎🔄");
+    builder.AddText(u8"●⏸▲▼🔀📡📋🛡📂⚙✓✗✏✎🔄⚡🖥📄");
     ImVector<ImWchar> glyphRanges;
     builder.BuildRanges(&glyphRanges);
 
@@ -3416,7 +3939,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
         RenderHeader();
         ImGui::Spacing();
-        ImGui::Separator();
+        RenderHero();
         ImGui::Spacing();
         RenderTabs();
 
