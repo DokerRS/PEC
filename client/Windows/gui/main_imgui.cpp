@@ -1294,6 +1294,10 @@ static void FlowCheckboxSameLine(const char* label, float spacing = -1.0f)
     FlowSameLine(w, spacing);
 }
 
+// XRAY-STATUS-UI-1: reason/note -> localized UTF-8 text (defined with Overview tab)
+static const char* XrayReasonText(const wchar_t* reason);
+static const char* XrayNoteText(const wchar_t* note);
+
 static void RenderHeader()
 {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 6.0f));
@@ -1357,6 +1361,33 @@ static void RenderHeader()
         RenderPill(T(S_STATUS_SYNC_WAIT), PecTheme::CardBg, PecTheme::TextMuted);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip(T(S_TOOLTIP_SYNC_WAIT), syncStatusSnapshot);
+        }
+    }
+
+    // XRAY-STATUS-UI-1: local core pill (visible on every tab)
+    {
+        PecXraySnapshot xrSnap;
+        PecXrayGetSnapshot(&xrSnap);
+        if (xrSnap.enabled || xrSnap.running || xrSnap.reason[0]) {
+            ImGui::SameLine(0, 10.0f);
+            if (xrSnap.running) {
+                RenderPill("⚡ Xray", ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Xray %ls · 127.0.0.1:%d · %d srv",
+                        xrSnap.version, xrSnap.socksPort, xrSnap.serverCount);
+                }
+            } else if (xrSnap.enabled) {
+                RenderPill("⏸ Xray", ImVec4(0.35f, 0.24f, 0.05f, 1.0f), PecTheme::WarningAlert);
+                if (ImGui::IsItemHovered()) {
+                    const char* note = XrayNoteText(xrSnap.note);
+                    ImGui::SetTooltip("%s", note ? note : T(S_XRAY_STOPPED));
+                }
+            } else {
+                RenderPill("🚫 Xray", PecTheme::CardBg, PecTheme::TextMuted);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", XrayReasonText(xrSnap.reason));
+                }
+            }
         }
     }
 
@@ -2454,41 +2485,273 @@ static void RenderSettingsTab()
     }
 }
 
+// -----------------------------------------------------------------------------
+// Tab 0: Overview (status dashboard)
+// -----------------------------------------------------------------------------
+static const char* XrayReasonText(const wchar_t* reason)
+{
+    if (!wcsicmp(reason, L"user_not_found")) return T(S_XRAY_RNF_USER);
+    if (!wcsicmp(reason, L"no_active_subscription")) return T(S_XRAY_RNF_NOSUB);
+    if (!wcsicmp(reason, L"panel_error")) return T(S_XRAY_RNF_PANEL);
+    return T(S_XRAY_RNF_GENERIC);
+}
+
+static const char* XrayNoteText(const wchar_t* note)
+{
+    if (!wcsicmp(note, L"binary_download_failed")) return T(S_XRAY_NOTE_DLFAIL);
+    if (!wcsicmp(note, L"config_write_failed")) return T(S_XRAY_NOTE_CFGFAIL);
+    return nullptr;
+}
+
+// Rounded card container: background is painted on the parent draw list, the
+// child window itself is transparent so the rounded corners stay visible.
+static void BeginStatusCard(const char* id, ImVec2 size)
+{
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImU32 bg = ImGui::ColorConvertFloat4ToU32(PecTheme::CardBg);
+    ImU32 border = ImGui::ColorConvertFloat4ToU32(PecTheme::BorderLight);
+    dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bg, 8.0f);
+    dl->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), border, 8.0f, 0, 1.0f);
+
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14, 12));
+    ImGui::BeginChild(id, size, ImGuiChildFlags_None,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+}
+
+static void EndStatusCard()
+{
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+}
+
+static void CardTitle(const char* title)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, PecTheme::TextMuted);
+    ImGui::SetWindowFontScale(0.85f);
+    ImGui::TextUnformatted(title);
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
+    ImGui::Spacing();
+}
+
+static void CardKV(const char* key, const char* value)
+{
+    ImGui::TextColored(PecTheme::TextMuted, "%s", key);
+    ImGui::SameLine(130.0f);
+    ImGui::TextColored(PecTheme::TextPrimary, "%s", value);
+}
+
+static void RenderOverviewTab()
+{
+    ProfileLock lock;
+
+    // ---- Gather state snapshots -------------------------------------------
+    PecXraySnapshot xr;
+    PecXrayGetSnapshot(&xr);
+
+    wchar_t syncStatus[128] = { 0 };
+    PecSyncGetStatusStr(syncStatus, 128);
+
+    char syncTimeStr[64] = "";
+    if (g_lastSyncTime.wYear > 0)
+        snprintf(syncTimeStr, sizeof(syncTimeStr), "%02d:%02d:%02d",
+            g_lastSyncTime.wHour, g_lastSyncTime.wMinute, g_lastSyncTime.wSecond);
+
+    wchar_t winUser[128] = { 0 };
+    DWORD uLen = 128;
+    GetUserNameW(winUser, &uLen);
+    wchar_t winHost[128] = { 0 };
+    DWORD hLen = 128;
+    GetComputerNameW(winHost, &hLen);
+
+    char activeProxyName[128] = "—";
+    if (g_profile.cfgCount > 0 && g_profile.cfg[0].name[0]) {
+        std::string tmp = WToUtf8(g_profile.cfg[0].name);
+        snprintf(activeProxyName, sizeof(activeProxyName), "%s", tmp.c_str());
+    }
+
+    // ---- Layout grid -------------------------------------------------------
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    float availW = ImGui::GetContentRegionAvail().x;
+    float cardW = (availW - spacing) * 0.5f;
+    if (cardW < 260.0f) { cardW = availW; }   // single column on narrow windows
+    const float cardH = 118.0f;
+    bool twoCols = (cardW < availW);
+
+    // ---- Card 1: interception engine ----------------------------------------
+    BeginStatusCard("ovEngineCard", ImVec2(cardW, cardH));
+    CardTitle(T(S_OV_ENGINE));
+    if (g_proxyEnabled) {
+        RenderPill(T(S_STATUS_ACTIVE), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+    } else {
+        RenderPill(T(S_STATUS_PAUSED), ImVec4(0.35f, 0.24f, 0.05f, 1.0f), PecTheme::WarningAlert);
+    }
+    ImGui::Spacing();
+    CardKV(T(S_OV_ACTIVE_PROXY), activeProxyName);
+    ImGui::TextColored(PecTheme::TextMuted, "%s", T(S_OV_ACCOUNT));
+    ImGui::SameLine(130.0f);
+    char acct[288];
+    snprintf(acct, sizeof(acct), "%s@%s", WToUtf8(winUser).c_str(), WToUtf8(winHost).c_str());
+    ImGui::TextColored(PecTheme::TextPrimary, "%s", acct);
+    EndStatusCard();
+
+    if (twoCols) ImGui::SameLine(0, spacing);
+
+    // ---- Card 2: server sync -------------------------------------------------
+    BeginStatusCard("ovSyncCard", ImVec2(cardW, cardH));
+    CardTitle(T(S_OV_SYNC));
+    if (g_isSyncing) {
+        RenderPill(T(S_STATUS_SYNCING), ImVec4(0.08f, 0.20f, 0.35f, 1.0f), PecTheme::HoverAccent);
+    } else if (g_syncEverSucceeded && g_lastSyncError == 0) {
+        RenderPill(T(S_STATUS_SYNC_OK), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+    } else if (g_lastSyncError != 0) {
+        RenderPill(T(S_STATUS_SYNC_ERR), ImVec4(0.35f, 0.10f, 0.10f, 1.0f), PecTheme::DangerRed);
+    } else {
+        RenderPill(T(S_STATUS_SYNC_WAIT), PecTheme::FrameBg, PecTheme::TextMuted);
+    }
+    ImGui::Spacing();
+    CardKV(T(S_OV_LAST_SYNC), g_lastSyncTime.wYear > 0 ? syncTimeStr : T(S_OV_NEVER));
+    {
+        char srvBuf[256] = "—";
+        if (g_profile.pecSync.serverUrl[0])
+            snprintf(srvBuf, sizeof(srvBuf), "%s", WToUtf8(g_profile.pecSync.serverUrl).c_str());
+        ImGui::TextColored(PecTheme::TextMuted, "URL");
+        ImGui::SameLine(130.0f);
+        ImGui::TextColored(PecTheme::TextSecondary, "%s", srvBuf);
+    }
+    EndStatusCard();
+
+    if (twoCols) ImGui::SameLine(0, spacing);
+
+    // ---- Card 3: Xray core ---------------------------------------------------
+    BeginStatusCard("ovXrayCard", ImVec2(cardW, cardH));
+    CardTitle(T(S_OV_XRAY));
+    {
+        if (xr.running) {
+            RenderPill(T(S_XRAY_RUNNING), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+        } else if (xr.enabled) {
+            RenderPill(T(S_XRAY_STOPPED),
+                ImVec4(0.35f, 0.24f, 0.05f, 1.0f), PecTheme::WarningAlert);
+        } else {
+            RenderPill(T(S_XRAY_OFF), PecTheme::FrameBg, PecTheme::TextMuted);
+        }
+        ImGui::Spacing();
+        const char* noteTxt = xr.note[0] ? XrayNoteText(xr.note) : nullptr;
+        if (xr.enabled || xr.running) {
+            char verBuf[48] = "—";
+            if (xr.version[0]) snprintf(verBuf, sizeof(verBuf), "%s", WToUtf8(xr.version).c_str());
+            CardKV(T(S_XRAY_VERSION), verBuf);
+            char portBuf[32];
+            snprintf(portBuf, sizeof(portBuf), "127.0.0.1:%d", xr.socksPort);
+            CardKV(T(S_XRAY_PORT), xr.socksPort > 0 ? portBuf : "—");
+        }
+        if (noteTxt) {
+            ImGui::TextColored(PecTheme::DangerRed, "%s", noteTxt);
+        } else if (xr.running) {
+            char pidBuf[48];
+            snprintf(pidBuf, sizeof(pidBuf), "PID %lu", xr.procId);
+            ImGui::TextColored(PecTheme::TextMuted, "%s", pidBuf);
+        }
+    }
+    EndStatusCard();
+
+    if (twoCols) { ImGui::SameLine(0, spacing); } else { ImGui::Spacing(); }
+
+    // ---- Card 4: personal subscription ---------------------------------------
+    BeginStatusCard("ovSubCard", ImVec2(cardW, cardH));
+    CardTitle(T(S_OV_SUB));
+    {
+        if (xr.enabled && xr.serverCount > 0) {
+            char cnt[32];
+            snprintf(cnt, sizeof(cnt), "%d", xr.serverCount);
+            RenderPill(T(S_STATUS_SYNC_OK), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), PecTheme::SuccessDirect);
+            ImGui::Spacing();
+            CardKV(T(S_XRAY_SERVERS), cnt);
+            char userBuf[160] = "—";
+            if (xr.proxyUser[0]) snprintf(userBuf, sizeof(userBuf), "%s", WToUtf8(xr.proxyUser).c_str());
+            CardKV(T(S_XRAY_USER), userBuf);
+        } else if (xr.reason[0]) {
+            RenderPill(XrayReasonText(xr.reason), ImVec4(0.35f, 0.10f, 0.10f, 1.0f), PecTheme::DangerRed);
+            ImGui::Spacing();
+            ImGui::TextColored(PecTheme::TextMuted, "%s", T(S_XRAY_RNF_GENERIC));
+        } else {
+            RenderPill(T(S_XRAY_OFF), PecTheme::FrameBg, PecTheme::TextMuted);
+            ImGui::Spacing();
+            ImGui::TextColored(PecTheme::TextMuted, "%s", T(S_OV_IDLE));
+        }
+    }
+    EndStatusCard();
+
+    // Card 5 wraps to the next row (no SameLine) to avoid a third half-width card
+    ImGui::Spacing();
+
+    // ---- Card 5: browser extension pairing ------------------------------------
+    BeginStatusCard("ovExtCard", ImVec2(cardW, cardH));
+    CardTitle(T(S_OV_EXT));
+    if (g_pairedExt.paired) {
+        RenderPill(T(S_STATUS_PAIRED), ImVec4(0.08f, 0.28f, 0.18f, 1.0f), ImVec4(0.3f, 0.9f, 0.5f, 1.0f));
+        ImGui::Spacing();
+        char extBuf[256];
+        snprintf(extBuf, sizeof(extBuf), "%s (%s)",
+            WToUtf8(g_pairedExt.browser[0] ? g_pairedExt.browser : L"chromium").c_str(),
+            WToUtf8(g_pairedExt.version[0] ? g_pairedExt.version : L"1.0.0").c_str());
+        CardKV("ID", extBuf);
+    } else {
+        RenderPill(T(S_STATUS_WAIT_EXT), PecTheme::FrameBg, PecTheme::TextMuted);
+        ImGui::Spacing();
+        ImGui::TextColored(PecTheme::TextMuted, "%s", T(S_TOOLTIP_EXT_WAIT));
+    }
+    EndStatusCard();
+
+    ImGui::Spacing();
+    char syncLine[192];
+    snprintf(syncLine, sizeof(syncLine), "%s", WToUtf8(syncStatus).c_str());
+    ImGui::TextColored(PecTheme::TextMuted, "%s", syncLine);
+}
+
 // Main Tabs Dispatcher
 // -----------------------------------------------------------------------------
 static void RenderTabs()
 {
     if (ImGui::BeginTabBar("PECTabBar", ImGuiTabBarFlags_None)) {
-        char tabServers[128], tabRules[128], tabConn[128], tabLogs[128], tabSettings[128];
+        char tabOverview[128], tabServers[128], tabRules[128], tabConn[128], tabLogs[128], tabSettings[128];
+        snprintf(tabOverview,sizeof(tabOverview),"%s###tab_overview",T(S_TAB_OVERVIEW));
         snprintf(tabServers, sizeof(tabServers), "%s###tab_servers", T(S_TAB_SERVERS));
         snprintf(tabRules,   sizeof(tabRules),   "%s###tab_rules",   T(S_TAB_RULES));
         snprintf(tabConn,    sizeof(tabConn),    "%s###tab_conn",    T(S_TAB_CONN));
         snprintf(tabLogs,    sizeof(tabLogs),    "%s###tab_logs",    T(S_TAB_ACT));
         snprintf(tabSettings,sizeof(tabSettings),"%s###tab_settings",T(S_TAB_SETTINGS));
 
-        ImGuiTabItemFlags tabFlags[5] = {};
-        if (g_activeTab >= 0 && g_activeTab < 5) {
+        ImGuiTabItemFlags tabFlags[6] = {};
+        if (g_activeTab >= 0 && g_activeTab < 6) {
             tabFlags[g_activeTab] = ImGuiTabItemFlags_SetSelected;
             g_activeTab = -1;
         }
 
-        if (ImGui::BeginTabItem(tabServers, nullptr, tabFlags[0])) {
+        if (ImGui::BeginTabItem(tabOverview, nullptr, tabFlags[0])) {
+            RenderOverviewTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem(tabServers, nullptr, tabFlags[1])) {
             RenderProxiesTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem(tabRules, nullptr, tabFlags[1])) {
+        if (ImGui::BeginTabItem(tabRules, nullptr, tabFlags[2])) {
             RenderRulesTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem(tabConn, nullptr, tabFlags[2])) {
+        if (ImGui::BeginTabItem(tabConn, nullptr, tabFlags[3])) {
             RenderConnectionsTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem(tabLogs, nullptr, tabFlags[3])) {
+        if (ImGui::BeginTabItem(tabLogs, nullptr, tabFlags[4])) {
             RenderEngineLogsTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem(tabSettings, nullptr, tabFlags[4])) {
+        if (ImGui::BeginTabItem(tabSettings, nullptr, tabFlags[5])) {
             RenderSettingsTab();
             ImGui::EndTabItem();
         }

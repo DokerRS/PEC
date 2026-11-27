@@ -1,6 +1,6 @@
 import "./loadEnv.js";
 import fs from "node:fs";
-import { ProxyConfiguration, ExtensionInstance, DesktopInstance } from "./types.js";
+import { ProxyConfiguration, ExtensionInstance, DesktopInstance, DesktopXrayStatus } from "./types.js";
 import { resolveProfileForInstance, getProfileById } from "./routing.js";
 import { writeJsonAtomic, readJsonStore } from "./jsonStore.js";
 import { getProxyConfigPath, getInstancesMetaPath } from "./storage.js";
@@ -499,6 +499,37 @@ export async function acquireInstanceMutex(id: string): Promise<() => void> {
 const desktopInstancesMap = new Map<string, DesktopInstance>();
 const MAX_DESKTOP_INSTANCES = 2000;
 
+const XRAY_REASON_WHITELIST = new Set(["user_not_found", "no_active_subscription", "panel_error", "ad_disabled", "user_not_allowed"]);
+
+/**
+ * Sanitizes the client-reported xrayStatus payload into a fixed-shape record.
+ * Never trusts arbitrary client data: primitives only, whitelisted reason codes.
+ */
+export function sanitizeDesktopXrayStatus(raw: unknown): DesktopXrayStatus | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const status: DesktopXrayStatus = {
+    enabled: obj.enabled === true,
+    running: obj.running === true,
+  };
+  if (typeof obj.version === "string") status.version = obj.version.trim().slice(0, 32);
+  if (typeof obj.socksPort === "number" && Number.isFinite(obj.socksPort) && obj.socksPort > 0 && obj.socksPort <= 65535) {
+    status.socksPort = Math.trunc(obj.socksPort);
+  }
+  if (typeof obj.reason === "string") {
+    const clean = obj.reason.trim().toLowerCase();
+    if (XRAY_REASON_WHITELIST.has(clean)) status.reason = clean;
+  }
+  if (typeof obj.serverCount === "number" && Number.isFinite(obj.serverCount) && obj.serverCount >= 0) {
+    status.serverCount = Math.min(Math.trunc(obj.serverCount), 64);
+  }
+  if (typeof obj.updatedAt === "string") {
+    const t = Date.parse(obj.updatedAt);
+    if (Number.isFinite(t)) status.updatedAt = new Date(t).toISOString();
+  }
+  return status;
+}
+
 export function registerDesktopHeartbeat(data: {
   appInstanceId: string;
   hostname: string;
@@ -508,6 +539,7 @@ export function registerDesktopHeartbeat(data: {
   clientType?: string;
   ip: string;
   pairedExtension?: { instanceId: string; browser?: string };
+  xrayStatus?: unknown;
 }): DesktopInstance {
   const cleanAppId = assertSafeInstanceId(data.appInstanceId);
   const now = new Date().toISOString();
@@ -623,6 +655,13 @@ export function registerDesktopHeartbeat(data: {
         existingExt.verifiedByApp = true;
       }
     }
+  }
+
+  const incomingXray = sanitizeDesktopXrayStatus(data.xrayStatus);
+  if (incomingXray) {
+    record.xrayStatus = incomingXray;
+  } else if (existingDesktop?.xrayStatus) {
+    record.xrayStatus = existingDesktop.xrayStatus;
   }
 
   return record;

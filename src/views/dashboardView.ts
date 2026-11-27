@@ -615,6 +615,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           <button type="button" id="btnFetchXrayBinary" class="btn btn-secondary" style="font-size: 12px;">Загрузить ядро с GitHub / Fetch core binary</button>
           <span id="xrayBinaryList" style="font-size: 11.5px; color: var(--text-muted);"></span>
         </div>
+        <div id="xrayFleetSummary" style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px;"></div>
       </div>
 
     </div>
@@ -1443,13 +1444,14 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
                   <th data-i18n="thDesktopIp">IP Адрес</th>
                   <th data-i18n="thDesktopVer">Версия</th>
                   <th data-i18n="thDesktopPairedExt">Привязанное расширение</th>
+                  <th data-i18n="thDesktopXray">Xray / Подписка</th>
                   <th data-i18n="thDesktopProxy">Назначенный прокси</th>
                   <th data-i18n="thDesktopActivity">Последняя активность</th>
                   <th style="width: 80px; text-align: center;" data-i18n="thDesktopActions">Действия</th>
                 </tr>
               </thead>
               <tbody id="desktopFleetTableBody">
-                <tr><td colspan="9" style="text-align: center; color: var(--text-muted);" data-i18n="txtNoDesktopClients">Десктопные клиенты еще не подключались. Запустите PEC-App.exe на рабочей станции.</td></tr>
+                <tr><td colspan="10" style="text-align: center; color: var(--text-muted);" data-i18n="txtNoDesktopClients">Десктопные клиенты еще не подключались. Запустите PEC-App.exe на рабочей станции.</td></tr>
               </tbody>
             </table>
           </div>

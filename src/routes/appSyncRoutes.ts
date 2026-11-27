@@ -124,6 +124,7 @@ export function createAppSyncRouter(
         os,
         clientType,
         pairedExtension,
+        xrayStatus,
       } = req.body || {};
 
       const effectiveAppId = appInstanceId || cleanAppId;
@@ -214,6 +215,7 @@ export function createAppSyncRouter(
         clientType,
         ip: clientIp,
         pairedExtension,
+        xrayStatus,
       });
 
       let issuedInstanceToken: string | undefined;

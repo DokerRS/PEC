@@ -496,10 +496,11 @@ export let lastLoadedDesktopInstances = [];
       }
 
       if (!instances || !instances.length) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">' +
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted);">' +
           (isRu ? 'Десктопные клиенты еще не подключались. Запустите PEC-App.exe на рабочей станции.' : 'No desktop clients connected yet. Launch PEC-App.exe on a workstation.') +
           '</td></tr>';
         tbody.removeAttribute('data-rendered-sig');
+        renderXrayFleetSummary(instances);
         return;
       }
 
@@ -508,7 +509,7 @@ export let lastLoadedDesktopInstances = [];
       const sel = window.getSelection ? window.getSelection() : null;
       if (sel && sel.toString() && tbody.contains(sel.anchorNode)) return;
 
-      const sig = instances.map(i => `${i.appInstanceId}:${i.status}:${i.assignedProxyId || ''}:${i.lastSync || ''}`).join('|');
+      const sig = instances.map(i => `${i.appInstanceId}:${i.status}:${i.assignedProxyId || ''}:${i.lastSync || ''}:${i.xrayStatus ? `${i.xrayStatus.enabled ? 1 : 0}${i.xrayStatus.running ? 1 : 0}${i.xrayStatus.reason || ''}${i.xrayStatus.serverCount ?? ''}` : 'none'}`).join('|');
       if (tbody.getAttribute('data-rendered-sig') === sig) return;
 
       const proxies = currentProxiesList || [];
@@ -531,6 +532,28 @@ export let lastLoadedDesktopInstances = [];
 
         const syncTime = inst.lastSync ? (typeof formatRelativeTime === 'function' ? formatRelativeTime(inst.lastSync) : new Date(inst.lastSync).toLocaleTimeString()) : '-';
 
+        const xs = inst.xrayStatus;
+        let xrayBadge;
+        if (!xs) {
+          xrayBadge = `<span style="color: var(--text-muted); font-size: 11px;" title="${isRu ? 'Клиент не сообщает статус Xray (старая версия PEC-App)' : 'Client does not report Xray status (old PEC-App version)'}">${isRu ? 'Нет данных' : 'No data'}</span>`;
+        } else if (xs.running) {
+          const srv = xs.serverCount != null ? (isRu ? ` · серверов: ${xs.serverCount}` : ` · servers: ${xs.serverCount}`) : '';
+          xrayBadge = `<span class="badge badge-success" title="Xray ${esc(xs.version || '')} · SOCKS :${esc(String(xs.socksPort || ''))}${srv}">⚡ ${isRu ? 'Ядро работает' : 'Core running'}${esc(srv)}</span>`;
+        } else if (xs.enabled) {
+          xrayBadge = `<span class="badge badge-warning" title="${isRu ? 'Ядро назначено, но не запущено на машине' : 'Core assigned but not running on machine'}">⏸ ${isRu ? 'Не запущено' : 'Not running'}</span>`;
+        } else if (xs.reason) {
+          const reasonText = {
+            user_not_found: isRu ? 'нет в Remnawave' : 'not in Remnawave',
+            no_active_subscription: isRu ? 'нет активной подписки' : 'no active subscription',
+            panel_error: isRu ? 'ошибка панели' : 'panel error',
+            ad_disabled: isRu ? 'AD выключен' : 'AD disabled',
+            user_not_allowed: isRu ? 'нет доступа по AD' : 'not allowed by AD',
+          }[xs.reason] || xs.reason;
+          xrayBadge = `<span class="badge badge-subtle" title="${esc(xs.reason)}">🚫 ${esc(reasonText)}</span>`;
+        } else {
+          xrayBadge = `<span class="badge badge-subtle">${isRu ? 'Выключено' : 'Disabled'}</span>`;
+        }
+
         return `<tr>
           <td><span class="badge ${badgeClass}">${esc(inst.status || 'ONLINE')}</span></td>
           <td><strong>${esc(inst.hostname || '-')}</strong></td>
@@ -538,6 +561,7 @@ export let lastLoadedDesktopInstances = [];
           <td><code>${esc(inst.ip || '-')}</code></td>
           <td><span class="badge badge-version">v${esc(inst.version || '2.2.0')}</span></td>
           <td>${pairedBadge}</td>
+          <td>${xrayBadge}</td>
           <td>
             <select class="form-select form-select-sm desktop-proxy-select" data-app-id="${esc(inst.appInstanceId)}" data-prev-value="${esc(inst.assignedProxyId || 'default')}" style="font-size: 12px; max-width: 170px; margin-bottom: 0;">
               ${proxyOptions}
@@ -550,6 +574,26 @@ export let lastLoadedDesktopInstances = [];
         </tr>`;
       }).join('');
       tbody.setAttribute('data-rendered-sig', sig);
+      renderXrayFleetSummary(instances);
+    }
+
+    export function renderXrayFleetSummary(instances) {
+      const isRu = currentLang === 'ru';
+      const el = document.getElementById('xrayFleetSummary');
+      if (!el) return;
+      const list = instances || lastLoadedDesktopInstances || [];
+      const running = list.filter(i => i.xrayStatus?.running).length;
+      const assigned = list.filter(i => i.xrayStatus?.enabled).length;
+      const noSub = list.filter(i => i.xrayStatus && !i.xrayStatus.enabled && i.xrayStatus.reason === 'no_active_subscription').length;
+      const noData = list.filter(i => !i.xrayStatus).length;
+      if (!list.length) { el.innerHTML = ''; return; }
+      const parts = [
+        `<span class="badge badge-success">⚡ ${running} ${isRu ? 'работает' : 'running'}</span>`,
+        `<span class="badge badge-subtle">${assigned} ${isRu ? 'назначено' : 'assigned'}</span>`,
+      ];
+      if (noSub > 0) parts.push(`<span class="badge badge-warning">🚫 ${noSub} ${isRu ? 'без подписки' : 'no subscription'}</span>`);
+      if (noData > 0) parts.push(`<span class="badge badge-subtle">❔ ${noData} ${isRu ? 'без данных' : 'no data'}</span>`);
+      el.innerHTML = `<span style="color: var(--text-muted);">${isRu ? 'Парк:' : 'Fleet:'}</span> ` + parts.join(' ');
     }
 
     export function initFleetListeners() {

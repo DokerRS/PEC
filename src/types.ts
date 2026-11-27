@@ -400,6 +400,27 @@ export interface AppBuildInfo {
   };
 }
 
+/**
+ * Xray core status self-reported by PEC-App on /api/app/sync.
+ * Sanitized server-side: only fixed-shape primitives are stored.
+ */
+export interface DesktopXrayStatus {
+  /** Server policy has the Xray runtime enabled for this user */
+  enabled: boolean;
+  /** Local xray.exe process is alive */
+  running: boolean;
+  /** Kernel version managed by the server (e.g. "26.3.27") */
+  version?: string;
+  /** Local SOCKS5 port the core is listening on */
+  socksPort?: number;
+  /** Fail-closed reason when the server withheld the runtime (user_not_found, ...) */
+  reason?: string;
+  /** Subscription servers currently loaded into the local config */
+  serverCount?: number;
+  /** Client-side timestamp of the last successful config apply */
+  updatedAt?: string;
+}
+
 export interface DesktopInstance {
   appInstanceId: string;
   hostname: string;
@@ -416,6 +437,8 @@ export interface DesktopInstance {
     instanceId: string;
     browser?: string;
   };
+  /** Last Xray core / subscription status reported by the client */
+  xrayStatus?: DesktopXrayStatus;
 }
 
 export interface ReleaseItem {

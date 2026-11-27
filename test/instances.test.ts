@@ -1,7 +1,7 @@
 import "./helpers/setup.js";
 import test from "node:test";
 import assert from "node:assert";
-import { registerHeartbeat, assignInstanceProfile, deleteInstance, getActiveInstances, detectBrowser } from "../src/instances.js";
+import { registerHeartbeat, assignInstanceProfile, deleteInstance, getActiveInstances, detectBrowser, registerDesktopHeartbeat, sanitizeDesktopXrayStatus } from "../src/instances.js";
 
 test("instance IDs cannot pollute the prototype chain or traverse paths", () => {
   assert.throws(() => registerHeartbeat({ instanceId: "__proto__", ip: "1.2.3.4", version: "1.0.0" }), /Forbidden|Invalid instanceId/);
@@ -158,4 +158,52 @@ test("detectBrowser correctly identifies browser from explicit value, instanceId
     version: "1.0.2",
   });
   assert.strictEqual(instGeneric.browser, "Chrome");
+});
+
+test("xrayStatus from desktop clients is sanitized and preserved", () => {
+  // garbage in -> undefined (heartbeat then preserves previous value)
+  assert.strictEqual(sanitizeDesktopXrayStatus(undefined), undefined);
+  assert.strictEqual(sanitizeDesktopXrayStatus("running"), undefined);
+  assert.strictEqual(sanitizeDesktopXrayStatus([1, 2]), undefined);
+
+  // shape is fixed, reason is whitelisted, numbers are bounded
+  const ok = sanitizeDesktopXrayStatus({
+    enabled: true,
+    running: true,
+    version: " 24.11.11 ",
+    socksPort: 20810.7,
+    reason: " NO_ACTIVE_SUBSCRIPTION ",
+    serverCount: 999,
+    updatedAt: "2026-11-27T00:00:00.000Z",
+    evil: { nested: true },
+  });
+  assert.ok(ok);
+  assert.strictEqual(ok.enabled, true);
+  assert.strictEqual(ok.running, true);
+  assert.strictEqual(ok.version, "24.11.11");
+  assert.strictEqual(ok.socksPort, 20810);
+  assert.strictEqual(ok.reason, "no_active_subscription");
+  assert.strictEqual(ok.serverCount, 64);
+  assert.strictEqual((ok as Record<string, unknown>).evil, undefined);
+
+  // non-whitelisted reason is dropped
+  const noReason = sanitizeDesktopXrayStatus({ enabled: false, running: false, reason: "arbitrary_text" });
+  assert.strictEqual(noReason?.reason, undefined);
+
+  // heartbeat stores status, then preserves it when a later beat omits it
+  const beat = (xrayStatus?: unknown) =>
+    registerDesktopHeartbeat({
+      appInstanceId: "inst_xray_status",
+      hostname: "PC-X",
+      username: "xray-user",
+      version: "2.3.0",
+      ip: "10.9.9.9",
+      xrayStatus,
+    });
+  const withStatus = beat({ enabled: true, running: true, socksPort: 20810, serverCount: 2 });
+  assert.strictEqual(withStatus.xrayStatus?.running, true);
+  assert.strictEqual(withStatus.xrayStatus?.socksPort, 20810);
+  const withoutStatus = beat(undefined);
+  assert.strictEqual(withoutStatus.xrayStatus?.running, true);
+  assert.strictEqual(withoutStatus.xrayStatus?.serverCount, 2);
 });

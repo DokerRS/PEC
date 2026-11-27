@@ -21,6 +21,10 @@
 #include <shellapi.h>
 #include <shlobj.h>
 
+/* Defined in pec_sync.h (which includes this header); needed by
+ * PecXrayBuildStatusJson below. */
+static void PecJsonEscapeString(const char* src, char* dst, size_t dstSize);
+
 #ifndef CALG_SHA_256
 #define CALG_SHA_256 0x0000800c
 #endif
@@ -47,9 +51,98 @@ typedef struct {
     DWORD    procId;
     DWORD    lastStartTick;
     BOOL     stopRequested;
+    /* UI-visible status (XRAY-STATUS-UI-1): server fail-closed reason,
+     * subscription server count and a local lifecycle note. Written by the
+     * PecSync worker, read by the UI thread through PecXrayGetSnapshot. */
+    wchar_t  reason[64];
+    wchar_t  note[64];
+    int      serverCount;
+    DWORD    lastApplyTick;
 } PecXrayState;
 
 static PecXrayState g_xray = { 0 };
+
+/* Lock guarding g_xray status fields between the sync worker and the UI
+ * thread. Lazy one-shot init: 0 = none, 1 = initializing, 2 = ready. */
+static CRITICAL_SECTION g_xrayLock;
+static LONG g_xrayLockState = 0;
+
+static void PecXrayLockEnter(void)
+{
+    LONG st = InterlockedCompareExchange(&g_xrayLockState, 1, 0);
+    if (st == 0) {
+        InitializeCriticalSection(&g_xrayLock);
+        InterlockedExchange(&g_xrayLockState, 2);
+    } else if (st == 1) {
+        while (InterlockedCompareExchange(&g_xrayLockState, 2, 2) != 2)
+            Sleep(1);
+    }
+    EnterCriticalSection(&g_xrayLock);
+}
+
+static void PecXrayLockLeave(void)
+{
+    LeaveCriticalSection(&g_xrayLock);
+}
+
+typedef struct {
+    BOOL     enabled;
+    BOOL     running;
+    wchar_t  version[32];
+    int      listenPort;
+    int      socksPort;
+    wchar_t  proxyUser[128];
+    wchar_t  reason[64];
+    wchar_t  note[64];
+    int      serverCount;
+    DWORD    procId;
+} PecXraySnapshot;
+
+/* Thread-safe UI snapshot. Never blocks on the process object. */
+static void PecXrayGetSnapshot(PecXraySnapshot* out)
+{
+    if (!out) return;
+    ZeroMemory(out, sizeof(*out));
+    PecXrayLockEnter();
+    out->enabled = g_xray.enabled;
+    out->running = FALSE;
+    if (g_xray.hProc) {
+        DWORD code = 0;
+        if (GetExitCodeProcess(g_xray.hProc, &code) && code == STILL_ACTIVE) {
+            out->running = TRUE;
+            out->procId = g_xray.procId;
+        }
+    }
+    lstrcpynW(out->version, g_xray.version, 32);
+    out->listenPort = g_xray.listenPort;
+    out->socksPort = g_xray.socksPort;
+    lstrcpynW(out->proxyUser, g_xray.proxyUser, 128);
+    lstrcpynW(out->reason, g_xray.reason, 64);
+    lstrcpynW(out->note, g_xray.note, 64);
+    out->serverCount = g_xray.serverCount;
+    PecXrayLockLeave();
+}
+
+/* JSON fragment appended to the /api/app/sync body (empty string when the
+ * runtime never activated). Values are fixed-shape; server sanitizes again. */
+static void PecXrayBuildStatusJson(char* out, int cch)
+{
+    if (!out || cch <= 0) return;
+    out[0] = 0;
+    PecXraySnapshot s;
+    PecXrayGetSnapshot(&s);
+    if (!s.enabled && !s.running && !s.reason[0]) return;
+    char ver[40] = { 0 }, rsn[80] = { 0 };
+    WideCharToMultiByte(CP_UTF8, 0, s.version, -1, ver, sizeof(ver), NULL, NULL);
+    WideCharToMultiByte(CP_UTF8, 0, s.reason, -1, rsn, sizeof(rsn), NULL, NULL);
+    char verEsc[96] = { 0 }, rsnEsc[160] = { 0 };
+    PecJsonEscapeString(ver, verEsc, sizeof(verEsc));
+    PecJsonEscapeString(rsn, rsnEsc, sizeof(rsnEsc));
+    _snprintf_s(out, cch, _TRUNCATE,
+        ",\"xrayStatus\":{\"enabled\":%s,\"running\":%s,\"version\":\"%s\",\"socksPort\":%d,\"reason\":\"%s\",\"serverCount\":%d}",
+        s.enabled ? "true" : "false", s.running ? "true" : "false",
+        verEsc, s.socksPort, rsnEsc, s.serverCount);
+}
 
 static void PecXrayDir(wchar_t* out, int cch)
 {
@@ -115,8 +208,10 @@ static void PecXrayStopProcess(void)
         TerminateProcess(g_xray.hProc, 1);
         WaitForSingleObject(g_xray.hProc, 3000);
         CloseHandle(g_xray.hProc);
+        PecXrayLockEnter();
         g_xray.hProc = NULL;
         g_xray.procId = 0;
+        PecXrayLockLeave();
         PB_WriteAppLog("PecXray: local core stopped");
     }
 }
@@ -300,8 +395,10 @@ static BOOL PecXraySpawn(void)
         return FALSE;
     }
     CloseHandle(pi.hThread);
+    PecXrayLockEnter();
     g_xray.hProc = pi.hProcess;
     g_xray.procId = pi.dwProcessId;
+    PecXrayLockLeave();
     g_xray.lastStartTick = GetTickCount();
     PB_WriteAppLog("PecXray: core started (pid %lu, port %d, v%ls)", pi.dwProcessId, g_xray.listenPort, g_xray.version);
     return TRUE;
@@ -313,8 +410,10 @@ static BOOL PecXrayProcessAlive(void)
     DWORD code = 0;
     if (GetExitCodeProcess(g_xray.hProc, &code) && code == STILL_ACTIVE) return TRUE;
     CloseHandle(g_xray.hProc);
+    PecXrayLockEnter();
     g_xray.hProc = NULL;
     g_xray.procId = 0;
+    PecXrayLockLeave();
     return FALSE;
 }
 
@@ -325,9 +424,17 @@ static BOOL PecXrayProcessAlive(void)
 static void PecXrayHandleSyncBlock(JVal* block, const wchar_t* serverUrl, const wchar_t* fleetToken)
 {
     if (!block || block->type != J_OBJ || !json_bool(block, "enabled", 0)) {
-        if (g_xray.enabled || g_xray.hProc) {
+        PecXrayLockEnter();
+        /* Keep the server's fail-closed reason (user_not_found, ...) visible
+         * in the UI even though the core stays off. */
+        if (block && block->type == J_OBJ)
+            PecXrayU8W(json_str(block, "reason", ""), g_xray.reason, 64);
+        g_xray.enabled = FALSE;
+        g_xray.serverCount = 0;
+        g_xray.note[0] = 0;
+        PecXrayLockLeave();
+        if (g_xray.hProc) {
             PB_WriteAppLog("PecXray: runtime disabled by server - stopping core");
-            g_xray.enabled = FALSE;
             PecXrayStopProcess();
         }
         return;
@@ -344,6 +451,16 @@ static void PecXrayHandleSyncBlock(JVal* block, const wchar_t* serverUrl, const 
     if (port < 1 || port > 65535 || !cfg || cfg->type != J_OBJ) {
         PB_WriteAppLog("PecXray: sync block incomplete (port=%ld, config=%d) - ignoring", port, cfg ? 1 : 0);
         return;
+    }
+
+    /* Count subscription servers from the block for the UI status card. */
+    int srvCount = 0;
+    {
+        JVal* servers = json_get(block, "servers");
+        if (servers && servers->type == J_ARR) {
+            JVal* s;
+            for (s = servers->child; s; s = s->next) srvCount++;
+        }
     }
 
     StrBuf sb;
@@ -364,6 +481,7 @@ static void PecXrayHandleSyncBlock(JVal* block, const wchar_t* serverUrl, const 
                        wcscmp(g_xray.version, version) != 0 ||
                        wcscmp(g_xray.exePath, exePath) != 0);
 
+    PecXrayLockEnter();
     lstrcpynW(g_xray.version, version, 32);
     g_xray.listenPort = (int)port;
     g_xray.socksPort = (int)json_long(block, "socksPort", port + 1);
@@ -372,30 +490,48 @@ static void PecXrayHandleSyncBlock(JVal* block, const wchar_t* serverUrl, const 
     lstrcpynW(g_xray.exePath, exePath, MAX_PATH);
     lstrcpynW(g_xray.cfgPath, cfgPath, MAX_PATH);
     g_xray.enabled = TRUE;
+    g_xray.reason[0] = 0;
+    g_xray.serverCount = srvCount;
+    PecXrayLockLeave();
 
     if (cfgChanged) {
         if (GetFileAttributesW(exePath) == INVALID_FILE_ATTRIBUTES) {
             PB_WriteAppLog("PecXray: fetching core binary v%ls from server", version);
             if (!PecXrayDownloadBinary(serverUrl, fleetToken, version, exePath)) {
                 PB_WriteAppLog("PecXray: core binary download failed - will retry on next sync");
+                PecXrayLockEnter();
+                lstrcpynW(g_xray.note, L"binary_download_failed", 64);
+                PecXrayLockLeave();
                 sb_free(&sb);
                 return;
             }
         }
         if (!PecXrayWriteConfig(cfgPath, sb.buf)) {
             PB_WriteAppLog("PecXray: config write failed");
+            PecXrayLockEnter();
+            lstrcpynW(g_xray.note, L"config_write_failed", 64);
+            PecXrayLockLeave();
             sb_free(&sb);
             return;
         }
         g_xray.cfgHash = newHash;
         PecXrayStopProcess();
-        PecXraySpawn();
+        if (PecXraySpawn()) {
+            PecXrayLockEnter();
+            g_xray.note[0] = 0;
+            g_xray.lastApplyTick = GetTickCount();
+            PecXrayLockLeave();
+        }
     } else if (!PecXrayProcessAlive()) {
         // Supervise: restart a crashed core, but no more than once per 30s.
         DWORD now = GetTickCount();
         if (g_xray.lastStartTick == 0 || now - g_xray.lastStartTick > 30000) {
             PB_WriteAppLog("PecXray: core process exited - restarting");
-            PecXraySpawn();
+            if (PecXraySpawn()) {
+                PecXrayLockEnter();
+                g_xray.note[0] = 0;
+                PecXrayLockLeave();
+            }
         }
     }
     sb_free(&sb);

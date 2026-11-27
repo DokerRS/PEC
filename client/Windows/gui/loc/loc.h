@@ -64,6 +64,11 @@ enum {
     S_INFO_CORP_RULE, S_INFO_USER_RULE,
     S_BTN_SYNC_SERVER, S_DEFAULT_RULE_NAME, S_DEFAULT_PROXY_NAME,
     S_LOG_ENGINE_CONNECTED, S_LOG_CONFIG_UPDATED, S_LOG_PROXY_SWITCHED, S_LOG_PROXY_STATE,
+    S_TAB_OVERVIEW, S_OV_ENGINE, S_OV_SYNC, S_OV_XRAY, S_OV_SUB, S_OV_EXT, S_OV_ACCOUNT,
+    S_XRAY_RUNNING, S_XRAY_STOPPED, S_XRAY_OFF, S_XRAY_PORT, S_XRAY_VERSION,
+    S_XRAY_USER, S_XRAY_SERVERS, S_XRAY_RNF_USER, S_XRAY_RNF_NOSUB, S_XRAY_RNF_PANEL,
+    S_XRAY_RNF_GENERIC, S_XRAY_NOTE_DLFAIL, S_XRAY_NOTE_CFGFAIL, S_OV_ACTIVE_PROXY,
+    S_OV_IDLE, S_OV_LAST_SYNC, S_OV_NEVER,
     S_COUNT
 };
 
@@ -324,6 +329,30 @@ static const wchar_t* const g_strings[S_COUNT][3] = {
     /* S_LOG_CONFIG_UPDATED    */ { L"Конфигурация обновлена с сервера.", L"Configuration updated from server.", L"配置已从服务器更新。" },
     /* S_LOG_PROXY_SWITCHED    */ { L"Основной прокси переключен на: %s", L"Primary proxy switched to: %s", L"主要代理已切换为: %s" },
     /* S_LOG_PROXY_STATE       */ { L"Статус прокси переключен: %s", L"Proxy state switched: %s", L"代理状态已切换: %s" },
+    /* S_TAB_OVERVIEW          */ { L"Обзор", L"Overview", L"概览" },
+    /* S_OV_ENGINE             */ { L"Перехват трафика", L"Traffic interception", L"流量拦截" },
+    /* S_OV_SYNC               */ { L"Синхронизация с сервером", L"Server sync", L"服务器同步" },
+    /* S_OV_XRAY               */ { L"Локальное ядро Xray", L"Local Xray core", L"本地 Xray 内核" },
+    /* S_OV_SUB                */ { L"Персональная подписка", L"Personal subscription", L"个人订阅" },
+    /* S_OV_EXT                */ { L"Расширение браузера", L"Browser extension", L"浏览器扩展" },
+    /* S_OV_ACCOUNT            */ { L"Учётная запись", L"Account", L"账户" },
+    /* S_XRAY_RUNNING          */ { L"Ядро работает", L"Core running", L"内核运行中" },
+    /* S_XRAY_STOPPED          */ { L"Ядро остановлено", L"Core stopped", L"内核已停止" },
+    /* S_XRAY_OFF              */ { L"Отключено сервером", L"Disabled by server", L"服务器已禁用" },
+    /* S_XRAY_PORT             */ { L"Порт SOCKS5", L"SOCKS5 port", L"SOCKS5 端口" },
+    /* S_XRAY_VERSION          */ { L"Версия ядра", L"Core version", L"内核版本" },
+    /* S_XRAY_USER             */ { L"Персональный аккаунт", L"Personal account", L"个人账号" },
+    /* S_XRAY_SERVERS          */ { L"Серверов в подписке", L"Servers in subscription", L"订阅服务器数" },
+    /* S_XRAY_RNF_USER         */ { L"Пользователь не найден в Remnawave", L"User not found in Remnawave", L"在 Remnawave 中未找到用户" },
+    /* S_XRAY_RNF_NOSUB        */ { L"Нет активной подписки", L"No active subscription", L"无有效订阅" },
+    /* S_XRAY_RNF_PANEL        */ { L"Ошибка панели Remnawave", L"Remnawave panel error", L"Remnawave 面板错误" },
+    /* S_XRAY_RNF_GENERIC      */ { L"Подписка не выдана сервером", L"Subscription not issued by server", L"服务器未发放订阅" },
+    /* S_XRAY_NOTE_DLFAIL      */ { L"Не удалось скачать ядро", L"Core download failed", L"内核下载失败" },
+    /* S_XRAY_NOTE_CFGFAIL     */ { L"Ошибка записи конфигурации", L"Config write failed", L"配置写入失败" },
+    /* S_OV_ACTIVE_PROXY       */ { L"Активный прокси", L"Active proxy", L"活动代理" },
+    /* S_OV_IDLE               */ { L"Бездействие", L"Idle", L"空闲" },
+    /* S_OV_LAST_SYNC          */ { L"Последняя синхронизация", L"Last sync", L"上次同步" },
+    /* S_OV_NEVER              */ { L"ещё не выполнялась", L"never", L"从未" },
 };
 
 #ifdef __cplusplus

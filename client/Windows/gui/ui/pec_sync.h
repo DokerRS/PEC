@@ -821,6 +821,21 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                             }
                             LeaveCriticalSection(&g_syncLock);
 
+                            /* XRAY-STATUS-UI-1: report local core state so the
+                             * admin fleet table can show Xray/subscription. */
+                            {
+                                char xrFrag[320];
+                                PecXrayBuildStatusJson(xrFrag, sizeof(xrFrag));
+                                if (xrFrag[0]) {
+                                    char* closeBrace = strrchr(jsonBody, '}');
+                                    size_t fragLen = strlen(xrFrag);
+                                    if (closeBrace && fragLen + 2 < sizeof(jsonBody) - (size_t)(closeBrace - jsonBody)) {
+                                        memmove(closeBrace + fragLen, closeBrace, 2);
+                                        memcpy(closeBrace, xrFrag, fragLen);
+                                    }
+                                }
+                            }
+
                             DWORD bodyLen = (DWORD)strlen(jsonBody);
                             g_isSyncing = TRUE;
                             if (WinHttpSendRequest(hRequest, hdrs, (DWORD)wcslen(hdrs), jsonBody, bodyLen, bodyLen, 0) &&
