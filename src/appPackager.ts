@@ -56,6 +56,42 @@ export function hasAuthenticodeSignature(filePath: string): boolean {
   }
 }
 
+// Builds installer/payload.zip from the freshly compiled binaries so setup.rc
+// can embed it as RCDATA resource 101 (EMBED_PAYLOAD). Without an embedded
+// payload a standalone setup EXE always falls back to CopyFromSourceFolder,
+// which fails (there are no sibling binaries next to a downloaded EXE) and
+// shows a misleading "Authenticode verification failed" error.
+export function buildInstallerPayloadZip(instDir: string, binarySources: string[]): { ok: boolean; fileCount: number; zipPath: string; error?: string } {
+  const zipPath = path.join(instDir, "payload.zip");
+  try {
+    const zip = new AdmZip();
+    let fileCount = 0;
+    for (const src of binarySources) {
+      try {
+        if (!fs.existsSync(src)) continue;
+        const st = fs.statSync(src);
+        if (!st.isFile() || st.size < 1000) continue;
+        const name = path.basename(src);
+        if ((name === "WinDivert64.sys" || name === "PECAppCore.dll") && !hasAuthenticodeSignature(src)) {
+          console.warn(`[appPackager] [Security] Excluded unsigned ${name} from installer payload.zip`);
+          continue;
+        }
+        zip.addFile(name, fs.readFileSync(src));
+        fileCount++;
+      } catch {}
+    }
+    if (fileCount === 0) {
+      try { fs.rmSync(zipPath, { force: true }); } catch {}
+      return { ok: false, fileCount: 0, zipPath, error: "no payload binaries found" };
+    }
+    fs.writeFileSync(zipPath, zip.toBuffer());
+    return { ok: true, fileCount, zipPath };
+  } catch (err: any) {
+    try { fs.rmSync(zipPath, { force: true }); } catch {}
+    return { ok: false, fileCount: 0, zipPath, error: String(err?.message || err) };
+  }
+}
+
 export function ensurePristineTemplates(): void {
   const rootWin = path.join(getTemplatesAppDir(), "windows");
   const fallbackWin = path.resolve("./templates/app/windows");
@@ -1977,6 +2013,7 @@ export function cleanAppBinaries(): CleanAppBinariesResult {
       path.join(clientWinDir, "cli", "cli.res"),
       path.join(clientWinDir, "src", "service", "svc.res"),
       path.join(clientWinDir, "installer", "setup.res"),
+      path.join(clientWinDir, "installer", "payload.zip"),
       path.join(clientWinDir, "installer", "PEC-App-Setup.exe"),
     ];
     for (const p of intermediatePatterns) {
@@ -2441,8 +2478,18 @@ export function compileBinariesWithMinGW(outDir?: string, customVersion?: string
 
     const instDir = path.join(clientWinDir, "installer");
     if (fs.existsSync(instDir)) {
+      const payloadSources = ["PEC-App.exe", "PEC-CLI.exe", "PECAppSvc.exe", "PECAppCore.dll", "WinDivert.dll", "WinDivert64.sys"]
+        .map((n) => path.join(winTemplatesDir, n));
+      const payload = buildInstallerPayloadZip(instDir, payloadSources);
+      const embedDefine = payload.ok ? " -DEMBED_PAYLOAD" : "";
+      if (payload.ok) {
+        log(`[Installer] Embedded payload.zip into installer resources (${payload.fileCount} files, ${Math.round(fs.statSync(payload.zipPath).size / 1024)} KB)`);
+      } else {
+        log(`[Installer] WARN: no payload.zip (${payload.error}); setup will require binaries next to setup EXE`);
+      }
+
       log("[Installer] Compiling Installer resources with windres...");
-      child_process.execSync(`"${mingw.windres}" -i setup.rc --include-dir=. -I . --include-dir=../gui/res -I ../gui/res ${windresNumericDefines} -o setup.res -O coff`, { cwd: instDir, stdio: "pipe" });
+      child_process.execSync(`"${mingw.windres}" -i setup.rc --include-dir=. -I . --include-dir=../gui/res -I ../gui/res ${windresNumericDefines}${embedDefine} -o setup.res -O coff`, { cwd: instDir, stdio: "pipe" });
 
       log("[Installer] Compiling PEC-App-Setup.exe with x86_64-w64-mingw32-gcc...");
       child_process.execSync(
@@ -2745,8 +2792,17 @@ export function buildAppBinaries(customVersion?: string): BuildAppBinariesResult
       const instDir = path.join(clientWinDir, "installer");
       if (fs.existsSync(instDir)) {
         log(`[Installer] Compiling PEC-App-Setup v${appVer.version} with MSVC...`);
+        const payloadSources = ["PEC-App.exe", "PEC-CLI.exe", "PECAppSvc.exe", "PECAppCore.dll", "WinDivert.dll", "WinDivert64.sys"]
+          .map((n) => path.join(winTemplatesDir, n));
+        const payload = buildInstallerPayloadZip(instDir, payloadSources);
+        const embedDefine = payload.ok ? " /dEMBED_PAYLOAD" : "";
+        if (payload.ok) {
+          log(`[Installer] Embedded payload.zip into installer resources (${payload.fileCount} files, ${Math.round(fs.statSync(payload.zipPath).size / 1024)} KB)`);
+        } else {
+          log(`[Installer] WARN: no payload.zip (${payload.error}); setup will require binaries next to setup EXE`);
+        }
         const msvcRcInstDefines = `/dAPP_VER_MAJOR=${appVer.major} /dAPP_VER_MINOR=${appVer.minor} /dAPP_VER_PATCH=${appVer.patch} /dAPP_VER_BUILD=${appVer.build} /dAPP_VERSION_STR=\\"${appVer.quad}\\"`;
-        const instCmd = `call "${vcvars}" x64 >nul && cd /d "${instDir}" && rc /nologo ${msvcRcInstDefines} /fo setup.res setup.rc && cl.exe /nologo /utf-8 /O2 /MT /GS /DNDEBUG /D_CRT_SECURE_NO_WARNINGS /DUNICODE /D_UNICODE /DAPP_VERSION=L\\"${appVer.version}\\" /DAPP_VERSION_STR=\\"${appVer.version}\\" setup.c setup.res /Fe:PEC-App-Setup.exe /link /SUBSYSTEM:WINDOWS /RELEASE user32.lib gdi32.lib comctl32.lib shell32.lib advapi32.lib ole32.lib uuid.lib`;
+        const instCmd = `call "${vcvars}" x64 >nul && cd /d "${instDir}" && rc /nologo ${msvcRcInstDefines}${embedDefine} /fo setup.res setup.rc && cl.exe /nologo /utf-8 /O2 /MT /GS /DNDEBUG /D_CRT_SECURE_NO_WARNINGS /DUNICODE /D_UNICODE /DAPP_VERSION=L\\"${appVer.version}\\" /DAPP_VERSION_STR=\\"${appVer.version}\\" setup.c setup.res /Fe:PEC-App-Setup.exe /link /SUBSYSTEM:WINDOWS /RELEASE user32.lib gdi32.lib comctl32.lib shell32.lib advapi32.lib ole32.lib uuid.lib`;
         child_process.execSync(instCmd, { shell: "cmd.exe", windowsHide: true, stdio: "pipe" });
         const builtInst = path.join(instDir, "PEC-App-Setup.exe");
         if (fs.existsSync(builtInst)) {

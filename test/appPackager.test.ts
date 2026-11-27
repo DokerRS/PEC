@@ -24,6 +24,7 @@ import {
   buildAppBinaries,
   assembleAppPackage,
   compileBinariesWithMinGW,
+  buildInstallerPayloadZip,
   cleanAppBinaries,
   parseAppVersion,
   writeVersionGenHeaders,
@@ -380,6 +381,38 @@ test("compileBinariesWithMinGW function executes cleanly or reports toolchain st
   assert.strictEqual(Array.isArray(result.builtFiles), true);
   if (result.ok) {
     assert.ok(result.builtFiles.includes("PEC-App.exe"));
+  }
+});
+
+test("buildInstallerPayloadZip embeds present binaries and fails cleanly when none exist", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pec-payload-"));
+  try {
+    // No binaries -> ok:false and no zip left behind
+    const empty = buildInstallerPayloadZip(tmp, [path.join(tmp, "PEC-App.exe"), path.join(tmp, "PECAppSvc.exe")]);
+    assert.strictEqual(empty.ok, false);
+    assert.strictEqual(empty.fileCount, 0);
+    assert.strictEqual(fs.existsSync(empty.zipPath), false);
+
+    // Create fake PE-prefixed binaries (payload zip only checks size, not signature for user-mode files)
+    const fake = Buffer.alloc(2048, 0x41);
+    fake[0] = 0x4d; fake[1] = 0x5a;
+    fs.writeFileSync(path.join(tmp, "PEC-App.exe"), fake);
+    fs.writeFileSync(path.join(tmp, "PECAppSvc.exe"), fake);
+    fs.writeFileSync(path.join(tmp, "tiny.exe"), Buffer.alloc(10, 0x41)); // below size threshold
+
+    const res = buildInstallerPayloadZip(tmp, [
+      path.join(tmp, "PEC-App.exe"),
+      path.join(tmp, "PECAppSvc.exe"),
+      path.join(tmp, "tiny.exe"),
+      path.join(tmp, "missing.dll"),
+    ]);
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.fileCount, 2);
+    const zip = new AdmZip(res.zipPath);
+    const names = zip.getEntries().map((e) => e.entryName).sort();
+    assert.deepStrictEqual(names, ["PEC-App.exe", "PECAppSvc.exe"]);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 
