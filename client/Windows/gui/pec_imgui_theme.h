@@ -61,6 +61,14 @@ namespace PecTheme {
     inline ImVec4 DangerColor    = ImVec4(0.937f, 0.267f, 0.267f, 1.000f); // #EF4444
     inline ImVec4 DangerRed      = DangerColor;
 
+    // GUI-REDESIGN-1: derived chrome tokens (recomputed by ApplyProfileTheme
+    // from the active palette + custom overrides, see below).
+    inline ImVec4 SidebarBg      = ImVec4(0.031f, 0.051f, 0.102f, 1.000f); // Rail behind nav
+    inline ImVec4 SidebarActive  = ImVec4(0.102f, 0.161f, 0.282f, 1.000f); // Active nav row
+    inline ImVec4 HeroLeft       = ImVec4(0.012f, 0.200f, 0.329f, 1.000f); // Hero gradient start
+    inline ImVec4 HeroRight      = ImVec4(0.043f, 0.067f, 0.125f, 1.000f); // Hero gradient end
+    inline ImVec4 AccentGlow     = ImVec4(0.220f, 0.741f, 0.973f, 0.350f); // Soft accent halo
+
     inline bool   IsLightMode    = false;
 }
 
@@ -278,6 +286,34 @@ inline void ApplyProfileTheme(const PBProfile* prof, ImGuiStyle* dst = nullptr)
             {
                 PecTheme::CardBg = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
             }
+        }
+    }
+
+    // GUI-REDESIGN-1: derive chrome tokens from the final palette so custom
+    // server-pushed colors keep the sidebar/hero in sync with the theme.
+    {
+        auto Mul = [](const ImVec4& c, float k, float a = 1.0f) {
+            return ImVec4((std::max)(0.0f, c.x * k), (std::max)(0.0f, c.y * k),
+                          (std::max)(0.0f, c.z * k), a);
+        };
+        auto Mix = [](const ImVec4& a, const ImVec4& b, float t) {
+            return ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+                          a.z + (b.z - a.z) * t, 1.0f);
+        };
+        if (PecTheme::IsLightMode) {
+            PecTheme::SidebarBg     = Mix(PecTheme::CanvasBg, PecTheme::PrimaryAccent, 0.06f);
+            PecTheme::SidebarActive = Mix(PecTheme::CanvasBg, PecTheme::PrimaryAccent, 0.16f);
+            PecTheme::HeroLeft      = Mix(PecTheme::PrimaryAccent, PecTheme::CardBg, 0.55f);
+            PecTheme::HeroRight     = PecTheme::CardBg;
+            PecTheme::AccentGlow    = ImVec4(PecTheme::PrimaryAccent.x, PecTheme::PrimaryAccent.y,
+                                             PecTheme::PrimaryAccent.z, 0.25f);
+        } else {
+            PecTheme::SidebarBg     = Mul(PecTheme::CanvasBg, 0.72f);
+            PecTheme::SidebarActive = Mix(PecTheme::CardBg, PecTheme::PrimaryAccent, 0.30f);
+            PecTheme::HeroLeft      = Mix(PecTheme::CanvasBg, PecTheme::PrimaryAccent, 0.55f);
+            PecTheme::HeroRight     = PecTheme::CanvasBg;
+            PecTheme::AccentGlow    = ImVec4(PecTheme::HoverAccent.x, PecTheme::HoverAccent.y,
+                                             PecTheme::HoverAccent.z, 0.35f);
         }
     }
 

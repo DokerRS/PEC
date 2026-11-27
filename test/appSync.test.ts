@@ -529,5 +529,39 @@ test("App Sync API: returns theme object in sync response for dynamic corporate 
   });
 });
 
+test("App Sync API: always delivers xrayRuntime status block with reason (GUI-REDESIGN-1)", async () => {
+  await withServer(async (base) => {
+    const res = await fetch(`${base}/api/app/sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Fleet-Token": TEST_TOKEN,
+      },
+      body: JSON.stringify({
+        appInstanceId: "app_xray_status_test",
+        hostname: "WORKSTATION-XRAY",
+        username: "corp_user",
+        version: "2.3.0",
+      }),
+    });
+
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.ok, true);
+    // The block must always be present so the client can explain the Xray state.
+    assert.ok(body.xrayRuntime, "body.xrayRuntime must always be present in sync response");
+    assert.strictEqual(typeof body.xrayRuntime.enabled, "boolean");
+    if (!body.xrayRuntime.enabled) {
+      assert.strictEqual(typeof body.xrayRuntime.reason, "string");
+      assert.ok(body.xrayRuntime.reason.length > 0, "disabled block must carry a reason");
+      // Default test environment has no Xray runtime settings -> server_disabled.
+      assert.strictEqual(body.xrayRuntime.reason, "server_disabled");
+      // Fail-closed: no credentials/config leak in a status-only block.
+      assert.strictEqual(body.xrayRuntime.config, undefined);
+      assert.strictEqual(body.xrayRuntime.socksPassword, undefined);
+    }
+  });
+});
+
 
 

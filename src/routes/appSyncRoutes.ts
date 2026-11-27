@@ -26,6 +26,7 @@ import { DEFAULT_APP_VERSION, getAppBuildConfig, isDarkHexColor, isLightHexColor
 import { resolveFleetTheme, resolveThemeSyncEnabled } from "../serverTheme.js";
 import {
   buildXraySyncBlock,
+  loadXrayRuntimeSettings,
   normalizeRemnawaveUsername,
   type XraySyncBlock,
 } from "../xrayRuntime.js";
@@ -465,14 +466,23 @@ export function createAppSyncRouter(
         }
       }
 
-      // REMNA-PERUSER-XRAY-1: per-user local Xray runtime block. Delivered
-      // only when the admin enabled it AND the user passed AD authorization
-      // (fail-closed: without AD enabled or without a resolved username the
-      // client gets no xray block and keeps the legacy remote-proxy flow).
-      // The subscription is fetched live from Remnawave and never persisted.
+      // REMNA-PERUSER-XRAY-1: per-user local Xray runtime block. The config
+      // payload is delivered only when the admin enabled it AND the user
+      // passed AD authorization (fail-closed: the legacy remote-proxy flow
+      // stays active otherwise). The subscription is fetched live from
+      // Remnawave and never persisted.
+      // XRAY-VIS-1: even when the runtime is off/unauthorized the client now
+      // receives a disabled status block with a reason, so the GUI can always
+      // show the real Xray state instead of silently hiding it.
       let xrayBlock: XraySyncBlock | undefined;
       const xrayUser = normalizeRemnawaveUsername(cleanUsername || boundUser || "");
-      if (xrayUser && adConfig.enabled && isDomainUserAllowed(xrayUser)) {
+      if (!loadXrayRuntimeSettings().enabled) {
+        xrayBlock = { enabled: false, reason: "server_disabled" };
+      } else if (!xrayUser) {
+        xrayBlock = { enabled: false, reason: "user_not_found" };
+      } else if (!adConfig.enabled || !isDomainUserAllowed(xrayUser)) {
+        xrayBlock = { enabled: false, reason: "not_authorized" };
+      } else {
         const block = await buildXraySyncBlock({ username: xrayUser, includeConfig: true });
         if (block.enabled) {
           xrayBlock = block;

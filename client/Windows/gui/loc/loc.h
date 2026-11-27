@@ -69,6 +69,13 @@ enum {
     S_XRAY_USER, S_XRAY_SERVERS, S_XRAY_RNF_USER, S_XRAY_RNF_NOSUB, S_XRAY_RNF_PANEL,
     S_XRAY_RNF_GENERIC, S_XRAY_NOTE_DLFAIL, S_XRAY_NOTE_CFGFAIL, S_OV_ACTIVE_PROXY,
     S_OV_IDLE, S_OV_LAST_SYNC, S_OV_NEVER,
+    /* GUI-REDesign-1: sidebar nav, hero banner, dedicated Xray page */
+    S_NAV_SECTION, S_TAB_XRAY, S_NAV_OVERVIEW, S_NAV_XRAY, S_NAV_SERVERS, S_NAV_RULES,
+    S_NAV_CONN, S_NAV_LOGS, S_NAV_SETTINGS,
+    S_HERO_ROUTING, S_HERO_PAUSED_SUB,
+    S_XRAY_PAGE_TITLE, S_XRAY_STATUS_CARD, S_XRAY_SUB_CARD, S_XRAY_DETAIL_CARD,
+    S_XRAY_IDLE_HINT, S_XRAY_LISTEN, S_XRAY_PID,
+    S_XRAY_RNF_SERVER_OFF, S_XRAY_RNF_NOAUTH,
     S_COUNT
 };
 
@@ -353,6 +360,26 @@ static const wchar_t* const g_strings[S_COUNT][3] = {
     /* S_OV_IDLE               */ { L"Бездействие", L"Idle", L"空闲" },
     /* S_OV_LAST_SYNC          */ { L"Последняя синхронизация", L"Last sync", L"上次同步" },
     /* S_OV_NEVER              */ { L"ещё не выполнялась", L"never", L"从未" },
+    /* S_NAV_SECTION           */ { L"НАВИГАЦИЯ", L"NAVIGATION", L"导航" },
+    /* S_TAB_XRAY              */ { L"Xray ядро", L"Xray core", L"Xray 内核" },
+    /* S_NAV_OVERVIEW          */ { L"Обзор", L"Overview", L"概览" },
+    /* S_NAV_XRAY              */ { L"Xray ядро", L"Xray core", L"Xray 内核" },
+    /* S_NAV_SERVERS           */ { L"Серверы", L"Servers", L"服务器" },
+    /* S_NAV_RULES             */ { L"Правила", L"Rules", L"规则" },
+    /* S_NAV_CONN              */ { L"Соединения", L"Connections", L"连接" },
+    /* S_NAV_LOGS              */ { L"Журнал", L"Logs", L"日志" },
+    /* S_NAV_SETTINGS          */ { L"Настройки", L"Settings", L"设置" },
+    /* S_HERO_ROUTING          */ { L"Трафик идёт через корпоративный канал", L"Traffic is routed through the corporate tunnel", L"流量通过企业通道路由" },
+    /* S_HERO_PAUSED_SUB       */ { L"Перехват выключен — приложения работают напрямую", L"Interception is off — apps connect directly", L"拦截已关闭 — 应用直连" },
+    /* S_XRAY_PAGE_TITLE       */ { L"Локальное ядро Xray", L"Local Xray core", L"本地 Xray 内核" },
+    /* S_XRAY_STATUS_CARD      */ { L"Состояние ядра", L"Core status", L"内核状态" },
+    /* S_XRAY_SUB_CARD         */ { L"Персональная подписка", L"Personal subscription", L"个人订阅" },
+    /* S_XRAY_DETAIL_CARD      */ { L"Параметры туннеля", L"Tunnel parameters", L"隧道参数" },
+    /* S_XRAY_IDLE_HINT        */ { L"Ядро управляется сервером PEC. Включите Xray-режим в админ-панели и синхронизируйтесь.", L"The core is managed by the PEC server. Enable Xray mode in the admin panel and sync.", L"内核由 PEC 服务器管理。请在管理面板启用 Xray 模式并同步。" },
+    /* S_XRAY_LISTEN           */ { L"Локальный адрес", L"Local address", L"本地地址" },
+    /* S_XRAY_PID              */ { L"PID процесса", L"Process PID", L"进程 PID" },
+    /* S_XRAY_RNF_SERVER_OFF   */ { L"Xray-режим выключен администратором", L"Xray mode disabled by administrator", L"管理员已禁用 Xray 模式" },
+    /* S_XRAY_RNF_NOAUTH       */ { L"Нет доступа по политике AD", L"Not authorized by AD policy", L"AD 策略未授权" },
 };
 
 #ifdef __cplusplus

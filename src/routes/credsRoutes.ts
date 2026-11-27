@@ -12,7 +12,7 @@ import { createRateLimiter, timingSafeEqualString } from "../middleware/security
 import { signPacUrlParams, verifyPacUrlParams } from "../pacSigner.js";
 import { sanitizeSingleLine, logger } from "../logger.js";
 import { resolveSyncThemeForClients } from "../serverTheme.js";
-import { buildXraySyncBlock, normalizeRemnawaveUsername, type XraySyncBlock } from "../xrayRuntime.js";
+import { buildXraySyncBlock, loadXrayRuntimeSettings, normalizeRemnawaveUsername, type XraySyncBlock } from "../xrayRuntime.js";
 
 function authenticateExtRequest(
   tokenProvided: string | undefined,
@@ -517,7 +517,16 @@ export function createCredsRouter(getSharedToken: () => string): Router {
       // not the rendered config — PEC-App owns the config file on disk.
       const xrayUser = normalizeRemnawaveUsername(cleanDomainUser || existingMeta?.domainUser || "");
       let xrayBlock: XraySyncBlock | undefined;
-      if (xrayUser && adConfig.enabled && isDomainUserAllowed(xrayUser)) {
+      // XRAY-VIS-1: always deliver a status block (disabled + reason when the
+      // runtime is off or the user is not AD-authorized) so the extension and
+      // PEC-App can surface the real Xray state instead of hiding it.
+      if (!loadXrayRuntimeSettings().enabled) {
+        xrayBlock = { enabled: false, reason: "server_disabled" };
+      } else if (!xrayUser) {
+        xrayBlock = { enabled: false, reason: "user_not_found" };
+      } else if (!adConfig.enabled || !isDomainUserAllowed(xrayUser)) {
+        xrayBlock = { enabled: false, reason: "not_authorized" };
+      } else {
         const block = await buildXraySyncBlock({ username: xrayUser });
         if (block.enabled) {
           xrayBlock = block;
