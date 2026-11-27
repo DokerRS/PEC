@@ -758,14 +758,18 @@ export function clearInstances() {
 
 /**
  * Enroll a newly generated per-instance token hash.
+ *
+ * `force` rotates the token of an already-enrolled instance. Callers must only
+ * set it after authenticating with the fleet token (SYNC-REENROLL-1): the same
+ * trust level that permits a brand-new enrollment.
  */
-export function enrollInstanceToken(instanceId: string, tokenHash: string): boolean {
+export function enrollInstanceToken(instanceId: string, tokenHash: string, force = false): boolean {
   const cleanId = assertSafeInstanceId(instanceId);
   if (!persistentMeta[cleanId]) {
     persistentMeta[cleanId] = {};
   }
   // Prevent hijacking if already enrolled and not revoked
-  if (persistentMeta[cleanId].tokenHash && !persistentMeta[cleanId].revoked) {
+  if (!force && persistentMeta[cleanId].tokenHash && !persistentMeta[cleanId].revoked) {
     return false;
   }
   const now = new Date().toISOString();

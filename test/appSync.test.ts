@@ -565,3 +565,46 @@ test("App Sync API: always delivers xrayRuntime status block with reason (GUI-RE
 
 
 
+
+test("App Sync API: stale instance token with valid fleet token re-enrolls (SYNC-REENROLL-1)", async () => {
+  await withServer(async (base) => {
+    const sync = async (instanceToken?: string, fleetToken?: string) => {
+      const res = await fetch(`${base}/api/app/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(fleetToken ? { "X-Fleet-Token": fleetToken } : {}),
+          ...(instanceToken ? { "X-Instance-Token": instanceToken } : {}),
+        },
+        body: JSON.stringify({
+          appInstanceId: "app_stale_tok_test",
+          hostname: "WORKSTATION-STALE-TOK",
+          username: "corp_user",
+          version: "2.3.0",
+        }),
+      });
+      return { status: res.status, body: await res.json() };
+    };
+
+    // 1. First enrollment via fleet token issues an instance token.
+    const first = await sync(undefined, TEST_TOKEN);
+    assert.strictEqual(first.status, 200);
+    const issued = first.body.instanceToken as string;
+    assert.ok(issued, "first sync must issue an instance token");
+
+    // 2. A stale/corrupt instance token plus a valid fleet token must re-enroll,
+    //    not lock the client out with a permanent 401.
+    const stale = await sync("dpapi:AQAAANCMnd8BFdERjHoAwE-clutter", TEST_TOKEN);
+    assert.strictEqual(stale.status, 200, "stale token + valid fleet token must re-enroll");
+    assert.strictEqual(stale.body.ok, true);
+    assert.ok(stale.body.instanceToken, "re-enrollment must issue a fresh instance token");
+
+    // 3. The freshly issued token authenticates on its own.
+    const fresh = await sync(stale.body.instanceToken as string, TEST_TOKEN);
+    assert.strictEqual(fresh.status, 200);
+
+    // 4. A stale token with NO fleet token still fails closed.
+    const denied = await sync("totally-wrong-token", undefined);
+    assert.strictEqual(denied.status, 401, "stale token without fleet token must stay 401");
+  });
+});

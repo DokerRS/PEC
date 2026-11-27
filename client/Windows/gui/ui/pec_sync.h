@@ -714,8 +714,11 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                         if (hRequest)
                         {
                             // Build headers: use instanceToken if available (enrolled), otherwise fleetToken
+                            // SYNC-REENROLL-1: a "dpapi:"-prefixed value means the profile blob
+                            // could not be decrypted (wrong user/machine) — it is not a usable
+                            // token; fall back to the plaintext file / fleet token instead.
                             wchar_t tokenBuf[256] = { 0 };
-                            if (instTok[0] != 0)
+                            if (instTok[0] != 0 && wcsncmp(instTok, L"dpapi:", 6) != 0)
                             {
                                 lstrcpynW(tokenBuf, instTok, 256);
                             }
@@ -730,16 +733,22 @@ static DWORD WINAPI PecSyncThreadProc(LPVOID param)
                                 }
                             }
 
-                            wchar_t hdrs[512];
+                            /* SYNC-REENROLL-1: always send the fleet token alongside the
+                             * instance token. If the server lost our enrollment record
+                             * (state reset/wipe), a stale instance token alone can never
+                             * re-enroll and the client is stuck on HTTP 401 forever.
+                             * The server prefers the instance token when it still matches
+                             * and falls back to fleet-token re-enrollment otherwise. */
+                            wchar_t hdrs[640];
                             if (tokenBuf[0] != 0)
                             {
-                                _snwprintf_s(hdrs, 512, _TRUNCATE,
-                                    L"Content-Type: application/json\r\nx-instance-token: %ls\r\n",
-                                    tokenBuf);
+                                _snwprintf_s(hdrs, 640, _TRUNCATE,
+                                    L"Content-Type: application/json\r\nx-fleet-token: %ls\r\nx-instance-token: %ls\r\n",
+                                    fltTok, tokenBuf);
                             }
                             else
                             {
-                                _snwprintf_s(hdrs, 512, _TRUNCATE,
+                                _snwprintf_s(hdrs, 640, _TRUNCATE,
                                     L"Content-Type: application/json\r\nx-fleet-token: %ls\r\n",
                                     fltTok);
                             }

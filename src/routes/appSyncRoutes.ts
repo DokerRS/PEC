@@ -66,6 +66,8 @@ export function createAppSyncRouter(
 
       let authenticated = false;
       let shouldEnroll = false;
+      // SYNC-REENROLL-1: true when re-enrolling over an existing (stale) token hash
+      let shouldRotateToken = false;
 
       if (rawAdminToken && adminExpected && timingSafeEqualString(rawAdminToken, adminExpected)) {
         authenticated = true;
@@ -98,6 +100,14 @@ export function createAppSyncRouter(
           const incomingHash = crypto.createHash("sha256").update(rawInstanceToken).digest("hex");
           if (timingSafeEqualString(incomingHash, meta.tokenHash)) {
             authenticated = true;
+          } else if (rawFleetToken && fleetExpected && timingSafeEqualString(rawFleetToken, fleetExpected)) {
+            // SYNC-REENROLL-1: instance token is stale/corrupt (e.g. client lost its
+            // token file or profile DPAPI blob) but the caller still presents a valid
+            // fleet token. Re-enroll instead of hard-failing, mirroring the no-meta
+            // path so a client can never be locked out by a desynced token.
+            authenticated = true;
+            shouldEnroll = true;
+            shouldRotateToken = true;
           } else {
             return res.status(401).json({ ok: false, error: "Unauthorized: Invalid instance token" });
           }
@@ -223,7 +233,7 @@ export function createAppSyncRouter(
       if (shouldEnroll && cleanAppId) {
         issuedInstanceToken = crypto.randomBytes(24).toString("hex");
         const tokenHash = crypto.createHash("sha256").update(issuedInstanceToken).digest("hex");
-        const enrolled = enrollInstanceToken(cleanAppId, tokenHash);
+        const enrolled = enrollInstanceToken(cleanAppId, tokenHash, shouldRotateToken);
         if (!enrolled) {
           return res.status(409).json({ ok: false, error: "Conflict: Instance already enrolled" });
         }
