@@ -21,12 +21,20 @@ export interface XrayRuntimeSettings {
   version: string;
   /** Shared localhost listener port (HTTP proxy). SOCKS5 uses port + 1. */
   listenPort: number;
+  /**
+   * XRAY-TESTMODE-1: test switch. When true the Xray delivery gate and the
+   * AD kill-switch on the sync endpoints are skipped, so any (even unknown or
+   * AD-forbidden) client can pull its per-user Xray runtime for validation.
+   * Intended for pilots only; the audit log marks every bypassed request.
+   */
+  bypassAd: boolean;
 }
 
 export const DEFAULT_XRAY_RUNTIME_SETTINGS: XrayRuntimeSettings = {
   enabled: false,
   version: "",
   listenPort: 12080,
+  bypassAd: false,
 };
 
 function sanitizeSettings(raw: unknown): XrayRuntimeSettings {
@@ -36,6 +44,7 @@ function sanitizeSettings(raw: unknown): XrayRuntimeSettings {
     enabled: obj.enabled === true,
     version: typeof obj.version === "string" ? obj.version.trim().replace(/^v+/, "") : "",
     listenPort: Number.isInteger(port) && port >= 1 && port <= 65534 ? port : DEFAULT_XRAY_RUNTIME_SETTINGS.listenPort,
+    bypassAd: obj.bypassAd === true,
   };
 }
 
@@ -52,6 +61,7 @@ export function saveXrayRuntimeSettings(updates: Partial<XrayRuntimeSettings>): 
     enabled: updates.enabled === undefined ? current.enabled : updates.enabled === true,
     version: updates.version === undefined ? current.version : String(updates.version),
     listenPort: updates.listenPort === undefined ? current.listenPort : updates.listenPort,
+    bypassAd: updates.bypassAd === undefined ? current.bypassAd : updates.bypassAd === true,
   });
   const path = getXrayRuntimeSettingsPath();
   // Preserve the HMAC master secret across settings updates (rewriting the
@@ -63,7 +73,7 @@ export function saveXrayRuntimeSettings(updates: Partial<XrayRuntimeSettings>): 
   }
   writeJsonAtomic(path, payload);
   restrictSecretFilePermissions(path);
-  logger.info(`[xrayRuntime] Runtime settings updated: enabled=${merged.enabled}, version=${merged.version || "(client default)"}, port=${merged.listenPort}`);
+  logger.info(`[xrayRuntime] Runtime settings updated: enabled=${merged.enabled}, version=${merged.version || "(client default)"}, port=${merged.listenPort}, bypassAd=${merged.bypassAd}`);
   return merged;
 }
 
@@ -330,6 +340,8 @@ export interface XraySyncBlock {
   config?: Record<string, unknown>;
   servers?: Array<{ name: string; host: string; port: number }>;
   reason?: string;
+  /** XRAY-TESTMODE-1: true when the block was delivered bypassing AD checks. */
+  testMode?: boolean;
 }
 
 const XRAY_BLOCK_DISABLED: XraySyncBlock = { enabled: false };

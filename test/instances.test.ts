@@ -184,7 +184,7 @@ test("xrayStatus from desktop clients is sanitized and preserved", () => {
   assert.strictEqual(ok.socksPort, 20810);
   assert.strictEqual(ok.reason, "no_active_subscription");
   assert.strictEqual(ok.serverCount, 64);
-  assert.strictEqual((ok as Record<string, unknown>).evil, undefined);
+  assert.strictEqual((ok as unknown as Record<string, unknown>).evil, undefined);
 
   // non-whitelisted reason is dropped
   const noReason = sanitizeDesktopXrayStatus({ enabled: false, running: false, reason: "arbitrary_text" });

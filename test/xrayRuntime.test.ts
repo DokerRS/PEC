@@ -61,7 +61,15 @@ test("XR-1: settings default when store absent; save/load round-trip with saniti
   assert.equal(saved.enabled, true);
   assert.equal(saved.version, "24.11.11", "leading v is stripped");
   assert.equal(saved.listenPort, 12700);
-  assert.deepEqual(loadXrayRuntimeSettings(), { enabled: true, version: "24.11.11", listenPort: 12700 });
+  assert.equal(saved.bypassAd, false, "AD bypass defaults to off");
+  assert.deepEqual(loadXrayRuntimeSettings(), { enabled: true, version: "24.11.11", listenPort: 12700, bypassAd: false });
+
+  // XRAY-TESTMODE-1: bypassAd round-trips and is a real boolean gate.
+  const testMode = saveXrayRuntimeSettings({ bypassAd: true });
+  assert.equal(testMode.bypassAd, true);
+  assert.equal(loadXrayRuntimeSettings().bypassAd, true, "flag persists across loads");
+  const testOff = saveXrayRuntimeSettings({ bypassAd: "yes" as unknown as boolean });
+  assert.equal(testOff.bypassAd, false, "non-boolean bypassAd stays false");
 
   // Garbage port falls back to default; non-boolean enabled stays false.
   const bad = saveXrayRuntimeSettings({ enabled: "yes" as unknown as boolean, listenPort: 99999 });
@@ -200,7 +208,7 @@ test("XR-1: /api/xray-runtime is admin-only and round-trips settings", async () 
     const post = await fetch(`${base}/api/xray-runtime`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-admin-token": TEST_ADMIN_TOKEN },
-      body: JSON.stringify({ enabled: true, version: "24.11.11", listenPort: 12500 }),
+      body: JSON.stringify({ enabled: true, version: "24.11.11", listenPort: 12500, bypassAd: true }),
     });
     assert.strictEqual(post.status, 200);
     const body = await post.json();
@@ -208,12 +216,14 @@ test("XR-1: /api/xray-runtime is admin-only and round-trips settings", async () 
     assert.equal(body.enabled, true);
     assert.equal(body.version, "24.11.11");
     assert.equal(body.listenPort, 12500);
+    assert.equal(body.bypassAd, true, "XRAY-TESTMODE-1: admin can toggle AD bypass");
 
     const get = await fetch(`${base}/api/xray-runtime`, { headers: { "x-admin-token": TEST_ADMIN_TOKEN } });
     assert.strictEqual(get.status, 200);
     const getBody = await get.json();
     assert.equal(getBody.enabled, true);
     assert.equal(getBody.listenPort, 12500);
+    assert.equal(getBody.bypassAd, true, "XRAY-TESTMODE-1: AD bypass readable via GET");
     // The master secret must never leak through the admin API.
     assert.ok(!JSON.stringify(getBody).includes("masterSecret"));
   });

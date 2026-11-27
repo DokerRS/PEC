@@ -91,6 +91,7 @@ export function createXrayRuntimeRouter(adminAuthMiddleware?: RequestHandler, ge
         enabled: body.enabled,
         version: body.version,
         listenPort: body.listenPort,
+        bypassAd: body.bypassAd,
       });
       res.json({ ok: true, ...saved });
     } catch (err: unknown) {

@@ -18,7 +18,7 @@ function authenticateExtRequest(
   tokenProvided: string | undefined,
   instanceId: string | undefined,
   sharedToken: string,
-  options?: { isSync?: boolean; domainUser?: string }
+  options?: { isSync?: boolean; domainUser?: string; allowAdBypass?: boolean }
 ): { authenticated: boolean; shouldEnroll: boolean } {
   if (!tokenProvided) {
     return { authenticated: false, shouldEnroll: false };
@@ -41,8 +41,7 @@ function authenticateExtRequest(
         meta.revokedReason !== "manual" &&
         sharedToken && timingSafeEqualString(tokenProvided, sharedToken) &&
         boundUser && cleanUser && boundUser.toLowerCase() === cleanUser.toLowerCase() &&
-        adConfig.enabled &&
-        isDomainUserAllowed(cleanUser)
+        (options?.allowAdBypass || (adConfig.enabled && isDomainUserAllowed(cleanUser)))
       );
 
       if (canAutoRecover) {
@@ -347,7 +346,14 @@ export function createCredsRouter(getSharedToken: () => string): Router {
       const instanceId = rawInstanceId ? String(rawInstanceId).trim() : undefined;
       const cleanDomainUser = typeof domainUser === "string" ? domainUser.trim() : undefined;
 
-      const auth = authenticateExtRequest(xExtToken, instanceId, token, { isSync: true, domainUser: cleanDomainUser });
+      // XRAY-TESTMODE-1: admin test switch — skips the AD kill-switch and the
+      // Xray authorization gate for pilots. Only active while the Xray runtime
+      // itself is enabled, so the flag alone can never disarm the kill-switch.
+      // Manual admin locks and the domainUser anti-spoofing binding stay enforced.
+      const xrayRuntimeCfg = loadXrayRuntimeSettings();
+      const xrayTestMode = xrayRuntimeCfg.enabled === true && xrayRuntimeCfg.bypassAd === true;
+
+      const auth = authenticateExtRequest(xExtToken, instanceId, token, { isSync: true, domainUser: cleanDomainUser, allowAdBypass: xrayTestMode });
       if (!token || !xExtToken || !auth.authenticated) {
         recordAudit({
           ip: clientHost,
@@ -381,8 +387,10 @@ export function createCredsRouter(getSharedToken: () => string): Router {
       }
 
       // Active Directory membership & Kill-Switch
+      // XRAY-TESTMODE-1: skipped while the admin test switch is on (manual
+      // revocations are still honored at the auth stage above).
       const adConfig = adSyncService.getConfig();
-      if (adConfig.enabled) {
+      if (adConfig.enabled && !xrayTestMode) {
         const effectiveUser = cleanDomainUser || existingMeta?.domainUser;
         if (!effectiveUser) {
           if (adConfig.rejectUnknownUsers) {
@@ -429,6 +437,15 @@ export function createCredsRouter(getSharedToken: () => string): Router {
             });
           }
         }
+      } else if (adConfig.enabled && xrayTestMode) {
+        // XRAY-TESTMODE-1: keep a trace of every AD-bypassed sync.
+        recordAudit({
+          ip: clientHost,
+          endpoint: "/api/sync",
+          status: 200,
+          result: "CONFIG_UPDATED",
+          details: `XRAY-TESTMODE: AD kill-switch bypassed for instance '${instanceId || "anon"}' user '${cleanDomainUser || existingMeta?.domainUser || "unknown"}'`,
+        });
       }
 
       const bldCfg = getBuildConfig();
@@ -520,16 +537,18 @@ export function createCredsRouter(getSharedToken: () => string): Router {
       // XRAY-VIS-1: always deliver a status block (disabled + reason when the
       // runtime is off or the user is not AD-authorized) so the extension and
       // PEC-App can surface the real Xray state instead of hiding it.
-      if (!loadXrayRuntimeSettings().enabled) {
+      if (!xrayRuntimeCfg.enabled) {
         xrayBlock = { enabled: false, reason: "server_disabled" };
       } else if (!xrayUser) {
         xrayBlock = { enabled: false, reason: "user_not_found" };
-      } else if (!adConfig.enabled || !isDomainUserAllowed(xrayUser)) {
+      } else if (!xrayTestMode && (!adConfig.enabled || !isDomainUserAllowed(xrayUser))) {
         xrayBlock = { enabled: false, reason: "not_authorized" };
       } else {
         const block = await buildXraySyncBlock({ username: xrayUser });
         if (block.enabled) {
           xrayBlock = block;
+          // XRAY-TESTMODE-1: mark test deliveries so the client/UI can show it.
+          if (xrayTestMode) xrayBlock.testMode = true;
         } else if (block.reason) {
           xrayBlock = { enabled: false, reason: block.reason };
         }

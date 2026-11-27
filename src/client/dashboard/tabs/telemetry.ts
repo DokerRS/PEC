@@ -1499,7 +1499,9 @@ export let currentPanelsList = [];
         const enEl = document.getElementById('xrayRuntimeEnabled') as HTMLInputElement | null;
         const verEl = document.getElementById('xrayRuntimeVersion') as HTMLSelectElement | null;
         const portEl = document.getElementById('xrayRuntimePort') as HTMLInputElement | null;
+        const baEl = document.getElementById('xrayRuntimeBypassAd') as HTMLInputElement | null;
         if (enEl) enEl.checked = Boolean(data.enabled);
+        if (baEl) baEl.checked = Boolean(data.bypassAd);
         if (verEl) {
           if (verEl.tagName === 'SELECT' && !xrayVersionsLoaded) {
             verEl.innerHTML = '';
@@ -1564,11 +1566,13 @@ export let currentPanelsList = [];
       const enEl = document.getElementById('xrayRuntimeEnabled') as HTMLInputElement | null;
       const verEl = document.getElementById('xrayRuntimeVersion') as HTMLInputElement | null;
       const portEl = document.getElementById('xrayRuntimePort') as HTMLInputElement | null;
+      const baEl = document.getElementById('xrayRuntimeBypassAd') as HTMLInputElement | null;
       const errEl = document.getElementById('xrayRuntimeError');
       const payload = {
         enabled: Boolean(enEl && enEl.checked),
         version: ((verEl && verEl.value) || '').trim(),
         listenPort: Number(((portEl && portEl.value) || '').trim()) || 0,
+        bypassAd: Boolean(baEl && baEl.checked),
       };
       if (!Number.isInteger(payload.listenPort) || payload.listenPort < 1 || payload.listenPort > 65534) {
         if (errEl) { errEl.textContent = isRu ? 'Порт должен быть числом 1–65534' : 'Port must be an integer 1-65534'; errEl.style.display = 'block'; }

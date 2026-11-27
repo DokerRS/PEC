@@ -55,6 +55,14 @@ export function createAppSyncRouter(
     const rawAppInstanceId = (req.body?.appInstanceId || getHeaderString(req.headers["x-instance-id"]) || "") as string;
     const cleanAppId = typeof rawAppInstanceId === "string" ? rawAppInstanceId.trim() : "";
 
+    // XRAY-TESTMODE-1: admin test switch. While enabled (together with the
+    // Xray runtime master switch), the AD kill-switch and the Xray
+    // authorization gate are skipped so pilots can validate the per-user
+    // Xray runtime without AD membership. Manual admin locks and the username
+    // anti-spoofing binding stay enforced.
+    const xrayRuntimeCfg = loadXrayRuntimeSettings();
+    const xrayTestMode = xrayRuntimeCfg.enabled === true && xrayRuntimeCfg.bypassAd === true;
+
     const releaseLock = cleanAppId ? await acquireInstanceMutex(cleanAppId) : () => {};
     try {
       const rawInstanceToken = getHeaderString(req.headers["x-instance-token"]);
@@ -80,8 +88,7 @@ export function createAppSyncRouter(
             meta.revokedReason !== "manual" &&
             rawFleetToken && fleetExpected && timingSafeEqualString(rawFleetToken, fleetExpected) &&
             boundUser && presentedUser && boundUser.toLowerCase() === presentedUser.toLowerCase() &&
-            adSyncService.getConfig().enabled &&
-            isDomainUserAllowed(boundUser)
+            (xrayTestMode || (adSyncService.getConfig().enabled && isDomainUserAllowed(boundUser)))
           );
 
           if (canAutoRecover) {
@@ -167,8 +174,10 @@ export function createAppSyncRouter(
       }
 
       // Active Directory membership check for desktop app (Kill-Switch)
+      // XRAY-TESTMODE-1: skipped while the admin test switch is on (manual
+      // revocations are still honored at the auth stage above).
       const adConfig = adSyncService.getConfig();
-      if (adConfig.enabled) {
+      if (adConfig.enabled && !xrayTestMode) {
         const effectiveUser = cleanUsername || boundUser;
         if (!effectiveUser) {
           if (adConfig.rejectUnknownUsers) {
@@ -204,6 +213,15 @@ export function createAppSyncRouter(
             });
           }
         }
+      } else if (adConfig.enabled && xrayTestMode) {
+        // XRAY-TESTMODE-1: keep a trace of every AD-bypassed sync.
+        recordAudit({
+          ip: clientIp,
+          endpoint: "/api/app/sync",
+          status: 200,
+          result: "CONFIG_UPDATED",
+          details: `XRAY-TESTMODE: AD kill-switch bypassed for instance '${cleanAppId || "anon"}' user '${cleanUsername || boundUser || "unknown"}'`,
+        });
       }
 
       if (pairedExtension !== undefined && pairedExtension !== null) {
@@ -490,12 +508,14 @@ export function createAppSyncRouter(
         xrayBlock = { enabled: false, reason: "server_disabled" };
       } else if (!xrayUser) {
         xrayBlock = { enabled: false, reason: "user_not_found" };
-      } else if (!adConfig.enabled || !isDomainUserAllowed(xrayUser)) {
+      } else if (!xrayTestMode && (!adConfig.enabled || !isDomainUserAllowed(xrayUser))) {
         xrayBlock = { enabled: false, reason: "not_authorized" };
       } else {
         const block = await buildXraySyncBlock({ username: xrayUser, includeConfig: true });
         if (block.enabled) {
           xrayBlock = block;
+          // XRAY-TESTMODE-1: mark test deliveries so the client/UI can show it.
+          if (xrayTestMode) xrayBlock.testMode = true;
         } else if (block.reason) {
           // Runtime enabled but delivery failed: surface the reason so the
           // client can show why the local tunnel is unavailable.

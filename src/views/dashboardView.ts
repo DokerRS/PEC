@@ -609,6 +609,10 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
             <label for="xrayRuntimePort" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Порт HTTP (SOCKS = +1) / HTTP port</label>
             <input type="number" id="xrayRuntimePort" min="1" max="65534" placeholder="12080" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
           </div>
+          <label for="xrayRuntimeBypassAd" style="display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: none; font-weight: normal; cursor: pointer;" title="Пилотный режим: выдавать Xray всем синхронизированным пользователям, игнорируя AD-группу и kill-switch. Ручные блокировки и привязка логина сохраняются. / Test mode: deliver Xray ignoring the AD group and kill-switch. Manual locks and username binding remain enforced.">
+            <input type="checkbox" id="xrayRuntimeBypassAd" style="width: auto; margin-bottom: 0;" />
+            <span style="color: var(--warning, #d97706);">Тест в обход AD / Test mode: bypass AD</span>
+          </label>
         </div>
         <div id="xrayRuntimeError" style="display: none; color: var(--danger); font-size: 12px; margin-top: 10px;"></div>
         <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
