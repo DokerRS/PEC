@@ -8,6 +8,7 @@ import {
   listCachedXrayBinaries,
   deleteCachedXrayBinary,
   isValidXrayVersion,
+  listXrayCoreVersions,
 } from "../xrayBinaries.js";
 import { timingSafeEqualString, createRateLimiter } from "../middleware/security.js";
 import { logger } from "../logger.js";
@@ -69,6 +70,18 @@ export function createXrayRuntimeRouter(adminAuthMiddleware?: RequestHandler, ge
 
   router.get(["/", "/xray-runtime"], (_req: Request, res: Response) => {
     res.json({ ok: true, ...loadXrayRuntimeSettings(), binaries: listCachedXrayBinaries() });
+  });
+
+  // Admin: official Xray-core release versions from GitHub (for the version dropdown).
+  router.get("/versions", async (req: Request, res: Response) => {
+    try {
+      const refresh = req.query.refresh === "1" || req.query.refresh === "true";
+      const versions = await listXrayCoreVersions(refresh);
+      res.json({ ok: true, versions });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(502).json({ ok: false, error: msg });
+    }
   });
 
   router.post(["/", "/xray-runtime"], (req: Request, res: Response) => {

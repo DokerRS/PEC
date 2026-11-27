@@ -1411,16 +1411,65 @@ export let currentPanelsList = [];
 
     // ----------------- REMNA-PERUSER-XRAY-1: Xray runtime settings -----------------
 
+    let xrayVersionsLoaded = false;
+
+    function setXrayVersionOptions(versions: string[], current: string) {
+      const verEl = document.getElementById('xrayRuntimeVersion') as HTMLSelectElement | null;
+      if (!verEl || verEl.tagName !== 'SELECT') return;
+      const list = versions.slice();
+      if (current && !list.includes(current)) list.unshift(current);
+      verEl.innerHTML = '';
+      for (const v of list) {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        verEl.appendChild(opt);
+      }
+      if (current) verEl.value = current;
+      else if (list.length) verEl.value = list[0];
+    }
+
+    export async function loadXrayCoreVersions(force = false) {
+      try {
+        const res = await adminFetch('/api/xray-runtime/versions' + (force ? '?refresh=1' : ''));
+        if (!res.ok) return;
+        const data = await res.json();
+        const versions = (Array.isArray(data.versions) ? data.versions : [])
+          .map((v: any) => (typeof v === 'string' ? v : v && v.version))
+          .filter(Boolean);
+        if (versions.length) {
+          xrayVersionsLoaded = true;
+          const verEl = document.getElementById('xrayRuntimeVersion') as HTMLSelectElement | null;
+          setXrayVersionOptions(versions, verEl ? verEl.value : '');
+        }
+      } catch (e) {
+        console.warn('Failed to load Xray core versions:', e);
+      }
+    }
+
     export async function loadXrayRuntimeSettings() {
       try {
         const res = await adminFetch('/api/xray-runtime');
         if (!res.ok) return;
         const data = await res.json();
         const enEl = document.getElementById('xrayRuntimeEnabled') as HTMLInputElement | null;
-        const verEl = document.getElementById('xrayRuntimeVersion') as HTMLInputElement | null;
+        const verEl = document.getElementById('xrayRuntimeVersion') as HTMLSelectElement | null;
         const portEl = document.getElementById('xrayRuntimePort') as HTMLInputElement | null;
         if (enEl) enEl.checked = Boolean(data.enabled);
-        if (verEl) verEl.value = data.version || '';
+        if (verEl) {
+          if (verEl.tagName === 'SELECT' && !xrayVersionsLoaded) {
+            verEl.innerHTML = '';
+            const opt = document.createElement('option');
+            opt.value = data.version || '';
+            opt.textContent = data.version || '24.11.11';
+            verEl.appendChild(opt);
+            if (data.version) verEl.value = data.version;
+            loadXrayCoreVersions();
+          } else if (xrayVersionsLoaded) {
+            loadXrayCoreVersions();
+          }
+          if (data.version && verEl.value !== data.version) verEl.value = data.version;
+        }
         if (portEl) portEl.value = String(data.listenPort || 12080);
         const listEl = document.getElementById('xrayBinaryList');
         if (listEl) {

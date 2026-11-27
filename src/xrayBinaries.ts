@@ -90,6 +90,62 @@ function envProxyUrl(): string | undefined {
   return process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy || process.env.ALL_PROXY;
 }
 
+export interface XrayCoreVersion {
+  version: string;
+  publishedAt?: string;
+  prerelease: boolean;
+}
+
+/** Short-lived cache so opening the dashboard does not hammer the GitHub API. */
+const versionsCache: { at: number; list: XrayCoreVersion[] } = { at: 0, list: [] };
+const VERSIONS_TTL_MS = 10 * 60_000;
+
+/**
+ * List official Xray-core release versions (e.g. 24.11.11) from the GitHub
+ * releases API, newest first. Only tags that parse as plain versions are kept.
+ */
+export async function listXrayCoreVersions(refresh = false): Promise<XrayCoreVersion[]> {
+  if (!refresh && versionsCache.list.length && Date.now() - versionsCache.at < VERSIONS_TTL_MS) {
+    return versionsCache.list;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const fetchOpts: any = {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "PEC-XrayRuntime/1.0",
+        Accept: "application/vnd.github.v3+json",
+      },
+    };
+    const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    if (ghToken) fetchOpts.headers.Authorization = `Bearer ${ghToken}`;
+    const proxyUrl = envProxyUrl();
+    if (proxyUrl) {
+      try {
+        const { ProxyAgent } = await import("undici");
+        fetchOpts.dispatcher = new ProxyAgent(proxyUrl);
+      } catch {}
+    }
+    const res = await fetch("https://api.github.com/repos/XTLS/Xray-core/releases?per_page=60", fetchOpts);
+    if (!res.ok) throw new Error(`GitHub releases lookup failed: HTTP ${res.status}`);
+    const raw = await res.json();
+    if (!Array.isArray(raw)) throw new Error("Unexpected GitHub releases response");
+    const list: XrayCoreVersion[] = [];
+    for (const r of raw) {
+      if (r?.draft) continue;
+      const ver = String(r?.tag_name || "").replace(/^v+/, "");
+      if (!isValidXrayVersion(ver)) continue;
+      list.push({ version: ver, publishedAt: r?.published_at || undefined, prerelease: Boolean(r?.prerelease) });
+    }
+    versionsCache.at = Date.now();
+    versionsCache.list = list;
+    return list;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /**
  * Download the pinned Xray-core release zip from GitHub, extract xray.exe,
  * verify integrity and cache it atomically. Rejects anything that does not

@@ -603,7 +603,7 @@ export function renderDashboardHtml(options: DashboardViewOptions = {}): string 
           </label>
           <div>
             <label for="xrayRuntimeVersion" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Версия ядра / Core version</label>
-            <input type="text" id="xrayRuntimeVersion" placeholder="24.11.11" style="width: 100%; box-sizing: border-box; margin-bottom: 0;" />
+            <select id="xrayRuntimeVersion" style="width: 100%; box-sizing: border-box; margin-bottom: 0;"><option value="">24.11.11</option></select>
           </div>
           <div>
             <label for="xrayRuntimePort" style="text-transform: uppercase; font-size: 10.5px; color: var(--text-muted);">Порт HTTP (SOCKS = +1) / HTTP port</label>

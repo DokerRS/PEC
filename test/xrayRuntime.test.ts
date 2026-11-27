@@ -220,6 +220,31 @@ test("XR-1: /api/xray-runtime is admin-only and round-trips settings", async () 
   resetStore();
 });
 
+test("XR-1: /api/xray-runtime/versions is admin-only and tolerates GitHub outages", async () => {
+  resetStore();
+  await withServer(async (base) => {
+    const anon = await fetch(`${base}/api/xray-runtime/versions`);
+    assert.strictEqual(anon.status, 401, "anonymous versions lookup must be rejected");
+
+    // The sandboxed test environment may not reach api.github.com (TLS
+    // interception): a healthy answer is 200 with a versions array, an
+    // upstream failure must surface as a clean 502, never a crash.
+    const admin = await fetch(`${base}/api/xray-runtime/versions`, { headers: { "x-admin-token": TEST_ADMIN_TOKEN } });
+    assert.ok(admin.status === 200 || admin.status === 502, `unexpected status ${admin.status}`);
+    const body = await admin.json();
+    if (admin.status === 200) {
+      assert.equal(body.ok, true);
+      assert.ok(Array.isArray(body.versions));
+      for (const v of body.versions) {
+        assert.equal(isValidXrayVersion(v.version), true, `bad version entry: ${JSON.stringify(v)}`);
+      }
+    } else {
+      assert.equal(body.ok, false);
+    }
+  });
+  resetStore();
+});
+
 test("XR-1: buildXraySyncBlock fails closed when runtime disabled or panel unreachable", async () => {
   resetStore();
   // Runtime off -> plain disabled block, no reason.
