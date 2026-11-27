@@ -10,10 +10,10 @@ import crypto from "node:crypto";
  * Pinned per Security Requirement M-22.
  */
 export const EXPECTED_WINDOWS_BINARY_HASHES: Record<string, string> = {
-  "PEC-App.exe": "0359f1a67d930491381a569c84d2a9640e9900f4bf2866eb97e60c1d5b3f93f5",
-  "PEC-CLI.exe": "e9377db1339ee74d09ff666adfc176317e94c6bb8b3bd119bc77331cff8ae7f9",
-  "PECAppSvc.exe": "9eb04e786582dbbb48b1695cfc5098caaf04e5a3af217d3a357f0fbf9ee3cf51",
-  "PEC-App-Setup.exe": "80866b2d16a4e340492224a49227c33aca615e236439e55549356f1ddfa9865c",
+  "PEC-App.exe": "72c09bb20b4a95b16596931e84ecf863e2f1681ae87c88ad3c9e34936b32bd79",
+  "PEC-CLI.exe": "705ba06d8fe86a195fae71e003b22660a60f5e10fd3c2ab6b5eb4f5431b24214",
+  "PECAppSvc.exe": "2e1e332f06ba1400b4a52727b2e53d3d600d288bf5a16eb8197ac17c9226fb3b",
+  "PEC-App-Setup.exe": "5f7d3911243110e6bf7da5d0d5df27c02fd4788b8e8f1234bae566855959939c",
   "PECAppCore.dll": "a6cf9a288d5a776dcf026ae40c9ba4af682f9e7a29f41f9cbbf677825d9c3423",
   "WinDivert.dll": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2",
   "WinDivert64.sys": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2",

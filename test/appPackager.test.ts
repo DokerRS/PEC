@@ -724,8 +724,14 @@ test("packageApp inspects embeddedVersion, sets binariesStale when mismatched, a
   assert.strictEqual(info.coreModulesIntegrity.length, 3);
 
   assert.ok(info.embeddedVersion !== undefined, "embeddedVersion should be detected from PEC-App.exe");
-  // Embedded binary in templates is 1.0.3, while target package is 2.3.0 -> stale!
-  assert.strictEqual(info.binariesStale, true, "binariesStale must be true when embedded version != configured version");
+  // Templates ship binaries built for 2.3.0; package version 2.3.0 matches -> not stale.
+  assert.strictEqual(info.embeddedVersion, "2.3.0", "embedded version should be 2.3.0");
+  assert.strictEqual(info.binariesStale, false, "binariesStale must be false when embedded version == configured version");
+
+  saveAppBuildConfig({ version: "9.9.9" });
+  const stale = packageApp("https://pec.example.com");
+  assert.strictEqual(stale.embeddedVersion, "2.3.0");
+  assert.strictEqual(stale.binariesStale, true, "binariesStale must be true when embedded version != configured version");
 
   // Restore back to default
   saveAppBuildConfig({ version: DEFAULT_APP_VERSION });
