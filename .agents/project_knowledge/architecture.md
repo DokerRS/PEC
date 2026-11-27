@@ -66,7 +66,7 @@ Architectural map, subsystem interaction, and data flows.
 
 ### 2.5 Packaging & Builder Studio
 - **Modules:** `src/packager.ts`, `src/appPackager.ts`, `src/codeSigner.ts`, `src/routes/builderRoutes.ts`, `src/routes/appBuilderRoutes.ts`.
-- **Function:** Compiles and signs `.CRX` extension packages with 2048-bit RSA keys (`extension/key.pem`), generates canonical GPO deployment package (`pec-policy-user.reg`, `pec-policy-machine.reg`, `README-GPO.txt`), and builds cross-platform desktop installers.
+- **Function:** Compiles and signs `.CRX` extension packages with 2048-bit RSA keys (`extension/key.pem`), generates canonical GPO deployment package (`pec-policy-user.reg`, `pec-policy-machine.reg`, `pec-app-client.reg`, `README-GPO.txt`), and builds cross-platform desktop installers.
 - **MV3 CSP-Safe Popup Theme Bootstrap (AUDIT-EXT-2):** `extension/popupTheme.js` — external pre-paint theme script loaded in `popup.html` `<head>` (replaces the former inline FOUC bootstrap rejected by MV3 CSP `script-src 'self'`); generated from `src/templates/popupThemeTemplate.ts` and kept in sync via `npm run sync:templates`.
 - **Test Sandbox Contract (AUDIT-NAT-2-TS):** `writeVersionGenHeaders` sanitizes placeholder fleet tokens into an empty `PEC_DEFAULT_FLEET_TOKEN`, and `test/helpers/setup.ts` redirects header regeneration into a sandbox replica via `PEC_CLIENT_WIN_DIR` — `npm test` can never rewrite the committed `client/Windows/**/version_gen.h` copies.
 
@@ -105,6 +105,7 @@ Architectural map, subsystem interaction, and data flows.
 - **Function:** The PEC server is a control plane only — it never runs Xray and never stores subscriptions. Admin pins one Xray core version in the dashboard; the server caches pinned GitHub release archives (`src/xrayBinaries.ts`) and serves them to the fleet over `GET /api/xray-runtime/binaries/:version/download` (fleet-token authenticated, SHA-256 verified).
 - **Per-user derivation:** For each AD user, `buildXraySyncBlock` derives a personal localhost listener port via `deriveLocalPort(username, basePort)` (HMAC-SHA256 of `pec-xray-port-v1:{user}` keyed by the master secret, offset into a 4096-port window) and a personal proxy secret. The rendered Xray config's HTTP/SOCKS inbound accounts use exactly the delivered `proxyUser`/`proxyPass` pair, so extension and PEC-App authenticate identically.
 - **Consumption:** The extension stores Xray credentials in a separate realm (`memoryXrayCreds` / `chrome.storage.session` key `pecXrayCreds`) and points Chrome at `127.0.0.1:{listenPort}`, failing closed to the legacy PAC when the local listener is dead. PEC-App downloads the pinned core, atomically writes `config.json`, and supervises a local `xray.exe run` child process.
+- **Machine bootstrap (GPO):** `packager.ts` emits `pec-app-client.reg` (`HKLM\SOFTWARE\PEC-App` with `ServerUrl` + fleet-only `FleetToken`) into the GPO Deployment Pack; `main_imgui.cpp` reads that key as its registry fallback, so a GPO-imported reg file pre-configures every machine install without shipping the admin token. See `docs/gpo-deployment-guide.md` §3 Step 4.
 
 ---
 

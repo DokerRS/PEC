@@ -68,6 +68,12 @@ test("generateGpoConfig generates multi-browser policies for HKCU and HKLM", () 
 
   // Verify backwards compatibility: regContent defaults to regContentUser
   assert.ok(gpo.regContent.includes("Google\\Chrome"));
+
+  // REMNA-PERUSER-XRAY-1 Phase 4: PEC-App machine bootstrap hive
+  assert.ok(gpo.regContentClientApp.includes("Windows Registry Editor Version 5.00"), "client reg must be a valid .reg header");
+  assert.ok(gpo.regContentClientApp.includes("HKEY_LOCAL_MACHINE\\SOFTWARE\\PEC-App"), "client reg must target HKLM\\SOFTWARE\\PEC-App");
+  assert.ok(gpo.regContentClientApp.includes('"ServerUrl"="https://pec.corp.local"'), "client reg must carry ServerUrl");
+  assert.ok(gpo.regContentClientApp.includes('"FleetToken"="test-corp-token-123"'), "client reg must carry FleetToken");
 });
 
 test("renders README-GPO.txt with GPMC instructions and registry parameters", () => {
@@ -86,6 +92,10 @@ test("renders README-GPO.txt with GPMC instructions and registry parameters", ()
   assert.ok(gpo.readmeContent.includes("ExtensionSettings"), "readmeContent must describe ExtensionSettings");
   assert.ok(gpo.readmeContent.includes("domainUser"), "readmeContent must describe domainUser");
   assert.ok(gpo.readmeContent.includes("normal_installed"), "readmeContent must explain Yandex normal_installed");
+  // REMNA-PERUSER-XRAY-1 Phase 4: native client (PEC-App) deployment section
+  assert.ok(gpo.readmeContent.includes("pec-app-client.reg"), "readmeContent must document pec-app-client.reg");
+  assert.ok(gpo.readmeContent.includes("SOFTWARE\\PEC-App"), "readmeContent must document the PEC-App registry hive");
+  assert.ok(gpo.readmeContent.includes("Xray"), "readmeContent must document the Xray runtime deployment");
 });
 
 test("generateGpoDeploymentPack creates valid zip with canonical deployment artifacts", async () => {
@@ -99,13 +109,20 @@ test("generateGpoDeploymentPack creates valid zip with canonical deployment arti
 
   assert.deepEqual(
     entries.sort(),
-    ["README-GPO.txt", "pec-policy-machine.reg", "pec-policy-user.reg"].sort(),
+    ["README-GPO.txt", "pec-app-client.reg", "pec-policy-machine.reg", "pec-policy-user.reg"].sort(),
     "pack must contain only canonical .reg files and README"
   );
 
   // Verify secret hygiene
   const regUser = zip.readAsText("pec-policy-user.reg");
   assert.ok(!regUser.includes(process.env.ADMIN_TOKEN || "test-root-admin-token"));
+
+  // REMNA-PERUSER-XRAY-1 Phase 4: client bootstrap reg for HKLM\SOFTWARE\PEC-App
+  const regClient = zip.readAsText("pec-app-client.reg");
+  assert.ok(regClient.includes("HKEY_LOCAL_MACHINE\\SOFTWARE\\PEC-App"), "client reg must target HKLM\\SOFTWARE\\PEC-App");
+  assert.ok(regClient.includes('"ServerUrl"="https://pec.corp.local"'), "client reg must carry ServerUrl");
+  assert.ok(regClient.includes('"FleetToken"="token-pack-test"'), "client reg must carry FleetToken");
+  assert.ok(!regClient.includes("ADMIN_TOKEN"), "client reg must never carry admin token");
 });
 
 test("buildGpoPackage alias creates valid zipBuffer", () => {

@@ -147,6 +147,7 @@ export interface GpoConfig {
   regContent: string;
   regContentUser: string;
   regContentMachine: string;
+  regContentClientApp: string;
   readmeContent: string;
 }
 

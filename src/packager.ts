@@ -367,6 +367,19 @@ export function generateGpoConfig(
   const regContentUser = buildRegistrySection("HKEY_CURRENT_USER\\Software\\Policies");
   const regContentMachine = buildRegistrySection("HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies");
 
+  // REMNA-PERUSER-XRAY-1 Phase 4: PEC-App bootstrap configuration. The GUI
+  // client reads HKLM\SOFTWARE\PEC-App (ServerUrl/FleetToken) as a registry
+  // fallback on first run (see client/Windows/gui/main_imgui.cpp), so a GPO
+  // that ships this key pre-configures every machine-wide install without
+  // user interaction. Only the low-privilege fleet token is delivered here.
+  const regContentClientApp =
+    `Windows Registry Editor Version 5.00\n\n` +
+    `; PEC-App machine bootstrap (GPO). Applied to HKLM so every user session\n` +
+    `; on the workstation / RDS host picks up the control-plane settings.\n` +
+    `[HKEY_LOCAL_MACHINE\\SOFTWARE\\PEC-App]\n` +
+    `"ServerUrl"="${regEscape(serverBaseUrl)}"\n` +
+    `"FleetToken"="${regEscape(token)}"\n`;
+
   // Default regContent respects option.scope or defaults to User (HKCU)
   const regContent = options?.scope === "machine" ? regContentMachine : regContentUser;
 
@@ -381,6 +394,7 @@ export function generateGpoConfig(
     regContent,
     regContentUser,
     regContentMachine,
+    regContentClientApp,
     readmeContent,
   };
 }
@@ -1222,6 +1236,8 @@ export function generateGpoDeploymentPack(
   const regMachineWithBom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(gpo.regContentMachine, "utf-8")]);
   zip.addFile("pec-policy-user.reg", regUserWithBom);
   zip.addFile("pec-policy-machine.reg", regMachineWithBom);
+  const regClientWithBom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(gpo.regContentClientApp, "utf-8")]);
+  zip.addFile("pec-app-client.reg", regClientWithBom);
   zip.addFile("README-GPO.txt", Buffer.from(gpo.readmeContent, "utf-8"));
 
   const zipBuffer = zip.toBuffer();
